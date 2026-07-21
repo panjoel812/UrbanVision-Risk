@@ -100,9 +100,7 @@ def inspect_environment(
             code="MPS",
             passed=mps_ok,
             message_zh=f"MPS 已构建={built}, 可用={available}, 张量测试={tensor_ok}",
-            message_en=(
-                f"MPS built={built}, available={available}, tensor test={tensor_ok}"
-            ),
+            message_en=(f"MPS built={built}, available={available}, tensor test={tensor_ok}"),
         )
     )
     return EnvironmentReport(tuple(checks), error_code=None if mps_ok else "E102")
@@ -120,8 +118,7 @@ def main() -> int:
         print("[ERROR E101] 请使用 uv 管理的 Python 3.11 / Use uv-managed Python 3.11")
     else:
         print(
-            "[ERROR E102] MPS 不可用且未回退到 CPU / "
-            "MPS is unavailable; CPU fallback is disabled"
+            "[ERROR E102] MPS 不可用且未回退到 CPU / MPS is unavailable; CPU fallback is disabled"
         )
     return 1
 

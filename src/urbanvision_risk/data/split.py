@@ -22,9 +22,7 @@ def split_ids(
     if not ordered:
         raise ValueError("at least one identifier is required")
     if val_ratio < 0 or test_ratio < 0 or val_ratio + test_ratio >= 1:
-        raise ValueError(
-            "validation and test ratios must be non-negative and sum to less than 1"
-        )
+        raise ValueError("validation and test ratios must be non-negative and sum to less than 1")
 
     shuffled = ordered.copy()
     random.Random(seed).shuffle(shuffled)

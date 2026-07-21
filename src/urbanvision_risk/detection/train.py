@@ -81,9 +81,7 @@ def train_experiment(
 
     resolved_dataset = run_dir / "dataset-resolved.yaml"
     _resolve_dataset_yaml(active_paths, resolved_dataset)
-    manifest_path = (
-        active_paths.processed / "rdd2022-china-motorbike" / "manifest.json"
-    )
+    manifest_path = active_paths.processed / "rdd2022-china-motorbike" / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     factory = model_factory
     if factory is None:
@@ -102,8 +100,7 @@ def train_experiment(
     )
     ended_at = datetime.now(UTC)
     metrics = {
-        str(key): _json_scalar(value)
-        for key, value in getattr(result, "results_dict", {}).items()
+        str(key): _json_scalar(value) for key, value in getattr(result, "results_dict", {}).items()
     }
     versions: dict[str, str] = {}
     for package in ("ultralytics", "torch", "opencv-python", "numpy"):
@@ -132,9 +129,7 @@ def train_experiment(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Train UrbanVision-Risk / 训练道路缺陷模型"
-    )
+    parser = argparse.ArgumentParser(description="Train UrbanVision-Risk / 训练道路缺陷模型")
     parser.add_argument("--profile", choices=("smoke", "baseline"), required=True)
     parser.add_argument("--run-name", required=True)
     parser.add_argument("--debug", action="store_true")

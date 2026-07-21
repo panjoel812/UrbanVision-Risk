@@ -57,10 +57,7 @@ def download_file(
             "数据集下载失败，未完成文件已保留",
             "Dataset download failed; the partial file was preserved",
             "检查网络；确认后把 .part 文件移入废纸篓再重试",
-            (
-                "Check the network; inspect and move the .part file to Trash "
-                "before retrying"
-            ),
+            ("Check the network; inspect and move the .part file to Trash before retrying"),
             str(partial),
         ) from error
     partial.rename(destination)
@@ -94,9 +91,7 @@ def safe_extract_zip(archive: Path, destination: Path) -> tuple[Path, ...]:
             targets: list[Path] = []
             for member in members:
                 target = (destination / member.filename).resolve()
-                if member.filename.startswith("/") or not target.is_relative_to(
-                    destination_root
-                ):
+                if member.filename.startswith("/") or not target.is_relative_to(destination_root):
                     raise ProjectError(
                         "E203",
                         "压缩包包含不安全路径",
@@ -136,10 +131,7 @@ def main(debug: bool = False) -> int:
             print(f"[INFO] 使用已有原始数据 / Reusing raw data: {raw_destination}")
         else:
             safe_extract_zip(archive, raw_destination)
-        print(
-            "[PASS] 下载与解压完成 / Download and extraction complete\n"
-            f"SHA-256: {digest}"
-        )
+        print(f"[PASS] 下载与解压完成 / Download and extraction complete\nSHA-256: {digest}")
         return 0
     except ProjectError as error:
         return report_error(error, debug=debug)

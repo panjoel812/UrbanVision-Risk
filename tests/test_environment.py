@@ -18,9 +18,7 @@ def fake_torch(*, built: bool, available: bool) -> SimpleNamespace:
         __version__="test",
         backends=SimpleNamespace(mps=backend),
         mps=mps,
-        ones=lambda size, device: FakeTensor()
-        if size == 2 and device == "mps"
-        else None,
+        ones=lambda size, device: FakeTensor() if size == 2 and device == "mps" else None,
     )
 
 

@@ -14,9 +14,7 @@ from urbanvision_risk.paths import ProjectPaths, get_paths
 
 
 def serialize_result(result: Any, model_path: Path, confidence: float) -> dict[str, object]:
-    counts: Counter[str] = Counter(
-        {details["code"]: 0 for details in CLASS_INFO.values()}
-    )
+    counts: Counter[str] = Counter({details["code"]: 0 for details in CLASS_INFO.values()})
     detections: list[dict[str, object]] = []
     for box in result.boxes:
         class_id = int(box.cls[0].item())
@@ -45,9 +43,7 @@ def serialize_result(result: Any, model_path: Path, confidence: float) -> dict[s
     }
     if not detections:
         payload["message_zh"] = "在当前置信度阈值下未检测到道路缺陷"
-        payload["message_en"] = (
-            "No road damage was detected at the current confidence threshold"
-        )
+        payload["message_en"] = "No road damage was detected at the current confidence threshold"
     return payload
 
 

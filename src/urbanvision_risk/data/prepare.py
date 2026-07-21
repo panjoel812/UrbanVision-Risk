@@ -31,9 +31,7 @@ class ImageAnnotationPair:
 def discover_pairs(raw_root: Path) -> dict[str, ImageAnnotationPair]:
     image_index: dict[str, Path] = {}
     images = sorted(
-        path
-        for path in raw_root.rglob("*")
-        if path.suffix.lower() in {".jpg", ".jpeg", ".png"}
+        path for path in raw_root.rglob("*") if path.suffix.lower() in {".jpg", ".jpeg", ".png"}
     )
     for image in images:
         if image.name in image_index:
@@ -139,10 +137,7 @@ def prepare_dataset(
             pair = pairs[identifier]
             record = parse_voc_annotation(pair.annotation)
             image_target = (
-                staging
-                / "images"
-                / split_name
-                / f"{identifier}{pair.image.suffix.lower()}"
+                staging / "images" / split_name / f"{identifier}{pair.image.suffix.lower()}"
             )
             label_target = staging / "labels" / split_name / f"{identifier}.txt"
             shutil.copy2(pair.image, image_target)

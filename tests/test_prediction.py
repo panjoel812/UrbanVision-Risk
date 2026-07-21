@@ -59,8 +59,7 @@ def test_serialize_empty_detection_is_explicit() -> None:
     assert payload["detections"] == []
     assert payload["message_zh"] == "在当前置信度阈值下未检测到道路缺陷"
     assert (
-        payload["message_en"]
-        == "No road damage was detected at the current confidence threshold"
+        payload["message_en"] == "No road damage was detected at the current confidence threshold"
     )
 
 

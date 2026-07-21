@@ -29,9 +29,7 @@ def _validate_label(
     object_counts: Counter[str],
     errors: list[str],
 ) -> None:
-    for line_number, raw_line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), start=1
-    ):
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         parts = raw_line.split()
         if len(parts) != 5:
             errors.append(f"{path}:{line_number}: label must have 5 values")
@@ -46,9 +44,7 @@ def _validate_label(
             errors.append(f"{path}:{line_number}: unknown class index {class_index}")
             continue
         x_center, y_center, width, height = coordinates
-        coordinate_ok = all(
-            math.isfinite(value) and 0 <= value <= 1 for value in coordinates
-        )
+        coordinate_ok = all(math.isfinite(value) and 0 <= value <= 1 for value in coordinates)
         if not coordinate_ok or width <= 0 or height <= 0:
             errors.append(f"{path}:{line_number}: invalid normalized box {coordinates}")
             continue
@@ -61,9 +57,7 @@ def _validate_label(
 def validate_prepared_dataset(dataset_root: Path) -> ValidationReport:
     errors: list[str] = []
     image_counts: dict[str, int] = {}
-    object_counts: Counter[str] = Counter(
-        {details["code"]: 0 for details in CLASS_INFO.values()}
-    )
+    object_counts: Counter[str] = Counter({details["code"]: 0 for details in CLASS_INFO.values()})
     seen_stems: dict[str, str] = {}
 
     for split in SPLITS:
@@ -74,9 +68,7 @@ def validate_prepared_dataset(dataset_root: Path) -> ValidationReport:
             image_counts[split] = 0
             continue
         images = sorted(
-            path
-            for path in image_dir.iterdir()
-            if path.suffix.lower() in {".jpg", ".jpeg", ".png"}
+            path for path in image_dir.iterdir() if path.suffix.lower() in {".jpg", ".jpeg", ".png"}
         )
         image_counts[split] = len(images)
         image_stems = {path.stem for path in images}

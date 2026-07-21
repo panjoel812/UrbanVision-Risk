@@ -21,8 +21,7 @@ def _number(value: Any) -> float:
 def metrics_payload(metrics: Any) -> dict[str, object]:
     box = metrics.box
     class_positions = {
-        int(class_index): position
-        for position, class_index in enumerate(box.ap_class_index)
+        int(class_index): position for position, class_index in enumerate(box.ap_class_index)
     }
     per_class: dict[str, dict[str, float | str | None]] = {}
     for class_index, details in CLASS_INFO.items():
@@ -56,9 +55,7 @@ def metrics_payload(metrics: Any) -> dict[str, object]:
             "precision": overall_precision,
             "recall": overall_recall,
             "f1": (
-                0.0
-                if denominator == 0
-                else 2 * overall_precision * overall_recall / denominator
+                0.0 if denominator == 0 else 2 * overall_precision * overall_recall / denominator
             ),
             "mAP50": _number(box.map50),
             "mAP50-95": _number(box.map),

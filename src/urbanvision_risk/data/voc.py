@@ -119,10 +119,7 @@ def voc_box_to_yolo(
         valid = False
     else:
         valid = (
-            width > 0
-            and height > 0
-            and 0 <= xmin < xmax <= width
-            and 0 <= ymin < ymax <= height
+            width > 0 and height > 0 and 0 <= xmin < xmax <= width and 0 <= ymin < ymax <= height
         )
     if not valid:
         raise ProjectError(

@@ -83,9 +83,7 @@ def test_train_experiment_writes_summary_and_weights(tmp_path: Path) -> None:
         git_commit_resolver=lambda _root: "test-commit",
     )
 
-    summary = json.loads(
-        (run_dir / "training_summary.json").read_text(encoding="utf-8")
-    )
+    summary = json.loads((run_dir / "training_summary.json").read_text(encoding="utf-8"))
     assert (run_dir / "weights" / "best.pt").is_file()
     assert summary["run_name"] == "smoke-test-001"
     assert summary["dataset_manifest_digest"] == "a" * 64

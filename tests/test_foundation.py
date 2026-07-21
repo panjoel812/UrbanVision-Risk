@@ -46,3 +46,7 @@ def test_get_paths_uses_supplied_repository_root(tmp_path: Path) -> None:
     assert paths.raw == tmp_path.resolve() / "data" / "raw"
     assert paths.processed == tmp_path.resolve() / "data" / "processed"
     assert paths.experiments == tmp_path.resolve() / "results" / "experiments"
+
+
+def test_get_paths_exposes_risk_results(tmp_path: Path) -> None:
+    assert get_paths(tmp_path).risks == tmp_path / "results" / "risks"

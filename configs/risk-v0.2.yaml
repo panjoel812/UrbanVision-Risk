@@ -1,0 +1,34 @@
+formula_version: risk-v0.2.0
+count_cap: 5
+reference_coverage: 0.05
+count_mix: 0.35
+coverage_mix: 0.65
+class_max_points:
+  D00: 15
+  D10: 20
+  D20: 25
+  D40: 40
+risk_thresholds:
+  moderate: 20
+  high: 40
+  critical: 70
+evidence_thresholds:
+  moderate: 0.50
+  high: 0.75
+coordinate_tolerance_pixels: 1
+recommendations:
+  low:
+    en: Routine review; no urgent maintenance priority was detected.
+    zh: 常规复核；未检测到紧急维护优先项。
+  moderate:
+    en: Schedule a manual review.
+    zh: 安排人工复检。
+  high:
+    en: Prioritize manual inspection.
+    zh: 优先人工检查。
+  critical:
+    en: Urgent manual inspection; a human decides any control action.
+    zh: 紧急人工检查；任何管制措施由人工决定。
+limitation:
+  en: This heuristic maintenance-priority score does not replace a certified engineering safety assessment.
+  zh: 此启发式维护优先级分数不能替代经过认证的工程安全鉴定。

@@ -15,5 +15,6 @@ models/cache/
 results/experiments/
 results/evaluations/
 results/predictions/
+results/risks/
 *.pt
 *.part

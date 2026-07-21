@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from urbanvision_risk.data.download import download_file, safe_extract_zip, sha256_file
+from urbanvision_risk.data.download import (
+    RDD2022_CHINA_MOTORBIKE_URL,
+    download_file,
+    safe_extract_zip,
+    sha256_file,
+)
 from urbanvision_risk.errors import ProjectError
 
 
@@ -14,6 +19,14 @@ class Response(io.BytesIO):
 
     def __exit__(self, *args: object) -> None:
         self.close()
+
+
+def test_dataset_url_uses_complete_official_s3_object_path() -> None:
+    assert RDD2022_CHINA_MOTORBIKE_URL == (
+        "https://bigdatacup.s3.ap-northeast-1.amazonaws.com/"
+        "2022/CRDDC2022/RDD2022/Country_Specific_Data_CRDDC2022/"
+        "RDD2022_China_MotorBike.zip"
+    )
 
 
 def test_download_streams_to_final_file_and_returns_digest(tmp_path: Path) -> None:

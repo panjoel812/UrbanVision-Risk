@@ -49,3 +49,17 @@ def test_config_rejects_mix_that_does_not_total_one(tmp_path: Path) -> None:
 
     with pytest.raises(ProjectError, match="E401"):
         load_risk_config(invalid)
+
+
+def test_config_rejects_numeric_values_that_overflow_float(tmp_path: Path) -> None:
+    invalid = tmp_path / "invalid.yaml"
+    huge_integer = "1" + ("0" * 400)
+    invalid.write_text(
+        CONFIG_PATH.read_text(encoding="utf-8").replace(
+            "count_mix: 0.35", f"count_mix: {huge_integer}"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProjectError, match="E401"):
+        load_risk_config(invalid)

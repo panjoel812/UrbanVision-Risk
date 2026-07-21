@@ -34,7 +34,10 @@ def _mapping(value: Any, path: Path, field: str) -> dict[str, Any]:
 def _finite_number(value: Any, path: Path, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise _config_error(path, field)
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError:
+        raise _config_error(path, field) from None
     if not math.isfinite(result):
         raise _config_error(path, field)
     return result

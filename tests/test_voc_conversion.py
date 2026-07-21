@@ -42,6 +42,25 @@ def test_parser_rejects_unknown_class(tmp_path: Path) -> None:
         parse_voc_annotation(xml_path)
 
 
+def test_parser_ignores_repair_auxiliary_class(tmp_path: Path) -> None:
+    repair_object = """\
+  <object>
+    <name>Repair</name>
+    <bndbox><xmin>10</xmin><ymin>10</ymin><xmax>50</xmax><ymax>50</ymax></bndbox>
+  </object>
+"""
+    xml_path = tmp_path / "repair.xml"
+    xml_path.write_text(
+        VALID_XML.replace("</annotation>", f"{repair_object}</annotation>"),
+        encoding="utf-8",
+    )
+
+    record = parse_voc_annotation(xml_path)
+
+    assert [item.class_code for item in record.objects] == ["D40"]
+    assert to_yolo_lines(record) == ["3 0.500000 0.500000 0.500000 0.500000"]
+
+
 def test_parser_rejects_malformed_xml(tmp_path: Path) -> None:
     xml_path = tmp_path / "broken.xml"
     xml_path.write_text("<annotation><filename>road.jpg", encoding="utf-8")

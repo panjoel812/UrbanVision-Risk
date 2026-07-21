@@ -14,6 +14,7 @@ CLASS_INFO = {
     3: {"code": "D40", "name_en": "Pothole", "name_zh": "坑洞"},
 }
 CLASS_TO_INDEX = {details["code"]: index for index, details in CLASS_INFO.items()}
+IGNORED_CLASS_CODES = frozenset({"Repair"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +73,8 @@ def parse_voc_annotation(path: Path) -> VocRecord:
     objects: list[VocObject] = []
     for item in root.findall("object"):
         class_code = _required_text(item, "name", path)
+        if class_code in IGNORED_CLASS_CODES:
+            continue
         if class_code not in CLASS_TO_INDEX:
             raise ProjectError(
                 "E203",

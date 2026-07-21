@@ -1,0 +1,8 @@
+<annotation>
+  <filename>sample.jpg</filename>
+  <size><width>40</width><height>20</height></size>
+  <object>
+    <name>D40</name>
+    <bndbox><xmin>10</xmin><ymin>5</ymin><xmax>30</xmax><ymax>15</ymax></bndbox>
+  </object>
+</annotation>

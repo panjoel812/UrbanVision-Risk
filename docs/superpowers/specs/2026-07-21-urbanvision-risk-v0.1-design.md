@@ -166,9 +166,9 @@ The project requires Python `>=3.11,<3.12`. `uv python install 3.11` supplies th
 
 项目要求 Python `>=3.11,<3.12`。`uv python install 3.11` 提供项目运行时，`.python-version` 负责选择该版本；macOS 管理的 `/usr/bin/python3` 保持不变。
 
-Direct runtime dependencies are Ultralytics, PyTorch, OpenCV, Pillow, PyYAML, and NumPy. Development dependencies include pytest and Ruff. Exact resolved package versions are recorded in the committed `uv.lock`; reproducible setup uses `uv sync --frozen` after the lock exists.
+Direct runtime dependencies are Ultralytics, PyTorch, OpenCV, Pillow, PyYAML, and NumPy. Pytest and Ruff belong to the `[project.optional-dependencies].dev` extra, which is installed with `uv sync --extra dev`. Exact resolved package versions are recorded in the committed `uv.lock`; reproducible setup uses `uv sync --frozen --extra dev` after the lock exists.
 
-直接运行依赖包括 Ultralytics、PyTorch、OpenCV、Pillow、PyYAML 和 NumPy；开发依赖包括 pytest 和 Ruff。解析后的精确版本写入并提交 `uv.lock`；锁文件存在后使用 `uv sync --frozen` 复现环境。
+直接运行依赖包括 Ultralytics、PyTorch、OpenCV、Pillow、PyYAML 和 NumPy；pytest 和 Ruff 位于 `[project.optional-dependencies].dev` extra 中，并通过 `uv sync --extra dev` 安装。解析后的精确版本写入并提交 `uv.lock`；锁文件存在后使用 `uv sync --frozen --extra dev` 复现环境。
 
 The environment check verifies:
 
@@ -222,6 +222,10 @@ data/
 The downloader streams the official archive to a temporary `.part` file, records its SHA-256 digest, and renames it only after a successful download. It never treats an incomplete file as a valid archive.
 
 下载器把官方压缩包流式写入临时 `.part` 文件，记录 SHA-256 摘要，并仅在下载成功后重命名；不把未完成文件当作有效压缩包。
+
+Before extraction, every ZIP member path is resolved and checked to remain under the intended raw-data directory. Absolute paths and `..` traversal entries are rejected, preventing an archive from writing outside the project data area.
+
+解压前，程序解析每个 ZIP 成员路径，并验证其始终位于目标原始数据目录内。绝对路径和包含 `..` 的路径穿越条目会被拒绝，防止压缩包向项目数据区之外写入文件。
 
 Raw extracted files are immutable inputs. The converter copies source images into the small processed v0.1 subset with `shutil.copy2` and writes new YOLO label files. It never edits or deletes raw files.
 
@@ -450,9 +454,9 @@ Every lesson ties concepts to an actual project file, includes one learner-run c
 
 ## 14. Licensing and Citations / 许可与引用
 
-Ultralytics models are available under AGPL-3.0 and enterprise licensing. The free v0.1 repository uses AGPL-3.0-compatible open-source distribution and is intended for learning and research. Closed-source commercial distribution requires a separate license review.
+Ultralytics models are available under AGPL-3.0 and enterprise licensing. The free v0.1 repository code is licensed under `AGPL-3.0-or-later` and is intended for learning and research. Closed-source commercial distribution requires a separate license review.
 
-Ultralytics 模型提供 AGPL-3.0 与企业许可。免费的 v0.1 仓库采用兼容 AGPL-3.0 的开源发布方式，用于学习与研究；闭源商业发布需要单独进行许可审查。
+Ultralytics 模型提供 AGPL-3.0 与企业许可。免费的 v0.1 仓库代码明确采用 `AGPL-3.0-or-later` 许可，用于学习与研究；闭源商业发布需要单独进行许可审查。
 
 The repository documents and cites RDD2022 without redistributing the dataset itself. Users download it from the maintainers' source.
 

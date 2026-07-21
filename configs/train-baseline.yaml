@@ -1,0 +1,10 @@
+model: yolo26n.pt
+epochs: 30
+imgsz: 640
+batch: 8
+device: mps
+workers: 2
+seed: 42
+deterministic: true
+cache: false
+fraction: 1.0

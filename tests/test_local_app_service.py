@@ -138,7 +138,53 @@ def test_local_inspection_health_does_not_expose_absolute_paths(tmp_path: Path) 
     assert health["local_only"] is True
     assert health["device"] == "mps"
     assert health["checkpoint"] == "best.pt"
+    assert health["local_narrative"]["local_only"] is True
+    assert health["local_narrative"]["cloud_api"] is False
     assert str(tmp_path) not in json.dumps(health)
+
+
+def test_local_narrative_is_generated_once_and_saved_with_source_digests(
+    tmp_path: Path,
+) -> None:
+    service, _ = _service(tmp_path)
+    service.inspect_bytes(_image_bytes(), filename="road.jpg", content_type="image/jpeg")
+    calls: list[tuple[dict[str, object], dict[str, object]]] = []
+
+    class StubNarrativeGenerator:
+        def generate(
+            self, prediction: dict[str, object], risk: dict[str, object]
+        ) -> dict[str, object]:
+            calls.append((prediction, risk))
+            return {
+                "schema_version": "local-narrative-v1.2.0",
+                "generator": {
+                    "mode": "template",
+                    "model": "test-local",
+                    "fallback_used": True,
+                    "local_only": True,
+                },
+                "summary": {"zh": "本地摘要", "en": "Local summary"},
+                "observations": [{"zh": "一项观察", "en": "One observation"}],
+                "actions": [{"zh": "人工复核", "en": "Human review"}],
+            }
+
+    service.narrative_generator = StubNarrativeGenerator()  # type: ignore[assignment]
+
+    first = service.narrative(INSPECTION)
+    second = service.narrative(INSPECTION)
+
+    output = service.paths.inspections / RUN / INSPECTION
+    saved = json.loads((output / "narrative.json").read_text(encoding="utf-8"))
+    assert first == second == saved
+    assert len(calls) == 1
+    assert saved["inspection_id"] == INSPECTION
+    assert saved["limitation"]["en"]
+    assert saved["source_prediction_sha256"] == hashlib.sha256(
+        (output / "prediction.json").read_bytes()
+    ).hexdigest()
+    assert saved["source_risk_sha256"] == hashlib.sha256(
+        (output / "risk.json").read_bytes()
+    ).hexdigest()
 
 
 def test_high_resolution_image_runs_overlapping_tiles_and_keeps_repair_unscored(

@@ -5,6 +5,10 @@ import argparse
 from urbanvision_risk.app.api import create_app
 from urbanvision_risk.app.service import LocalInspectionService
 from urbanvision_risk.errors import ProjectError, report_error
+from urbanvision_risk.reporting.local_narrative import (
+    DEFAULT_OLLAMA_MODEL,
+    LocalNarrativeGenerator,
+)
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -39,11 +43,28 @@ def main() -> int:
     parser.add_argument("--confidence", type=float, default=0.25)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--narrative-mode",
+        choices=("auto", "template"),
+        default="auto",
+        help="Use local Ollama when available, or always use the deterministic template",
+    )
+    parser.add_argument("--ollama-model", default=DEFAULT_OLLAMA_MODEL)
+    parser.add_argument("--ollama-timeout", type=float, default=30.0)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
     try:
         host, port = validate_bind(args.host, args.port)
-        service = LocalInspectionService(args.run_name, confidence=args.confidence)
+        narrative_generator = LocalNarrativeGenerator(
+            model=args.ollama_model,
+            timeout_seconds=args.ollama_timeout,
+            ollama_enabled=args.narrative_mode == "auto",
+        )
+        service = LocalInspectionService(
+            args.run_name,
+            confidence=args.confidence,
+            narrative_generator=narrative_generator,
+        )
         app = create_app(service)
     except ProjectError as error:
         return report_error(error, debug=args.debug)

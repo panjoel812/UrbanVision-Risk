@@ -40,7 +40,7 @@ def _status_code(error: ProjectError) -> int:
 def create_app(service: LocalInspectionService) -> FastAPI:
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="1.1.0",
+        version="1.2.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -108,5 +108,9 @@ def create_app(service: LocalInspectionService) -> FastAPI:
             media_type="image/jpeg",
             filename=f"{inspection_id}-annotated.jpg",
         )
+
+    @app.post("/api/inspections/{inspection_id}/narrative")
+    async def narrative(inspection_id: str) -> dict[str, object]:
+        return service.narrative(inspection_id)
 
     return app

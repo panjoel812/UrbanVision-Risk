@@ -8,6 +8,9 @@ def test_v1_local_app_is_documented_as_complete_bilingual_and_private() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     guide = (ROOT / "docs" / "local-app-guide.md").read_text(encoding="utf-8")
     learning = (ROOT / "docs" / "learning-guide.md").read_text(encoding="utf-8")
+    narrative = (ROOT / "docs" / "local-ai-narrative-guide.md").read_text(
+        encoding="utf-8"
+    )
     results = (ROOT / "results" / "README.md").read_text(encoding="utf-8")
 
     assert COMMAND in readme
@@ -23,6 +26,15 @@ def test_v1_local_app_is_documented_as_complete_bilingual_and_private() -> None:
     assert "40 megapixels" in guide
     assert "4000 万像素" in guide
     assert "inspection-manifest.json" in guide
+    assert "narrative.json" in guide
+    assert "Local AI Narrative" in narrative
+    assert "本地 AI 巡检说明" in narrative
+    assert "127.0.0.1:11434" in narrative
+    assert "source or annotated image bytes" in narrative
+    assert "原图或标注图内容" in narrative
+    assert "generator.fallback_reason" in narrative
+    assert "not a certified engineering report" in narrative
+    assert "不是认证工程报告" in narrative
     assert "Maintenance-review priority, not a road-safety verdict" in guide
     assert "维护复核优先级，不是道路安全判定" in guide
     assert "Lesson 11" in learning

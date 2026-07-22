@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "urbanvision-risk"
-version = "1.1.0"
-description = "Fully local road-damage detection, risk assessment, and inspection app"
+version = "1.2.0"
+description = "Fully local road-damage detection, risk assessment, and narrative app"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 license = { text = "AGPL-3.0-or-later" }

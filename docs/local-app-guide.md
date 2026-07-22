@@ -1,10 +1,10 @@
-# UrbanVision-Risk v1.1 Local App / 本地应用指南
+# UrbanVision-Risk v1.2 Local App / 本地应用指南
 
 ## Finished product / 最终产品
 
-**English:** v1.1 runs the five-class corrected YOLO model locally on Apple MPS. Large images receive both full-image inference and overlapping 1024-pixel tile inference. The fifth `Repair` class makes previously repaired pavement visible but never silently treats a repair as damage.
+**English:** v1.2 runs the five-class corrected YOLO model locally on Apple MPS, performs overlapping 1024-pixel tile inference, and can turn the structured result into a bilingual local narrative. Ollama/Qwen is optional; an audited deterministic template is always available.
 
-**中文：** v1.1 在 Apple MPS 上运行修正后的五类 YOLO 模型。大图会同时进行全图推理与 1024 像素重叠分块推理。第五类 `Repair` 让历史修补区域可见，但绝不会悄悄把修补区域当成缺陷计分。
+**中文：** v1.2 在 Apple MPS 上运行修正后的五类 YOLO 模型，进行 1024 像素重叠分块推理，并可把结构化结果转换为双语本地说明。Ollama/Qwen 是可选项；可审计确定性模板始终可用。
 
 It uses no AWS, Azure, Google Cloud, paid API, remote model, CDN, analytics, or telemetry. After dependencies and the model are present, the complete workflow can run without internet access.
 
@@ -43,7 +43,9 @@ Repair auxiliary observation / 历史修补辅助观察
         ↓
 Versioned risk engine / 版本化风险引擎
         ↓
-Bilingual result + local audit files / 双语结果与本地审计文件
+Bilingual result + optional local narrative / 双语结果与可选本地说明
+        ↓
+Immutable local audit files / 不可变本地审计文件
 ```
 
 The model is loaded once when the server starts. Each upload is normalized for EXIF orientation and converted to RGB. Images larger than 1280 pixels on either axis receive a full-image pass plus overlapping 1024 × 1024 tiles; class-aware non-maximum suppression merges duplicate boxes. The four damage classes enter the tested `risk-v0.2.0` formula; `Repair` remains an unscored auxiliary observation.
@@ -59,6 +61,7 @@ The model is loaded once when the server starts. Each upload is normalized for E
 - evidence quality, mean/minimum confidence, and audit flags / 证据质量、平均/最低置信度和审计标记；
 - count, coverage, and score contribution for every class / 每类数量、覆盖率与分数贡献；
 - bilingual recommendation and safety limitation / 双语建议与安全限制；
+- optional Ollama/Qwen or audited-template narrative / 可选 Ollama/Qwen 或审计模板说明；
 - immutable local inspection ID / 不可覆盖的本地巡检编号。
 
 ## Uncertain evidence is not low risk / 不确定证据不等于低风险
@@ -67,7 +70,7 @@ When none of the four scored damage classes is detected, or when mean detection 
 
 四类计分缺陷均未检测到，或平均检测置信度较低时，页面不会展示“低优先级”，而是显示 **需要人工复核**；公式数值只在 `risk.json` 中作为审计值保留。这是刻意的安全设计：模型可能漏掉肉眼明显的缺陷，不确定的检测框也不能证明道路安全。
 
-## Five saved artifacts / 五份保存文件
+## Five core artifacts plus one optional narrative / 五份核心文件和一份可选说明
 
 Every successful upload creates a new directory:
 
@@ -79,7 +82,8 @@ results/inspections/china-repair-mps-003/<inspection-id>/
 ├── annotated.jpg
 ├── prediction.json
 ├── risk.json
-└── inspection-manifest.json
+├── inspection-manifest.json
+└── narrative.json              # after Generate locally / 点击生成后出现
 ```
 
 - `source.jpg`: normalized local copy / 规范化本地副本；
@@ -87,6 +91,7 @@ results/inspections/china-repair-mps-003/<inspection-id>/
 - `prediction.json`: dimensions, detections, confidence, and counts / 尺寸、检测、置信度与数量；
 - `risk.json`: formula, priority, evidence, flags, recommendation, and limitation / 公式、优先级、证据、标记、建议与限制；
 - `inspection-manifest.json`: timestamp, model/config identity, and SHA-256 digests / 时间、模型/配置身份和 SHA-256。
+- `narrative.json`: immutable bilingual summary, observations, actions, generator mode, and source digests / 不可变双语摘要、观察、动作、生成模式和来源摘要。
 
 Existing directories are never silently overwritten.
 

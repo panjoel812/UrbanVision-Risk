@@ -42,6 +42,18 @@ class StubService:
             raise ProjectError("E201", "图片不存在", "Image missing", "检查编号", "Check the ID")
         return self.annotated
 
+    def narrative(self, inspection_id: str) -> dict[str, object]:
+        if inspection_id != "inspection-test-001":
+            raise ProjectError("E201", "结果不存在", "Result missing", "检查编号", "Check ID")
+        return {
+            "inspection_id": inspection_id,
+            "generator": {"mode": "template", "local_only": True},
+            "summary": {"zh": "本地说明", "en": "Local narrative"},
+            "observations": [{"zh": "观察", "en": "Observation"}],
+            "actions": [{"zh": "人工复核", "en": "Human review"}],
+            "limitation": {"zh": "不是安全结论", "en": "Not a safety verdict"},
+        }
+
 
 @pytest.fixture
 def local_client(tmp_path: Path) -> tuple[TestClient, StubService]:
@@ -63,6 +75,10 @@ def test_local_app_page_is_bilingual_private_and_self_contained(
     assert "从图片到可解释结果" in response.text
     assert "Road damage," in response.text
     assert "from image to explainable result" in response.text
+    assert "本地 AI 巡检说明" in response.text
+    assert "Local AI inspection narrative" in response.text
+    assert "narrative-button" in response.text
+    assert "/narrative" in response.text
     assert "维护复核优先级，不是道路安全判定" in response.text
     assert "image-input" in response.text
     assert "https://" not in response.text
@@ -97,6 +113,18 @@ def test_annotated_image_is_served_from_the_service(
     assert response.status_code == 200
     assert response.content == b"jpeg"
     assert response.headers["content-type"] == "image/jpeg"
+
+
+def test_local_narrative_endpoint_is_bilingual_and_local(
+    local_client: tuple[TestClient, StubService],
+) -> None:
+    client, _ = local_client
+
+    response = client.post("/api/inspections/inspection-test-001/narrative")
+
+    assert response.status_code == 200
+    assert response.json()["summary"] == {"zh": "本地说明", "en": "Local narrative"}
+    assert response.json()["generator"]["local_only"] is True
 
 
 def test_missing_upload_and_project_errors_are_structured_and_bilingual(

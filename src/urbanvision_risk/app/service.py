@@ -25,6 +25,7 @@ from urbanvision_risk.detection.tiled import (
 )
 from urbanvision_risk.errors import ProjectError
 from urbanvision_risk.paths import ProjectPaths, get_paths
+from urbanvision_risk.reporting.local_narrative import LocalNarrativeGenerator
 from urbanvision_risk.risk.config import load_risk_config, resolved_config_yaml
 from urbanvision_risk.risk.schema import validate_prediction_payload
 from urbanvision_risk.risk.score import score_prediction
@@ -179,6 +180,7 @@ class LocalInspectionService:
         paths: ProjectPaths | None = None,
         model_factory: Callable[[str], Any] | None = None,
         id_factory: Callable[[], str] | None = None,
+        narrative_generator: LocalNarrativeGenerator | None = None,
     ) -> None:
         self.run_name = validate_run_name(run_name)
         if not 0 <= confidence <= 1:
@@ -208,6 +210,8 @@ class LocalInspectionService:
         self.config_sha256 = _sha256(resolved_config)
         self._id_factory = id_factory or _new_inspection_id
         self._inference_lock = threading.Lock()
+        self._narrative_lock = threading.Lock()
+        self.narrative_generator = narrative_generator or LocalNarrativeGenerator()
         if model_factory is None:
             from ultralytics import YOLO
 
@@ -232,6 +236,7 @@ class LocalInspectionService:
             "tile_size": TILE_SIZE,
             "tile_overlap": TILE_OVERLAP,
             "tile_batch_size": TILE_BATCH_SIZE,
+            "local_narrative": self.narrative_generator.health_payload(),
         }
 
     def annotated_path(self, inspection_id: str) -> Path:
@@ -247,6 +252,68 @@ class LocalInspectionService:
                 safe_id,
             )
         return path
+
+    def narrative(self, inspection_id: str) -> dict[str, object]:
+        """Generate once, then reuse an immutable local bilingual narrative."""
+        safe_id = validate_run_name(inspection_id)
+        output_dir = self.paths.inspections / self.run_name / safe_id
+        prediction_path = output_dir / "prediction.json"
+        risk_path = output_dir / "risk.json"
+        narrative_path = output_dir / "narrative.json"
+        if not prediction_path.is_file() or not risk_path.is_file():
+            raise ProjectError(
+                "E201",
+                "巡检结构化结果不存在",
+                "The structured inspection result does not exist",
+                "检查巡检编号，或先完成一次图片巡检",
+                "Check the inspection ID or complete an image inspection first",
+                safe_id,
+            )
+
+        with self._narrative_lock:
+            if narrative_path.is_file():
+                try:
+                    existing = json.loads(narrative_path.read_bytes())
+                except (json.JSONDecodeError, OSError) as error:
+                    raise _write_error(narrative_path) from error
+                if not isinstance(existing, dict):
+                    raise _write_error(narrative_path) from None
+                return existing
+
+            try:
+                prediction_bytes = prediction_path.read_bytes()
+                risk_bytes = risk_path.read_bytes()
+                prediction = json.loads(prediction_bytes)
+                risk = json.loads(risk_bytes)
+            except (json.JSONDecodeError, OSError) as error:
+                raise _write_error(output_dir) from error
+            if not isinstance(prediction, dict) or not isinstance(risk, dict):
+                raise _write_error(output_dir)
+
+            generated = self.narrative_generator.generate(prediction, risk)
+            narrative = {
+                **generated,
+                "inspection_id": safe_id,
+                "created_at_utc": datetime.now(UTC).isoformat(),
+                "source_prediction_sha256": _sha256(prediction_bytes),
+                "source_risk_sha256": _sha256(risk_bytes),
+                "limitation": risk.get("limitation", {}),
+            }
+            narrative_bytes = _json_bytes(narrative)
+            try:
+                with narrative_path.open("xb") as file:
+                    file.write(narrative_bytes)
+            except FileExistsError:
+                try:
+                    existing = json.loads(narrative_path.read_bytes())
+                except (json.JSONDecodeError, OSError) as error:
+                    raise _write_error(narrative_path) from error
+                if not isinstance(existing, dict):
+                    raise _write_error(narrative_path) from None
+                return existing
+            except OSError as error:
+                raise _write_error(narrative_path) from error
+            return narrative
 
     def inspect_bytes(
         self,

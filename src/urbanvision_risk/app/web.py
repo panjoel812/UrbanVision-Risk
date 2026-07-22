@@ -142,6 +142,18 @@ APP_HTML = """<!doctype html>
     .evidence-label { color: var(--muted); }
     .flags { display: grid; gap: 7px; margin-top: 12px; }
     .flag { margin: 0; padding: 8px 10px; border-radius: 9px; color: var(--orange); background: color-mix(in srgb, var(--orange) 9%, transparent); font-size: .74rem; }
+    .narrative-card { display: grid; gap: 14px; }
+    .narrative-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+    .narrative-button { flex: none; border: 0; border-radius: 11px; padding: 9px 13px; background: var(--forest); color: #fff; font-size: .74rem; font-weight: 720; cursor: pointer; }
+    .narrative-button:disabled { cursor: not-allowed; opacity: .45; }
+    .narrative-content { display: grid; gap: 13px; }
+    .narrative-summary { margin: 0; padding: 13px 14px; border-radius: 12px; background: var(--mint); font-size: .82rem; }
+    .narrative-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .narrative-block { padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); }
+    .narrative-block h4 { margin: 0 0 8px; font-size: .78rem; }
+    .narrative-list { margin: 0; padding-left: 18px; color: var(--muted); font-size: .76rem; }
+    .narrative-list li + li { margin-top: 6px; }
+    .narrative-limitation { margin: 0; color: var(--muted); font-size: .72rem; }
     .table-card { overflow: hidden; }
     .table-heading { padding: 18px 18px 12px; }
     .table-wrap { overflow-x: auto; }
@@ -166,7 +178,7 @@ APP_HTML = """<!doctype html>
       .safety { margin-top: 4px; }
       .upload-zone { min-height: 225px; }
       .result-placeholder { min-height: 420px; }
-      .result-grid, .class-grid { grid-template-columns: 1fr; }
+      .result-grid, .class-grid, .narrative-columns { grid-template-columns: 1fr; }
       .result-top, .section-card { padding: 14px; }
       .annotated-frame { min-height: 260px; }
     }
@@ -186,9 +198,9 @@ APP_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">On-device infrastructure AI · v1.1</p>
+        <p class="eyebrow">On-device infrastructure AI · v1.2</p>
         <h1><span data-zh>道路缺陷，<br>从图片到可解释结果。</span><span data-en class="hidden-lang">Road damage,<br>from image to explainable result.</span></h1>
-        <p class="hero-copy"><span data-zh>上传一张道路图片。检测、评分、标注和保存全部在这台 Mac 上完成。</span><span data-en class="hidden-lang">Upload one road image. Detection, scoring, annotation, and saving all happen on this Mac.</span></p>
+        <p class="hero-copy"><span data-zh>上传一张道路图片。检测、评分、标注、本地 AI 说明和保存全部在这台 Mac 上完成。</span><span data-en class="hidden-lang">Upload one road image. Detection, scoring, annotation, local AI narrative, and saving all happen on this Mac.</span></p>
       </div>
       <div class="safety" role="note"><strong><span data-zh>重要边界:</span><span data-en class="hidden-lang">Important boundary: </span></strong><span data-zh>这是维护复核优先级，不是道路安全判定；最终检查、封闭和维修必须由人决定。</span><span data-en class="hidden-lang">This is a maintenance-review priority, not a road-safety verdict; humans make final inspection, closure, and repair decisions.</span></div>
     </section>
@@ -235,13 +247,28 @@ APP_HTML = """<!doctype html>
             <section class="card section-card"><h3><span data-zh>巡检记录</span><span data-en class="hidden-lang">Inspection record</span></h3><p class="section-subtitle"><span data-zh>结果已在本机保存且不会覆盖</span><span data-en class="hidden-lang">Saved locally without overwriting prior results</span></p><div class="evidence-line"><span class="evidence-label">ID</span><strong id="inspection-id">—</strong></div><div class="evidence-line"><span class="evidence-label"><span data-zh>源文件</span><span data-en class="hidden-lang">Source file</span></span><strong id="source-file">—</strong></div><div class="evidence-line"><span class="evidence-label"><span data-zh>生成时间</span><span data-en class="hidden-lang">Created</span></span><strong id="created-time">—</strong></div></section>
           </div>
 
+          <section class="card section-card narrative-card">
+            <div class="narrative-heading">
+              <div><h3><span data-zh>本地 AI 巡检说明</span><span data-en class="hidden-lang">Local AI inspection narrative</span></h3><p id="narrative-meta" class="section-subtitle"><span data-zh>只使用结构化检测结果；不会发送图片、文件名或云端请求。</span><span data-en class="hidden-lang">Uses structured detections only; no image, filename, or cloud request is sent.</span></p></div>
+              <button id="narrative-button" class="narrative-button" type="button" disabled><span data-zh>生成本地说明</span><span data-en class="hidden-lang">Generate locally</span></button>
+            </div>
+            <div id="narrative-content" class="narrative-content hidden">
+              <p id="narrative-summary" class="narrative-summary">—</p>
+              <div class="narrative-columns">
+                <div class="narrative-block"><h4><span data-zh>结构化观察</span><span data-en class="hidden-lang">Structured observations</span></h4><ul id="narrative-observations" class="narrative-list"></ul></div>
+                <div class="narrative-block"><h4><span data-zh>人工复核动作</span><span data-en class="hidden-lang">Human-review actions</span></h4><ul id="narrative-actions" class="narrative-list"></ul></div>
+              </div>
+              <p id="narrative-limitation" class="narrative-limitation">—</p>
+            </div>
+          </section>
+
           <section class="card table-card"><div class="table-heading"><h3><span data-zh>检测明细</span><span data-en class="hidden-lang">Detection details</span></h3><p id="detection-summary" class="section-subtitle">—</p></div><div class="table-wrap"><table><thead><tr><th>#</th><th><span data-zh>类别</span><span data-en class="hidden-lang">Class</span></th><th class="num"><span data-zh>置信度</span><span data-en class="hidden-lang">Confidence</span></th><th><span data-zh>边界框 (x1, y1, x2, y2)</span><span data-en class="hidden-lang">Box (x1, y1, x2, y2)</span></th></tr></thead><tbody id="detection-body"></tbody></table></div><p id="empty-detections" class="empty-row hidden"><span data-zh>模型没有返回检测框；这不代表道路无缺陷，必须人工复核。</span><span data-en class="hidden-lang">The model returned no boxes; this does not prove the road is defect-free and requires human review.</span></p></section>
           <div class="result-footer"><strong><span data-zh>安全说明:</span><span data-en class="hidden-lang">Safety note: </span></strong><span id="limitation">—</span></div>
         </div>
       </section>
     </div>
   </main>
-  <footer class="shell"><span>UrbanVision-Risk v1.1 · Fully local / 完全本地 · MPS</span></footer>
+  <footer class="shell"><span>UrbanVision-Risk v1.2 · Fully local / 完全本地 · MPS + optional Ollama</span></footer>
 
   <script>
     (() => {
@@ -249,11 +276,12 @@ APP_HTML = """<!doctype html>
       let selectedFile = null;
       let previewUrl = null;
       let latestResult = null;
+      let latestNarrative = null;
       let modelState = "checking";
       const byId = (id) => document.getElementById(id);
       const labels = {
-        zh: { low: "低优先级", moderate: "中等优先级", high: "高优先级", critical: "严重优先级", review_required: "需要人工复核", not_applicable: "证据不适用", evidence: "证据", checking: "正在检查本地模型", ready: "本地模型就绪", unavailable: "本地服务未连接", analyzing: "正在通过 MPS 进行全图与高清分块检测…", complete: "巡检完成，结果已保存在本机。", detections: "个检测", mean: "平均置信度", minimum: "最低置信度", count: "数量", coverage: "覆盖率", points: "贡献", auxiliary: "辅助观察，不参与评分" },
-        en: { low: "Low priority", moderate: "Moderate priority", high: "High priority", critical: "Critical priority", review_required: "Human review required", not_applicable: "Evidence N/A", evidence: "Evidence", checking: "Checking local model", ready: "Local model ready", unavailable: "Local service unavailable", analyzing: "Running full-image and high-resolution tiled MPS detection…", complete: "Inspection complete and saved locally.", detections: "detections", mean: "Mean confidence", minimum: "Minimum confidence", count: "count", coverage: "coverage", points: "contribution", auxiliary: "Auxiliary observation; not scored" }
+        zh: { low: "低优先级", moderate: "中等优先级", high: "高优先级", critical: "严重优先级", review_required: "需要人工复核", not_applicable: "证据不适用", evidence: "证据", checking: "正在检查本地模型", ready: "本地模型就绪", unavailable: "本地服务未连接", analyzing: "正在通过 MPS 进行全图与高清分块检测…", complete: "巡检完成，结果已保存在本机。", detections: "个检测", mean: "平均置信度", minimum: "最低置信度", count: "数量", coverage: "覆盖率", points: "贡献", auxiliary: "辅助观察，不参与评分", narrative_ready: "可以生成本地双语说明。", narrative_loading: "正在通过本地 Ollama 或审计模板生成说明…", narrative_template: "审计模板 · 完全本地", narrative_ollama: "Ollama 本地模型", narrative_error: "本地说明生成失败，请检查终端日志。" },
+        en: { low: "Low priority", moderate: "Moderate priority", high: "High priority", critical: "Critical priority", review_required: "Human review required", not_applicable: "Evidence N/A", evidence: "Evidence", checking: "Checking local model", ready: "Local model ready", unavailable: "Local service unavailable", analyzing: "Running full-image and high-resolution tiled MPS detection…", complete: "Inspection complete and saved locally.", detections: "detections", mean: "Mean confidence", minimum: "Minimum confidence", count: "count", coverage: "coverage", points: "contribution", auxiliary: "Auxiliary observation; not scored", narrative_ready: "Ready to generate a local bilingual narrative.", narrative_loading: "Generating through local Ollama or the audited template…", narrative_template: "Audited template · fully local", narrative_ollama: "Local Ollama model", narrative_error: "Local narrative generation failed; check the terminal log." }
       };
       const qualityLabels = {
         zh: { not_applicable: "不适用", low: "低", moderate: "中等", high: "高" },
@@ -269,7 +297,8 @@ APP_HTML = """<!doctype html>
         byId("language-button").textContent = language === "zh" ? "English" : "中文";
         byId("model-status").textContent = modelState === "ready" ? `${t("ready")} · MPS` : t(modelState);
         if (latestResult) {
-          renderResult(latestResult);
+          renderResult(latestResult, false);
+          if (latestNarrative) renderNarrative(latestNarrative);
           setStatus(t("complete"));
         }
       }
@@ -299,7 +328,7 @@ APP_HTML = """<!doctype html>
         element.textContent = `${prefix}${t(value)}`;
       }
 
-      function renderResult(payload) {
+      function renderResult(payload, resetNarrative = false) {
         latestResult = payload;
         const prediction = payload.prediction;
         const risk = payload.risk;
@@ -375,6 +404,43 @@ APP_HTML = """<!doctype html>
           const boxCell = document.createElement("td"); boxCell.textContent = item.bbox_xyxy.map((value) => Math.round(value)).join(", ");
           row.append(indexCell, classCell, confidenceCell, boxCell); body.appendChild(row);
         });
+        if (resetNarrative) {
+          latestNarrative = null;
+          byId("narrative-content").classList.add("hidden");
+          byId("narrative-button").disabled = false;
+          byId("narrative-meta").textContent = t("narrative_ready");
+        }
+      }
+
+      function renderNarrative(payload) {
+        latestNarrative = payload;
+        const generator = payload.generator || {};
+        byId("narrative-meta").textContent = generator.mode === "ollama" ? `${t("narrative_ollama")} · ${generator.model}` : t("narrative_template");
+        byId("narrative-summary").textContent = payload.summary[language];
+        [["narrative-observations", payload.observations], ["narrative-actions", payload.actions]].forEach(([id, items]) => {
+          const list = byId(id); list.replaceChildren();
+          items.forEach((item) => { const row = document.createElement("li"); row.textContent = item[language]; list.appendChild(row); });
+        });
+        byId("narrative-limitation").textContent = payload.limitation[language];
+        byId("narrative-content").classList.remove("hidden");
+        byId("narrative-button").disabled = true;
+      }
+
+      async function generateNarrative() {
+        if (!latestResult) return;
+        byId("narrative-button").disabled = true;
+        byId("narrative-meta").textContent = t("narrative_loading");
+        try {
+          const inspectionId = encodeURIComponent(latestResult.inspection_id);
+          const response = await fetch(`/api/inspections/${inspectionId}/narrative`, { method: "POST" });
+          const payload = await response.json();
+          if (!response.ok) throw payload.error || payload;
+          renderNarrative(payload);
+        } catch (error) {
+          const message = error && (language === "zh" ? error.message_zh : error.message_en);
+          byId("narrative-meta").textContent = message || t("narrative_error");
+          byId("narrative-button").disabled = false;
+        }
       }
 
       async function inspect() {
@@ -386,7 +452,7 @@ APP_HTML = """<!doctype html>
           const response = await fetch("/api/inspect", { method: "POST", body: form });
           const payload = await response.json();
           if (!response.ok) throw payload.error || payload;
-          renderResult(payload);
+          renderResult(payload, true);
           setStatus(t("complete"));
           byId("result").scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (error) {
@@ -401,6 +467,7 @@ APP_HTML = """<!doctype html>
       byId("language-button").addEventListener("click", () => { language = language === "zh" ? "en" : "zh"; applyLanguage(); });
       byId("image-input").addEventListener("change", (event) => setFile(event.target.files[0]));
       byId("analyze-button").addEventListener("click", inspect);
+      byId("narrative-button").addEventListener("click", generateNarrative);
       const zone = byId("upload-zone");
       ["dragenter", "dragover"].forEach((eventName) => zone.addEventListener(eventName, (event) => { event.preventDefault(); zone.classList.add("dragging"); }));
       ["dragleave", "drop"].forEach((eventName) => zone.addEventListener(eventName, (event) => { event.preventDefault(); zone.classList.remove("dragging"); }));

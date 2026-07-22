@@ -1,10 +1,10 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 系统。v1.1 在完全本地闭环上增加高清重叠分块推理、历史修补区域观察类，以及“零检测或低置信度必须人工复核”的安全保护，避免把不确定结果误写成低风险。
+**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 系统。v1.2 在高清分块检测和不确定性保护之上，增加本地双语巡检说明：优先调用本机 Ollama/Qwen，模型不可用时自动使用可审计模板，始终不依赖云 API。
 
-**English:** An on-device AI system for urban-infrastructure inspection and risk assessment. Version 1.1 adds overlapping high-resolution inference, an auxiliary observation for previously repaired areas, and a human-review safeguard for zero or low-confidence detections so uncertain results are never presented as low risk.
+**English:** An on-device AI system for urban-infrastructure inspection and risk assessment. Version 1.2 adds bilingual local inspection narratives on top of tiled detection and uncertainty safeguards: it uses local Ollama/Qwen when available and an audited deterministic template otherwise, with no cloud API dependency.
 
-## v1.1 Quick Start / v1.1 快速启动
+## v1.2 Quick Start / v1.2 快速启动
 
 ```bash
 uv sync --extra dev
@@ -14,6 +14,10 @@ uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 Open `http://127.0.0.1:8000` and upload one JPEG, PNG, or WebP road image. Press `Control+C` in the terminal to stop. The app binds only to the local loopback interface and makes no cloud or paid-API call.
 
 打开 `http://127.0.0.1:8000`，上传一张 JPEG、PNG 或 WebP 道路图片。回到终端按 `Control+C` 停止。应用只监听本机回环地址，不调用云服务或付费 API。
+
+After inspection, select **Generate locally / 生成本地说明**. If Ollama with `qwen3:4b` is available on `127.0.0.1:11434`, the app uses it. Otherwise it immediately returns an audited bilingual template. The image, original filename, and local paths are never sent to the narrative generator.
+
+巡检完成后点击 **生成本地说明**。如果 `127.0.0.1:11434` 上存在 Ollama 与 `qwen3:4b`，应用会使用本地模型；否则立即返回可审计双语模板。原图、原文件名和本机路径绝不进入说明生成器。
 
 ## v0.1 Scope / v0.1 范围
 
@@ -56,7 +60,7 @@ uv run python -m urbanvision_risk.risk.assess --run-name china-baseline-001 --pr
 # v0.3: build an offline bilingual dashboard; this does not need a server
 uv run python -m urbanvision_risk.reporting.build --run-name china-baseline-001 --prediction-name prediction-001 --risk-name risk-001 --output-name report-001
 
-# v1.1: full-image + overlapping tiled inference with an uncertainty safeguard
+# v1.2: tiled inference, uncertainty safeguard, and local bilingual narrative
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
@@ -69,7 +73,7 @@ uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 - `results/predictions/<run>/<output>/`: annotated JPG and JSON / 带框图片与 JSON。
 - `results/risks/<run>/<prediction>/<output>/`: per-image risk JSON, deterministic ranking, summary, and resolved config / 单图风险 JSON、确定性排序、摘要和实际配置。
 - `results/reports/<run>/<prediction>/<risk>/<output>/`: offline bilingual HTML dashboard and provenance manifest / 离线双语 HTML 仪表板和来源清单。
-- `results/inspections/<run>/<inspection-id>/`: normalized source, annotated image, prediction, risk record, and provenance manifest / 规范化原图、标注图、预测、风险记录和来源清单。
+- `results/inspections/<run>/<inspection-id>/`: normalized source, annotation, prediction, risk record, provenance, and optional immutable `narrative.json` / 规范化原图、标注、预测、风险、来源记录和可选不可变 `narrative.json`。
 
 ## Learning Guide / 学习指南
 
@@ -85,9 +89,9 @@ The v0.3 offline dashboard workflow is explained in [`docs/local-report-guide.md
 
 v0.3 离线仪表板流程见 [`docs/local-report-guide.md`](docs/local-report-guide.md)。
 
-The completed v1.1 local upload app is explained in [`docs/local-app-guide.md`](docs/local-app-guide.md).
+The completed v1.2 local upload app is explained in [`docs/local-app-guide.md`](docs/local-app-guide.md). The local Ollama/template layer is explained in [`docs/local-ai-narrative-guide.md`](docs/local-ai-narrative-guide.md).
 
-完整的 v1.1 本地上传应用见 [`docs/local-app-guide.md`](docs/local-app-guide.md)。
+完整的 v1.2 本地上传应用见 [`docs/local-app-guide.md`](docs/local-app-guide.md)。本地 Ollama/模板说明层见 [`docs/local-ai-narrative-guide.md`](docs/local-ai-narrative-guide.md)。
 
 ## Data and Citation / 数据与引用
 

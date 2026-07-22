@@ -40,6 +40,13 @@ def test_valid_payload_becomes_typed_record() -> None:
     assert record.detections[0].clipped is False
 
 
+def test_validated_counts_are_read_only() -> None:
+    record = validate_prediction_payload(prediction_payload(), CONFIG, "sample.json")
+
+    with pytest.raises(TypeError):
+        record.counts["D40"] = 0  # type: ignore[index]
+
+
 def test_small_coordinate_drift_is_clipped_and_audited() -> None:
     payload = prediction_payload()
     payload["detections"][0]["bbox_xyxy"] = [-0.5, 20, 30, 40]  # type: ignore[index]
@@ -80,6 +87,32 @@ def test_box_far_outside_image_is_e403() -> None:
 
     with pytest.raises(ProjectError, match="E403"):
         validate_prediction_payload(payload, CONFIG, "sample.json")
+
+
+@pytest.mark.parametrize("coordinate", ["ten", True])
+def test_bbox_coordinate_wrong_type_is_bilingual_e402(coordinate: object) -> None:
+    payload = prediction_payload()
+    payload["detections"][0]["bbox_xyxy"] = [0, 20, coordinate, 40]  # type: ignore[index]
+
+    with pytest.raises(ProjectError) as caught:
+        validate_prediction_payload(payload, CONFIG, "sample.json")
+
+    assert caught.value.code == "E402"
+    assert "类型错误" in caught.value.message_zh
+    assert "invalid type" in caught.value.message_en
+
+
+def test_empty_detection_payload_with_optional_messages_is_valid() -> None:
+    payload = prediction_payload()
+    payload["detections"] = []
+    payload["counts"] = {"D00": 0, "D10": 0, "D20": 0, "D40": 0}
+    payload["message_zh"] = "没有检测到道路缺陷"
+    payload["message_en"] = "No road damage detected"
+
+    record = validate_prediction_payload(payload, CONFIG, "empty.json")
+
+    assert record.detections == ()
+    assert dict(record.counts) == {"D00": 0, "D10": 0, "D20": 0, "D40": 0}
 
 
 def test_overflowed_confidence_is_e403() -> None:

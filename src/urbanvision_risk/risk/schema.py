@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 from urbanvision_risk.data.voc import CLASS_INFO
@@ -30,7 +32,7 @@ class PredictionRecord:
     width: int
     height: int
     detections: tuple[DetectionRecord, ...]
-    counts: dict[str, int]
+    counts: Mapping[str, int]
 
 
 def _malformed(context: str, field: str) -> ProjectError:
@@ -149,7 +151,12 @@ def validate_prediction_payload(
         if not 0 <= confidence <= 1:
             raise _semantic(context, f"{field}.confidence")
         raw_box = detection["bbox_xyxy"]
-        if not isinstance(raw_box, list):
+        if not isinstance(raw_box, list) or len(raw_box) != 4:
+            raise _malformed(context, f"{field}.bbox_xyxy")
+        if any(
+            isinstance(coordinate, bool) or not isinstance(coordinate, (int, float))
+            for coordinate in raw_box
+        ):
             raise _malformed(context, f"{field}.bbox_xyxy")
         try:
             rectangle, clipped = clip_rectangle(
@@ -191,5 +198,5 @@ def validate_prediction_payload(
         width=width,
         height=height,
         detections=tuple(detections),
-        counts=counts,
+        counts=MappingProxyType(counts),
     )

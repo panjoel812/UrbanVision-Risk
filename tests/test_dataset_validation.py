@@ -23,7 +23,13 @@ def test_valid_dataset_reports_counts(tmp_path: Path) -> None:
 
     assert report.ok is True
     assert report.image_counts == {"train": 1, "val": 1, "test": 1}
-    assert report.object_counts == {"D00": 1, "D10": 0, "D20": 0, "D40": 1}
+    assert report.object_counts == {
+        "D00": 1,
+        "D10": 0,
+        "D20": 0,
+        "D40": 1,
+        "Repair": 0,
+    }
     assert report.errors == ()
 
 

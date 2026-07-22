@@ -40,7 +40,13 @@ def test_serialize_result_contains_engineering_class_names() -> None:
     payload = serialize_result(result, Path("best.pt"), confidence=0.25)
 
     assert payload["image_dimensions"] == {"width": 400, "height": 300}
-    assert payload["counts"] == {"D00": 0, "D10": 0, "D20": 0, "D40": 1}
+    assert payload["counts"] == {
+        "D00": 0,
+        "D10": 0,
+        "D20": 0,
+        "D40": 1,
+        "Repair": 0,
+    }
     assert payload["detections"][0] == {
         "class_id": 3,
         "code": "D40",
@@ -57,9 +63,9 @@ def test_serialize_empty_detection_is_explicit() -> None:
     payload = serialize_result(result, Path("best.pt"), confidence=0.25)
 
     assert payload["detections"] == []
-    assert payload["message_zh"] == "在当前置信度阈值下未检测到道路缺陷"
+    assert "必须人工复核" in payload["message_zh"]
     assert (
-        payload["message_en"] == "No road damage was detected at the current confidence threshold"
+        "requires human review" in payload["message_en"]
     )
 
 

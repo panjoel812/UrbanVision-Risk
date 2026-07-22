@@ -1,14 +1,14 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 系统。v1.0 已完成从本地网页上传，到 YOLO/MPS 缺陷检测、可解释维护优先级、标注图片和审计记录的完整闭环；批量离线报告继续保留。
+**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 系统。v1.1 在完全本地闭环上增加高清重叠分块推理、历史修补区域观察类，以及“零检测必须人工复核”的安全保护，避免把模型漏检误写成低风险。
 
-**English:** An on-device AI system for urban-infrastructure inspection and risk assessment. Version 1.0 completes the full local loop from browser upload through YOLO/MPS detection, explainable maintenance priority, annotated imagery, and auditable records, while retaining the offline batch report.
+**English:** An on-device AI system for urban-infrastructure inspection and risk assessment. Version 1.1 adds overlapping high-resolution inference, an auxiliary observation for previously repaired areas, and a zero-detection human-review safeguard so model misses are never presented as low risk.
 
-## v1.0 Quick Start / v1.0 快速启动
+## v1.1 Quick Start / v1.1 快速启动
 
 ```bash
 uv sync --extra dev
-uv run python -m urbanvision_risk.app.serve --run-name china-baseline-001
+uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
 Open `http://127.0.0.1:8000` and upload one JPEG, PNG, or WebP road image. Press `Control+C` in the terminal to stop. The app binds only to the local loopback interface and makes no cloud or paid-API call.
@@ -18,6 +18,7 @@ Open `http://127.0.0.1:8000` and upload one JPEG, PNG, or WebP road image. Press
 ## v0.1 Scope / v0.1 范围
 
 - Four classes / 四类缺陷: D00 longitudinal crack / 纵向裂缝, D10 transverse crack / 横向裂缝, D20 alligator crack / 网状裂缝, D40 pothole / 坑洞.
+- Auxiliary observation / 辅助观察: Repair previously repaired area / 历史修补区域；它不参与缺陷风险计分。
 - Fully local after one-time dependency, data, and model downloads / 完成一次性依赖、数据和模型下载后可完全本地运行。
 - No paid API or cloud runtime / 不使用付费 API 或云端运行环境。
 - No Web UI, risk engine, LLM, GIS, or multi-country research claim in v0.1 / v0.1 不包含 Web、风险引擎、LLM、GIS 或多国科研结论。
@@ -44,8 +45,9 @@ uv run python -m urbanvision_risk.data.prepare
 uv run python -m urbanvision_risk.data.validate
 uv run python -m urbanvision_risk.detection.train --profile smoke --run-name smoke-test-001
 uv run python -m urbanvision_risk.detection.train --profile baseline --run-name china-baseline-001
+uv run python -m urbanvision_risk.detection.train --profile repair --run-name china-repair-mps-003
 uv run python -m urbanvision_risk.detection.evaluate --run-name china-baseline-001
-uv run python -m urbanvision_risk.detection.predict --run-name china-baseline-001 --source data/processed/rdd2022-china-motorbike/images/test
+uv run python -m urbanvision_risk.detection.predict --run-name china-repair-mps-003 --source data/processed/rdd2022-china-motorbike-repair-v1.1/images/test
 
 # v0.2: score an existing prediction batch; this does not rerun YOLO
 uv run python -m urbanvision_risk.risk.assess --run-name china-baseline-001 --prediction-name prediction-001 --output-name risk-001
@@ -53,13 +55,14 @@ uv run python -m urbanvision_risk.risk.assess --run-name china-baseline-001 --pr
 # v0.3: build an offline bilingual dashboard; this does not need a server
 uv run python -m urbanvision_risk.reporting.build --run-name china-baseline-001 --prediction-name prediction-001 --risk-name risk-001 --output-name report-001
 
-# v1.0: upload one image and complete detection + risk + visualization locally
-uv run python -m urbanvision_risk.app.serve --run-name china-baseline-001
+# v1.1: full-image + overlapping tiled inference with a zero-detection safeguard
+uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
 ## Generated Artifacts / 生成物
 
 - `data/processed/rdd2022-china-motorbike/manifest.json`: data lineage and counts / 数据来源与统计。
+- `data/processed/rdd2022-china-motorbike-repair-v1.1/manifest.json`: five-class v1.1 data lineage, including the auxiliary Repair observation / v1.1 五类数据来源，包含 Repair 辅助观察。
 - `results/experiments/<run>/weights/best.pt`: best checkpoint / 最佳模型。
 - `results/evaluations/<run>/evaluation.json`: held-out metrics / 留出集指标。
 - `results/predictions/<run>/<output>/`: annotated JPG and JSON / 带框图片与 JSON。
@@ -81,9 +84,9 @@ The v0.3 offline dashboard workflow is explained in [`docs/local-report-guide.md
 
 v0.3 离线仪表板流程见 [`docs/local-report-guide.md`](docs/local-report-guide.md)。
 
-The completed v1.0 local upload app is explained in [`docs/local-app-guide.md`](docs/local-app-guide.md).
+The completed v1.1 local upload app is explained in [`docs/local-app-guide.md`](docs/local-app-guide.md).
 
-完整的 v1.0 本地上传应用见 [`docs/local-app-guide.md`](docs/local-app-guide.md)。
+完整的 v1.1 本地上传应用见 [`docs/local-app-guide.md`](docs/local-app-guide.md)。
 
 ## Data and Citation / 数据与引用
 

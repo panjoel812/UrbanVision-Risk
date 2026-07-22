@@ -120,6 +120,7 @@ APP_HTML = """<!doctype html>
     .badge-moderate { color: var(--amber); }
     .badge-high { color: var(--orange); }
     .badge-critical { color: var(--red); }
+    .badge-review_required { color: var(--orange); }
     .badge-not_applicable { color: var(--muted); }
     .recommendation { width: 100%; margin: 16px 0 0; padding: 12px; border-radius: 12px; background: var(--mint); text-align: left; font-size: .8rem; }
     .result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
@@ -185,7 +186,7 @@ APP_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">On-device infrastructure AI · v1.0</p>
+        <p class="eyebrow">On-device infrastructure AI · v1.1</p>
         <h1><span data-zh>道路缺陷，<br>从图片到可解释结果。</span><span data-en class="hidden-lang">Road damage,<br>from image to explainable result.</span></h1>
         <p class="hero-copy"><span data-zh>上传一张道路图片。检测、评分、标注和保存全部在这台 Mac 上完成。</span><span data-en class="hidden-lang">Upload one road image. Detection, scoring, annotation, and saving all happen on this Mac.</span></p>
       </div>
@@ -228,19 +229,19 @@ APP_HTML = """<!doctype html>
           </section>
 
           <div class="result-grid">
-            <section class="card section-card"><h3><span data-zh>缺陷统计</span><span data-en class="hidden-lang">Defect counts</span></h3><p class="section-subtitle" id="image-meta">—</p><div id="class-grid" class="class-grid"></div></section>
+            <section class="card section-card"><h3><span data-zh>检测与观察统计</span><span data-en class="hidden-lang">Detections and observations</span></h3><p class="section-subtitle" id="image-meta">—</p><div id="class-grid" class="class-grid"></div></section>
             <section class="card section-card"><h3><span data-zh>分数贡献</span><span data-en class="hidden-lang">Score contributions</span></h3><p class="section-subtitle"><span data-zh>每类对 0-100 维护优先级的贡献</span><span data-en class="hidden-lang">Each class contribution to the 0-100 maintenance priority</span></p><div id="contribution-list" class="contribution-list"></div></section>
             <section class="card section-card"><h3><span data-zh>证据质量</span><span data-en class="hidden-lang">Evidence quality</span></h3><p class="section-subtitle"><span data-zh>置信度描述证据，不改变风险分数</span><span data-en class="hidden-lang">Confidence describes evidence; it never changes the score</span></p><div id="evidence-details"></div><div id="flags" class="flags"></div></section>
             <section class="card section-card"><h3><span data-zh>巡检记录</span><span data-en class="hidden-lang">Inspection record</span></h3><p class="section-subtitle"><span data-zh>结果已在本机保存且不会覆盖</span><span data-en class="hidden-lang">Saved locally without overwriting prior results</span></p><div class="evidence-line"><span class="evidence-label">ID</span><strong id="inspection-id">—</strong></div><div class="evidence-line"><span class="evidence-label"><span data-zh>源文件</span><span data-en class="hidden-lang">Source file</span></span><strong id="source-file">—</strong></div><div class="evidence-line"><span class="evidence-label"><span data-zh>生成时间</span><span data-en class="hidden-lang">Created</span></span><strong id="created-time">—</strong></div></section>
           </div>
 
-          <section class="card table-card"><div class="table-heading"><h3><span data-zh>检测明细</span><span data-en class="hidden-lang">Detection details</span></h3><p id="detection-summary" class="section-subtitle">—</p></div><div class="table-wrap"><table><thead><tr><th>#</th><th><span data-zh>类别</span><span data-en class="hidden-lang">Class</span></th><th class="num"><span data-zh>置信度</span><span data-en class="hidden-lang">Confidence</span></th><th><span data-zh>边界框 (x1, y1, x2, y2)</span><span data-en class="hidden-lang">Box (x1, y1, x2, y2)</span></th></tr></thead><tbody id="detection-body"></tbody></table></div><p id="empty-detections" class="empty-row hidden"><span data-zh>当前阈值下没有检测到道路缺陷。</span><span data-en class="hidden-lang">No road damage was detected at the current threshold.</span></p></section>
+          <section class="card table-card"><div class="table-heading"><h3><span data-zh>检测明细</span><span data-en class="hidden-lang">Detection details</span></h3><p id="detection-summary" class="section-subtitle">—</p></div><div class="table-wrap"><table><thead><tr><th>#</th><th><span data-zh>类别</span><span data-en class="hidden-lang">Class</span></th><th class="num"><span data-zh>置信度</span><span data-en class="hidden-lang">Confidence</span></th><th><span data-zh>边界框 (x1, y1, x2, y2)</span><span data-en class="hidden-lang">Box (x1, y1, x2, y2)</span></th></tr></thead><tbody id="detection-body"></tbody></table></div><p id="empty-detections" class="empty-row hidden"><span data-zh>模型没有返回检测框；这不代表道路无缺陷，必须人工复核。</span><span data-en class="hidden-lang">The model returned no boxes; this does not prove the road is defect-free and requires human review.</span></p></section>
           <div class="result-footer"><strong><span data-zh>安全说明:</span><span data-en class="hidden-lang">Safety note: </span></strong><span id="limitation">—</span></div>
         </div>
       </section>
     </div>
   </main>
-  <footer class="shell"><span>UrbanVision-Risk v1.0 · Fully local / 完全本地 · MPS</span></footer>
+  <footer class="shell"><span>UrbanVision-Risk v1.1 · Fully local / 完全本地 · MPS</span></footer>
 
   <script>
     (() => {
@@ -251,8 +252,8 @@ APP_HTML = """<!doctype html>
       let modelState = "checking";
       const byId = (id) => document.getElementById(id);
       const labels = {
-        zh: { low: "低优先级", moderate: "中等优先级", high: "高优先级", critical: "严重优先级", not_applicable: "证据不适用", evidence: "证据", checking: "正在检查本地模型", ready: "本地模型就绪", unavailable: "本地服务未连接", analyzing: "正在通过 MPS 进行本地检测和评分…", complete: "巡检完成，结果已保存在本机。", detections: "个检测", mean: "平均置信度", minimum: "最低置信度", count: "数量", coverage: "覆盖率", points: "贡献" },
-        en: { low: "Low priority", moderate: "Moderate priority", high: "High priority", critical: "Critical priority", not_applicable: "Evidence N/A", evidence: "Evidence", checking: "Checking local model", ready: "Local model ready", unavailable: "Local service unavailable", analyzing: "Running local MPS detection and scoring…", complete: "Inspection complete and saved locally.", detections: "detections", mean: "Mean confidence", minimum: "Minimum confidence", count: "count", coverage: "coverage", points: "contribution" }
+        zh: { low: "低优先级", moderate: "中等优先级", high: "高优先级", critical: "严重优先级", review_required: "需要人工复核", not_applicable: "证据不适用", evidence: "证据", checking: "正在检查本地模型", ready: "本地模型就绪", unavailable: "本地服务未连接", analyzing: "正在通过 MPS 进行全图与高清分块检测…", complete: "巡检完成，结果已保存在本机。", detections: "个检测", mean: "平均置信度", minimum: "最低置信度", count: "数量", coverage: "覆盖率", points: "贡献", auxiliary: "辅助观察，不参与评分" },
+        en: { low: "Low priority", moderate: "Moderate priority", high: "High priority", critical: "Critical priority", review_required: "Human review required", not_applicable: "Evidence N/A", evidence: "Evidence", checking: "Checking local model", ready: "Local model ready", unavailable: "Local service unavailable", analyzing: "Running full-image and high-resolution tiled MPS detection…", complete: "Inspection complete and saved locally.", detections: "detections", mean: "Mean confidence", minimum: "Minimum confidence", count: "count", coverage: "coverage", points: "contribution", auxiliary: "Auxiliary observation; not scored" }
       };
       const qualityLabels = {
         zh: { not_applicable: "不适用", low: "低", moderate: "中等", high: "高" },
@@ -305,9 +306,10 @@ APP_HTML = """<!doctype html>
         byId("placeholder").classList.add("hidden");
         byId("result").classList.remove("hidden");
         byId("annotated-image").src = `${payload.annotated_url}?v=${encodeURIComponent(payload.inspection_id)}`;
-        byId("score-value").textContent = number(risk.risk_score);
-        byId("score-ring").style.setProperty("--score-angle", `${Math.max(0, Math.min(100, risk.risk_score)) * 3.6}deg`);
-        makeBadge(byId("risk-badge"), risk.risk_level);
+        const reviewRequired = risk.decision_status === "review_required" || risk.review_required === true;
+        byId("score-value").textContent = reviewRequired ? "—" : number(risk.risk_score);
+        byId("score-ring").style.setProperty("--score-angle", `${reviewRequired ? 0 : Math.max(0, Math.min(100, risk.risk_score)) * 3.6}deg`);
+        makeBadge(byId("risk-badge"), reviewRequired ? "review_required" : risk.risk_level);
         const evidenceBadge = byId("evidence-badge");
         evidenceBadge.className = `badge badge-${risk.evidence.quality}`;
         evidenceBadge.textContent = `${t("evidence")}: ${qualityLabels[language][risk.evidence.quality]}`;
@@ -324,6 +326,14 @@ APP_HTML = """<!doctype html>
         risk.class_breakdown.forEach((item) => {
           const card = document.createElement("div"); card.className = "class-card";
           const code = document.createElement("div"); code.className = "class-code"; code.textContent = item.code;
+          const line = document.createElement("div"); line.className = "class-line";
+          const name = document.createElement("span"); name.className = "class-name"; name.textContent = language === "zh" ? item.name_zh : item.name_en;
+          const count = document.createElement("strong"); count.className = "class-count"; count.textContent = String(item.count);
+          line.append(name, count); card.append(code, line); classGrid.appendChild(card);
+        });
+        (risk.auxiliary_observations || []).forEach((item) => {
+          const card = document.createElement("div"); card.className = "class-card";
+          const code = document.createElement("div"); code.className = "class-code"; code.textContent = `${item.code} · ${t("auxiliary")}`;
           const line = document.createElement("div"); line.className = "class-line";
           const name = document.createElement("span"); name.className = "class-name"; name.textContent = language === "zh" ? item.name_zh : item.name_en;
           const count = document.createElement("strong"); count.className = "class-count"; count.textContent = String(item.count);

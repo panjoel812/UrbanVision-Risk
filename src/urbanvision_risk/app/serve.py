@@ -13,8 +13,8 @@ def validate_bind(host: str, port: int) -> tuple[str, int]:
     if host not in LOOPBACK_HOSTS:
         raise ProjectError(
             "E302",
-            "v1.0 只允许监听本机回环地址",
-            "v1.0 only allows a local loopback host",
+            "本地应用只允许监听本机回环地址",
+            "The local app only allows a local loopback host",
             "使用 127.0.0.1、localhost 或 ::1",
             "Use 127.0.0.1, localhost, or ::1",
             host,

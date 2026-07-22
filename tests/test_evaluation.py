@@ -31,6 +31,7 @@ def test_metrics_payload_contains_overall_and_per_class_values() -> None:
     assert payload["overall"]["mAP50"] == 0.45
     assert payload["per_class"]["D40"]["precision"] == 0.4
     assert payload["per_class"]["D00"]["f1"] == pytest.approx(0.1333333333)
+    assert payload["per_class"]["Repair"]["status"] == "no_ground_truth_instances"
 
 
 def test_evaluate_run_requires_best_checkpoint(tmp_path: Path) -> None:

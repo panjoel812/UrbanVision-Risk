@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
-from urbanvision_risk.data.voc import CLASS_INFO
+from urbanvision_risk.data.voc import CLASS_INFO, DETECTION_CLASS_INFO
 from urbanvision_risk.errors import ProjectError
 from urbanvision_risk.risk.config import RiskConfig
 from urbanvision_risk.risk.geometry import Rectangle, clip_rectangle
@@ -141,7 +141,7 @@ def validate_prediction_payload(
         if not expected_fields.issubset(detection):
             raise _malformed(context, field)
         class_id = _integer(detection["class_id"], context, f"{field}.class_id")
-        details = CLASS_INFO.get(class_id)
+        details = DETECTION_CLASS_INFO.get(class_id)
         if details is None:
             raise _semantic(context, f"{field}.class_id")
         code = _text(detection["code"], context, f"{field}.code")
@@ -188,12 +188,23 @@ def validate_prediction_payload(
         observed[code] += 1
 
     raw_counts = _mapping(root["counts"], context, "counts")
-    class_codes = tuple(details["code"] for details in CLASS_INFO.values())
-    if set(raw_counts) != set(class_codes):
+    damage_codes = tuple(details["code"] for details in CLASS_INFO.values())
+    detection_codes = tuple(details["code"] for details in DETECTION_CLASS_INFO.values())
+    raw_count_keys = frozenset(raw_counts)
+    if raw_count_keys not in (frozenset(damage_codes), frozenset(detection_codes)):
         raise _semantic(context, "counts keys")
-    counts = {code: _integer(raw_counts[code], context, f"counts.{code}") for code in class_codes}
+    counts = {
+        code: _integer(raw_counts[code], context, f"counts.{code}")
+        for code in raw_counts
+    }
+    observed_codes = (
+        detection_codes if raw_count_keys == frozenset(detection_codes) else damage_codes
+    )
+    auxiliary_codes = detection_codes[len(damage_codes) :]
+    if observed_codes == damage_codes and any(observed[code] for code in auxiliary_codes):
+        raise _semantic(context, "counts missing auxiliary detections")
     if any(count < 0 for count in counts.values()) or any(
-        counts[code] != observed[code] for code in class_codes
+        counts[code] != observed[code] for code in observed_codes
     ):
         raise _semantic(context, "counts")
 

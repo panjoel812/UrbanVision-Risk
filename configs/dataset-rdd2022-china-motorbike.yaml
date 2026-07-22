@@ -1,4 +1,4 @@
-path: data/processed/rdd2022-china-motorbike
+path: data/processed/rdd2022-china-motorbike-repair-v1.1
 train: images/train
 val: images/val
 test: images/test
@@ -7,3 +7,4 @@ names:
   1: D10
   2: D20
   3: D40
+  4: Repair

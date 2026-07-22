@@ -40,7 +40,7 @@ def _status_code(error: ProjectError) -> int:
 def create_app(service: LocalInspectionService) -> FastAPI:
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="1.0.0",
+        version="1.1.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,

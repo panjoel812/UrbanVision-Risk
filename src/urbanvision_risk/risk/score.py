@@ -60,12 +60,45 @@ def score_prediction(
 
     risk_score = round(min(100.0, raw_total), 1)
     risk_level = config.risk_level(risk_score)
+    damage_detection_count = sum(
+        record.counts.get(details["code"], 0) for details in CLASS_INFO.values()
+    )
+    repair_count = record.counts.get("Repair", 0)
+    review_required = damage_detection_count == 0
     confidences = [detection.confidence for detection in record.detections]
     mean_confidence = statistics.fmean(confidences) if confidences else None
     minimum_confidence = min(confidences) if confidences else None
     evidence_quality = config.evidence_quality(mean_confidence)
     clipped_count = sum(detection.clipped for detection in record.detections)
     audit_flags: list[dict[str, str]] = []
+    if review_required:
+        audit_flags.append(
+            {
+                "code": "zero_detection_inconclusive",
+                "en": (
+                    "No supported damage class was detected. This is an inconclusive model "
+                    "result, not evidence that the road is defect-free; perform human review."
+                ),
+                "zh": (
+                    "模型未检测到受支持的缺陷类别。这是无法下结论的模型结果，"
+                    "不代表道路无缺陷；必须人工复核。"
+                ),
+            }
+        )
+    if repair_count:
+        audit_flags.append(
+            {
+                "code": "previous_repair_observed",
+                "en": (
+                    f"{repair_count} previously repaired area(s) were observed. Repair is an "
+                    "auxiliary observation, not a scored damage class; inspect their condition."
+                ),
+                "zh": (
+                    f"观察到 {repair_count} 个历史修补区域。Repair 是辅助观察项，"
+                    "不是计分缺陷类别；请人工检查修补区域现状。"
+                ),
+            }
+        )
     if clipped_count:
         audit_flags.append(
             {
@@ -86,6 +119,20 @@ def score_prediction(
     count_mix_display = _display_number(config.count_mix)
     coverage_mix_display = _display_number(config.coverage_mix)
 
+    recommendation = (
+        {
+            "en": (
+                "Human review required. The model returned no scored damage class, so a low "
+                "maintenance priority must not be inferred from the numeric zero."
+            ),
+            "zh": (
+                "需要人工复核。模型没有返回计分缺陷类别，不能根据数值零推断为低维护优先级。"
+            ),
+        }
+        if review_required
+        else dict(config.recommendations[risk_level])
+    )
+
     return {
         "formula_version": config.formula_version,
         "source_prediction": source_prediction,
@@ -97,8 +144,20 @@ def score_prediction(
         "image_dimensions": {"width": record.width, "height": record.height},
         "risk_score": risk_score,
         "risk_level": risk_level,
-        "recommendation": dict(config.recommendations[risk_level]),
+        "decision_status": "review_required" if review_required else "scored",
+        "review_required": review_required,
+        "recommendation": recommendation,
         "class_breakdown": class_breakdown,
+        "auxiliary_observations": [
+            {
+                "class_id": 4,
+                "code": "Repair",
+                "name_en": "Previously repaired area",
+                "name_zh": "历史修补区域",
+                "count": repair_count,
+                "scored": False,
+            }
+        ],
         "evidence": {
             "mean_detection_confidence": (
                 round(mean_confidence, 6) if mean_confidence is not None else None

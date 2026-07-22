@@ -1,10 +1,10 @@
-# UrbanVision-Risk v1.0 Local App / 本地应用指南
+# UrbanVision-Risk v1.1 Local App / 本地应用指南
 
 ## Finished product / 最终产品
 
-**English:** v1.0 is the complete first product: choose one road image in a browser, run the trained YOLO model on Apple MPS, calculate the existing explainable maintenance priority, view the annotated image and evidence, and preserve an auditable local record.
+**English:** v1.1 runs the five-class corrected YOLO model locally on Apple MPS. Large images receive both full-image inference and overlapping 1024-pixel tile inference. The fifth `Repair` class makes previously repaired pavement visible but never silently treats a repair as damage.
 
-**中文：** v1.0 是完整的第一版产品：在浏览器选择一张道路图片，通过 Apple MPS 运行已训练的 YOLO 模型，计算现有可解释维护优先级，查看标注图与证据，并保留可审计的本地记录。
+**中文：** v1.1 在 Apple MPS 上运行修正后的五类 YOLO 模型。大图会同时进行全图推理与 1024 像素重叠分块推理。第五类 `Repair` 让历史修补区域可见，但绝不会悄悄把修补区域当成缺陷计分。
 
 It uses no AWS, Azure, Google Cloud, paid API, remote model, CDN, analytics, or telemetry. After dependencies and the model are present, the complete workflow can run without internet access.
 
@@ -15,7 +15,7 @@ It uses no AWS, Azure, Google Cloud, paid API, remote model, CDN, analytics, or 
 From the preserved project worktree / 在保留的项目工作树中运行：
 
 ```bash
-uv run python -m urbanvision_risk.app.serve --run-name china-baseline-001
+uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
 Expected terminal message / 预期终端信息：
@@ -36,28 +36,36 @@ Road image / 道路图片
         ↓
 Input validation / 输入验证
         ↓
-YOLO + Apple MPS local inference / 本地推理
+YOLO + Apple MPS full/tiled inference / 全图与分块本地推理
         ↓
-D00 · D10 · D20 · D40 detections / 缺陷检测
+D00 · D10 · D20 · D40 scored damage / 计分缺陷
+Repair auxiliary observation / 历史修补辅助观察
         ↓
 Versioned risk engine / 版本化风险引擎
         ↓
 Bilingual result + local audit files / 双语结果与本地审计文件
 ```
 
-The model is loaded once when the server starts. Each upload is normalized for EXIF orientation, converted to RGB, inspected at confidence `0.25`, and passed through the same tested `risk-v0.2.0` formula. Confidence describes evidence quality and never changes the priority score.
+The model is loaded once when the server starts. Each upload is normalized for EXIF orientation and converted to RGB. Images larger than 1280 pixels on either axis receive a full-image pass plus overlapping 1024 × 1024 tiles; class-aware non-maximum suppression merges duplicate boxes. The four damage classes enter the tested `risk-v0.2.0` formula; `Repair` remains an unscored auxiliary observation.
 
-服务启动时只加载一次模型。每次上传都会规范化 EXIF 方向、转换成 RGB、以 `0.25` 置信度阈值检测，并进入同一个经过测试的 `risk-v0.2.0` 公式。置信度只描述证据质量，绝不改变优先级分数。
+服务启动时只加载一次模型。每次上传都会规范化 EXIF 方向并转换成 RGB。任一边大于 1280 像素时，会同时运行全图与 1024 × 1024 重叠分块，再用分类非极大值抑制合并重复框。四类缺陷进入经过测试的 `risk-v0.2.0` 公式；`Repair` 始终是零分辅助观察项。
 
 ## What the page shows / 页面显示内容
 
 - annotated image and detected bounding boxes / 标注图和检测框；
 - D00 longitudinal, D10 transverse, D20 alligator cracks, and D40 potholes / 四类道路缺陷；
+- Repair previously repaired area as an unscored observation / Repair 历史修补区域作为不计分观察项；
 - 0–100 maintenance-review priority and level / 0–100 维护复核优先级与等级；
 - evidence quality, mean/minimum confidence, and audit flags / 证据质量、平均/最低置信度和审计标记；
 - count, coverage, and score contribution for every class / 每类数量、覆盖率与分数贡献；
 - bilingual recommendation and safety limitation / 双语建议与安全限制；
 - immutable local inspection ID / 不可覆盖的本地巡检编号。
+
+## Zero detection is not low risk / 零检测不等于低风险
+
+When none of the four scored damage classes is detected, the numeric formula still has an auditable raw value of zero, but the page withholds the score and displays **Human review required / 需要人工复核**. This is intentional: a model can miss an obvious defect, and absence of a bounding box is not evidence of a safe road.
+
+四类计分缺陷均未检测到时，公式仍保留可审计的原始零值，但页面不会展示 `0.0 低优先级`，而是显示 **需要人工复核**。这是刻意的安全设计：模型可能漏掉肉眼明显的缺陷，没有检测框不能证明道路安全。
 
 ## Five saved artifacts / 五份保存文件
 
@@ -66,7 +74,7 @@ Every successful upload creates a new directory:
 每次成功上传都会创建新目录：
 
 ```text
-results/inspections/china-baseline-001/<inspection-id>/
+results/inspections/china-repair-mps-003/<inspection-id>/
 ├── source.jpg
 ├── annotated.jpg
 ├── prediction.json

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from urbanvision_risk.data.voc import CLASS_INFO
+from urbanvision_risk.data.voc import DETECTION_CLASS_INFO
 from urbanvision_risk.detection.config import validate_run_name
 from urbanvision_risk.errors import ProjectError, report_error
 from urbanvision_risk.paths import ProjectPaths, get_paths
@@ -24,7 +24,7 @@ def metrics_payload(metrics: Any) -> dict[str, object]:
         int(class_index): position for position, class_index in enumerate(box.ap_class_index)
     }
     per_class: dict[str, dict[str, float | str | None]] = {}
-    for class_index, details in CLASS_INFO.items():
+    for class_index, details in DETECTION_CLASS_INFO.items():
         position = class_positions.get(class_index)
         if position is None:
             per_class[details["code"]] = {

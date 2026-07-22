@@ -42,7 +42,7 @@ def test_parser_rejects_unknown_class(tmp_path: Path) -> None:
         parse_voc_annotation(xml_path)
 
 
-def test_parser_ignores_repair_auxiliary_class(tmp_path: Path) -> None:
+def test_parser_retains_repair_auxiliary_class(tmp_path: Path) -> None:
     repair_object = """\
   <object>
     <name>Repair</name>
@@ -57,8 +57,11 @@ def test_parser_ignores_repair_auxiliary_class(tmp_path: Path) -> None:
 
     record = parse_voc_annotation(xml_path)
 
-    assert [item.class_code for item in record.objects] == ["D40"]
-    assert to_yolo_lines(record) == ["3 0.500000 0.500000 0.500000 0.500000"]
+    assert [item.class_code for item in record.objects] == ["D40", "Repair"]
+    assert to_yolo_lines(record) == [
+        "3 0.500000 0.500000 0.500000 0.500000",
+        "4 0.075000 0.150000 0.100000 0.200000",
+    ]
 
 
 def test_parser_rejects_malformed_xml(tmp_path: Path) -> None:

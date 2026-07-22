@@ -73,6 +73,23 @@ def test_counts_must_match_detections() -> None:
         validate_prediction_payload(payload, CONFIG, "sample.json")
 
 
+def test_auxiliary_detection_requires_five_class_counts() -> None:
+    payload = prediction_payload()
+    payload["detections"].append(
+        {
+            "class_id": 4,
+            "code": "Repair",
+            "name_en": "Previously repaired area",
+            "name_zh": "历史修补区域",
+            "confidence": 0.9,
+            "bbox_xyxy": [40, 20, 70, 50],
+        }
+    )
+
+    with pytest.raises(ProjectError, match="E403"):
+        validate_prediction_payload(payload, CONFIG, "sample.json")
+
+
 def test_class_metadata_must_be_canonical() -> None:
     payload = prediction_payload()
     payload["detections"][0]["class_id"] = 99  # type: ignore[index]

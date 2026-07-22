@@ -13,8 +13,17 @@ CLASS_INFO = {
     2: {"code": "D20", "name_en": "Alligator crack", "name_zh": "网状裂缝"},
     3: {"code": "D40", "name_en": "Pothole", "name_zh": "坑洞"},
 }
-CLASS_TO_INDEX = {details["code"]: index for index, details in CLASS_INFO.items()}
-IGNORED_CLASS_CODES = frozenset({"Repair"})
+DETECTION_CLASS_INFO = {
+    **CLASS_INFO,
+    4: {
+        "code": "Repair",
+        "name_en": "Previously repaired area",
+        "name_zh": "历史修补区域",
+    },
+}
+CLASS_TO_INDEX = {
+    details["code"]: index for index, details in DETECTION_CLASS_INFO.items()
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,15 +82,13 @@ def parse_voc_annotation(path: Path) -> VocRecord:
     objects: list[VocObject] = []
     for item in root.findall("object"):
         class_code = _required_text(item, "name", path)
-        if class_code in IGNORED_CLASS_CODES:
-            continue
         if class_code not in CLASS_TO_INDEX:
             raise ProjectError(
                 "E203",
                 "发现未知缺陷类别",
                 "Unknown damage class found",
-                "仅保留 D00、D10、D20、D40",
-                "Keep only D00, D10, D20, and D40",
+                "仅保留 D00、D10、D20、D40 和 Repair",
+                "Keep only D00, D10, D20, D40, and Repair",
                 f"{path}: {class_code}",
             )
         try:

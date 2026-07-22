@@ -1,7 +1,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-COMMAND = "uv run python -m urbanvision_risk.app.serve --run-name china-baseline-001"
+COMMAND = "uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003"
 
 
 def test_v1_local_app_is_documented_as_complete_bilingual_and_private() -> None:
@@ -12,8 +12,10 @@ def test_v1_local_app_is_documented_as_complete_bilingual_and_private() -> None:
 
     assert COMMAND in readme
     assert COMMAND in guide
-    assert "complete first product" in guide
-    assert "完整的第一版产品" in guide
+    assert "overlapping 1024-pixel tile inference" in guide
+    assert "1024 像素重叠分块推理" in guide
+    assert "Human review required" in guide
+    assert "需要人工复核" in guide
     assert "no AWS, Azure, Google Cloud, paid API" in guide
     assert "不使用 AWS、Azure、Google Cloud、付费 API" in guide
     assert "127.0.0.1" in guide

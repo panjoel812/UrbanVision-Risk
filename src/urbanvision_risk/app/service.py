@@ -11,11 +11,18 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
 
 from urbanvision_risk import __version__
+from urbanvision_risk.data.voc import DETECTION_CLASS_INFO
 from urbanvision_risk.detection.config import validate_run_name
-from urbanvision_risk.detection.predict import serialize_result
+from urbanvision_risk.detection.predict import serialize_detections
+from urbanvision_risk.detection.tiled import (
+    DetectionCandidate,
+    class_aware_nms,
+    extract_candidates,
+    tile_windows,
+)
 from urbanvision_risk.errors import ProjectError
 from urbanvision_risk.paths import ProjectPaths, get_paths
 from urbanvision_risk.risk.config import load_risk_config, resolved_config_yaml
@@ -27,6 +34,18 @@ DEVICE = "mps"
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 ALLOWED_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
+HIGH_RES_THRESHOLD = 1280
+TILE_SIZE = 1024
+TILE_OVERLAP = 0.20
+TILE_NMS_IOU = 0.50
+TILE_BATCH_SIZE = 2
+CLASS_COLORS = {
+    0: (23, 181, 128),
+    1: (39, 128, 230),
+    2: (237, 167, 39),
+    3: (222, 69, 72),
+    4: (151, 93, 214),
+}
 
 
 def _json_bytes(payload: object) -> bytes:
@@ -118,6 +137,37 @@ def _decode_image(content: bytes, content_type: str) -> Image.Image:
     return normalized
 
 
+def _annotate_image(
+    image: Image.Image,
+    candidates: list[DetectionCandidate],
+) -> Image.Image:
+    annotated = image.copy()
+    draw = ImageDraw.Draw(annotated)
+    line_width = max(3, round(min(image.size) / 320))
+    for candidate in candidates:
+        color = CLASS_COLORS[candidate.class_id]
+        draw.rectangle(candidate.bbox_xyxy, outline=color, width=line_width)
+        code = DETECTION_CLASS_INFO[candidate.class_id]["code"]
+        label = f"{code} {candidate.confidence:.2f}"
+        text_box = draw.textbbox((0, 0), label, stroke_width=1)
+        text_width = text_box[2] - text_box[0]
+        text_height = text_box[3] - text_box[1]
+        x1, y1, _, _ = candidate.bbox_xyxy
+        label_y = max(0.0, y1 - text_height - 8)
+        draw.rectangle(
+            (x1, label_y, x1 + text_width + 10, label_y + text_height + 8),
+            fill=color,
+        )
+        draw.text(
+            (x1 + 5, label_y + 3),
+            label,
+            fill=(255, 255, 255),
+            stroke_width=1,
+            stroke_fill=(0, 0, 0),
+        )
+    return annotated
+
+
 class LocalInspectionService:
     """Load one local model and create immutable single-image inspections."""
 
@@ -178,6 +228,10 @@ class LocalInspectionService:
             "accepted_content_types": sorted(ALLOWED_CONTENT_TYPES),
             "max_upload_mib": MAX_UPLOAD_BYTES // (1024 * 1024),
             "max_image_megapixels": MAX_IMAGE_PIXELS // 1_000_000,
+            "high_resolution_tiling": True,
+            "tile_size": TILE_SIZE,
+            "tile_overlap": TILE_OVERLAP,
+            "tile_batch_size": TILE_BATCH_SIZE,
         }
 
     def annotated_path(self, inspection_id: str) -> Path:
@@ -210,9 +264,17 @@ class LocalInspectionService:
         source_path = output_dir / "source.jpg"
 
         rgb_array = np.asarray(image)
+        width, height = image.size
+        use_tiles = max(width, height) > HIGH_RES_THRESHOLD
+        windows = tile_windows(
+            width,
+            height,
+            tile_size=TILE_SIZE,
+            overlap=TILE_OVERLAP,
+        ) if use_tiles else ()
         try:
             with self._inference_lock:
-                results = list(
+                full_results = list(
                     self.model.predict(
                         source=rgb_array,
                         conf=self.confidence,
@@ -220,20 +282,67 @@ class LocalInspectionService:
                         verbose=False,
                     )
                 )
-            if len(results) != 1:
-                raise ValueError(f"expected one result, received {len(results)}")
-            model_result = results[0]
-            prediction = serialize_result(model_result, self.checkpoint, self.confidence)
-            prediction["source_image"] = str(source_path.resolve())
+                tile_results = []
+                for start in range(0, len(windows), TILE_BATCH_SIZE):
+                    window_batch = windows[start : start + TILE_BATCH_SIZE]
+                    tile_results.extend(
+                        self.model.predict(
+                            source=[
+                                np.ascontiguousarray(rgb_array[y1:y2, x1:x2])
+                                for x1, y1, x2, y2 in window_batch
+                            ],
+                            conf=self.confidence,
+                            device=DEVICE,
+                            imgsz=TILE_SIZE,
+                            verbose=False,
+                        )
+                    )
+            if len(full_results) != 1:
+                raise ValueError(f"expected one full result, received {len(full_results)}")
+            if len(tile_results) != len(windows):
+                raise ValueError(
+                    f"expected {len(windows)} tile results, received {len(tile_results)}"
+                )
+            candidates = extract_candidates(
+                full_results[0],
+                image_width=width,
+                image_height=height,
+            )
+            for result, (x1, y1, _, _) in zip(tile_results, windows, strict=True):
+                candidates.extend(
+                    extract_candidates(
+                        result,
+                        offset_x=x1,
+                        offset_y=y1,
+                        image_width=width,
+                        image_height=height,
+                    )
+                )
+            candidates = class_aware_nms(candidates, iou_threshold=TILE_NMS_IOU)
+            prediction = serialize_detections(
+                (
+                    (candidate.class_id, candidate.confidence, candidate.bbox_xyxy)
+                    for candidate in candidates
+                ),
+                source_image=source_path,
+                width=width,
+                height=height,
+                model_path=self.checkpoint,
+                confidence=self.confidence,
+            )
+            prediction["inference"] = {
+                "mode": "full_and_tiled" if windows else "full_image",
+                "tile_count": len(windows),
+                "tile_size": TILE_SIZE if windows else None,
+                "tile_overlap": TILE_OVERLAP if windows else None,
+                "tile_batch_size": TILE_BATCH_SIZE if windows else None,
+                "nms_iou": TILE_NMS_IOU,
+            }
             record = validate_prediction_payload(
                 prediction, self.risk_config, f"inspection:{inspection_id}"
             )
             source_bytes = _encode_jpeg(image)
-            plotted = np.asarray(model_result.plot())
-            if plotted.ndim != 3 or plotted.shape[2] < 3:
-                raise ValueError("model plot is not a color image")
-            annotated_rgb = np.ascontiguousarray(plotted[:, :, :3][:, :, ::-1])
-            annotated_bytes = _encode_jpeg(Image.fromarray(annotated_rgb))
+            annotated_bytes = _encode_jpeg(_annotate_image(image, candidates))
         except ProjectError:
             raise
         except Exception as error:
@@ -259,6 +368,7 @@ class LocalInspectionService:
             "device": DEVICE,
             "confidence": self.confidence,
             "checkpoint": self.checkpoint.name,
+            "inference": prediction["inference"],
             "risk_formula_version": risk["formula_version"],
             "risk_config_sha256": self.config_sha256,
             "source_jpg_sha256": _sha256(source_bytes),
@@ -295,8 +405,11 @@ class LocalInspectionService:
                 "formula_version",
                 "risk_score",
                 "risk_level",
+                "decision_status",
+                "review_required",
                 "recommendation",
                 "class_breakdown",
+                "auxiliary_observations",
                 "evidence",
                 "audit_flags",
                 "limitation",

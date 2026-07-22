@@ -35,7 +35,7 @@ def _git_commit(root: Path) -> str:
     return completed.stdout.strip()
 
 
-def _resolve_dataset_yaml(paths: ProjectPaths, destination: Path) -> None:
+def _resolve_dataset_yaml(paths: ProjectPaths, destination: Path) -> Path:
     source = paths.configs / "dataset-rdd2022-china-motorbike.yaml"
     payload = yaml.safe_load(source.read_text(encoding="utf-8"))
     dataset_root = (paths.root / payload["path"]).resolve()
@@ -54,6 +54,24 @@ def _resolve_dataset_yaml(paths: ProjectPaths, destination: Path) -> None:
         yaml.safe_dump(payload, sort_keys=False),
         encoding="utf-8",
     )
+    return dataset_root
+
+
+def _resolve_model_source(model: str, paths: ProjectPaths) -> str:
+    if model == "yolo26n.pt":
+        return model
+    candidate = Path(model)
+    resolved = candidate if candidate.is_absolute() else paths.root / candidate
+    if not resolved.is_file():
+        raise ProjectError(
+            "E201",
+            "微调起点模型不存在",
+            "The fine-tuning source model is missing",
+            "先完成基线训练，或检查训练配置中的 model 路径",
+            "Complete baseline training first or inspect the model path in the profile",
+            str(resolved),
+        )
+    return str(resolved.resolve())
 
 
 def train_experiment(
@@ -80,8 +98,8 @@ def train_experiment(
         ) from error
 
     resolved_dataset = run_dir / "dataset-resolved.yaml"
-    _resolve_dataset_yaml(active_paths, resolved_dataset)
-    manifest_path = active_paths.processed / "rdd2022-china-motorbike" / "manifest.json"
+    dataset_root = _resolve_dataset_yaml(active_paths, resolved_dataset)
+    manifest_path = dataset_root / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     factory = model_factory
     if factory is None:
@@ -90,7 +108,8 @@ def train_experiment(
         factory = YOLO
 
     started_at = datetime.now(UTC)
-    model = factory(profile.model)
+    model_source = _resolve_model_source(profile.model, active_paths)
+    model = factory(model_source)
     result = model.train(
         data=str(resolved_dataset),
         project=str(active_paths.experiments),
@@ -116,6 +135,7 @@ def train_experiment(
         "git_commit": git_commit_resolver(active_paths.root),
         "dataset_manifest_digest": manifest["input_digest"],
         "model": profile.model,
+        "resolved_model_source": model_source,
         "parameters": profile.as_train_kwargs(),
         "device": profile.device,
         "library_versions": versions,
@@ -130,7 +150,7 @@ def train_experiment(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Train UrbanVision-Risk / 训练道路缺陷模型")
-    parser.add_argument("--profile", choices=("smoke", "baseline"), required=True)
+    parser.add_argument("--profile", choices=("smoke", "baseline", "repair"), required=True)
     parser.add_argument("--run-name", required=True)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()

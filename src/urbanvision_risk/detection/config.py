@@ -87,7 +87,8 @@ def load_training_profile(name: str, configs_dir: Path) -> TrainingProfile:
         )
     profile = TrainingProfile(**payload)
     valid = (
-        profile.model == "yolo26n.pt"
+        bool(profile.model.strip())
+        and profile.model.endswith(".pt")
         and profile.epochs > 0
         and profile.imgsz > 0
         and profile.batch > 0
@@ -101,8 +102,8 @@ def load_training_profile(name: str, configs_dir: Path) -> TrainingProfile:
     if not valid:
         raise ProjectError(
             "E302",
-            "训练配置值不符合 v0.1 约束",
-            "Training values violate v0.1 constraints",
+            "训练配置值不符合本地训练约束",
+            "Training values violate the local-training constraints",
             "恢复已批准的 smoke 或 baseline 配置",
             "Restore the approved smoke or baseline profile",
             str(path),

@@ -108,8 +108,49 @@ def test_empty_detection_is_zero_not_a_safety_claim() -> None:
     assert result["evidence"]["quality"] == "not_applicable"
     assert result["evidence"]["mean_detection_confidence"] is None
     assert result["evidence"]["minimum_detection_confidence"] is None
+    assert result["decision_status"] == "review_required"
+    assert result["review_required"] is True
+    assert result["audit_flags"][0]["code"] == "zero_detection_inconclusive"
+    assert "must not be inferred" in result["recommendation"]["en"]
     assert "does not replace" in result["limitation"]["en"]
     assert "不能替代" in result["limitation"]["zh"]
+
+
+def test_repair_is_visible_but_never_added_to_damage_score() -> None:
+    repair = {
+        "class_id": 4,
+        "code": "Repair",
+        "name_en": "Previously repaired area",
+        "name_zh": "历史修补区域",
+        "confidence": 0.9,
+        "bbox_xyxy": [0, 0, 50, 50],
+    }
+    repair_payload = payload([])
+    repair_payload["detections"] = [repair]
+    repair_payload["counts"] = {
+        "D00": 0,
+        "D10": 0,
+        "D20": 0,
+        "D40": 0,
+        "Repair": 1,
+    }
+    record = validate_prediction_payload(repair_payload, CONFIG, "repair.json")
+
+    result = score_prediction(
+        record,
+        CONFIG,
+        source_prediction="repair.json",
+        source_sha256="prediction-sha",
+        config_sha256="config-sha",
+    )
+
+    assert result["risk_score"] == 0.0
+    assert result["review_required"] is True
+    assert result["auxiliary_observations"][0]["count"] == 1
+    assert [flag["code"] for flag in result["audit_flags"]] == [
+        "zero_detection_inconclusive",
+        "previous_repair_observed",
+    ]
 
 
 def test_all_classes_saturate_at_one_hundred() -> None:

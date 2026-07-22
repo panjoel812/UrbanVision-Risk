@@ -42,6 +42,7 @@ def test_prepare_dataset_writes_split_labels_and_manifest(tmp_path: Path) -> Non
         "D10": 0,
         "D20": 0,
         "D40": 10,
+        "Repair": 0,
     }
     assert manifest["invalid_records"] == 0
     assert len(manifest["input_digest"]) == 64

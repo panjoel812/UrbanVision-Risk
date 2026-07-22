@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image, UnidentifiedImageError
 
-from urbanvision_risk.data.voc import CLASS_INFO
+from urbanvision_risk.data.voc import DETECTION_CLASS_INFO
 from urbanvision_risk.paths import get_paths
 
 SPLITS = ("train", "val", "test")
@@ -40,7 +40,7 @@ def _validate_label(
         except ValueError:
             errors.append(f"{path}:{line_number}: label values must be numeric")
             continue
-        if class_index not in CLASS_INFO:
+        if class_index not in DETECTION_CLASS_INFO:
             errors.append(f"{path}:{line_number}: unknown class index {class_index}")
             continue
         x_center, y_center, width, height = coordinates
@@ -51,13 +51,15 @@ def _validate_label(
         if width > 1 or height > 1 or x_center < 0 or y_center < 0:
             errors.append(f"{path}:{line_number}: normalized box is outside [0, 1]")
             continue
-        object_counts[CLASS_INFO[class_index]["code"]] += 1
+        object_counts[DETECTION_CLASS_INFO[class_index]["code"]] += 1
 
 
 def validate_prepared_dataset(dataset_root: Path) -> ValidationReport:
     errors: list[str] = []
     image_counts: dict[str, int] = {}
-    object_counts: Counter[str] = Counter({details["code"]: 0 for details in CLASS_INFO.values()})
+    object_counts: Counter[str] = Counter(
+        {details["code"]: 0 for details in DETECTION_CLASS_INFO.values()}
+    )
     seen_stems: dict[str, str] = {}
 
     for split in SPLITS:
@@ -102,7 +104,7 @@ def validate_prepared_dataset(dataset_root: Path) -> ValidationReport:
 
 
 def main() -> int:
-    dataset_root = get_paths().processed / "rdd2022-china-motorbike"
+    dataset_root = get_paths().processed / "rdd2022-china-motorbike-repair-v1.1"
     report = validate_prepared_dataset(dataset_root)
     for split, count in report.image_counts.items():
         print(f"[INFO] {split} 图片数量 / image count: {count}")

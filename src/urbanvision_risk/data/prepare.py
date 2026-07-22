@@ -16,7 +16,11 @@ from urbanvision_risk.data.download import (
 )
 from urbanvision_risk.data.split import split_ids
 from urbanvision_risk.data.validate import validate_prepared_dataset
-from urbanvision_risk.data.voc import CLASS_INFO, parse_voc_annotation, to_yolo_lines
+from urbanvision_risk.data.voc import (
+    DETECTION_CLASS_INFO,
+    parse_voc_annotation,
+    to_yolo_lines,
+)
 from urbanvision_risk.errors import ProjectError, report_error
 from urbanvision_risk.paths import get_paths
 
@@ -161,7 +165,7 @@ def prepare_dataset(
     archive_digest = sha256_file(archive_path)
     digest_inputs: dict[str, object] = {
         "archive_sha256": archive_digest,
-        "classes": CLASS_INFO,
+        "classes": DETECTION_CLASS_INFO,
         "seed": 42,
         "ratios": {"train": 0.8, "val": 0.1, "test": 0.1},
         "splits": split_members,
@@ -191,7 +195,7 @@ def main(debug: bool = False) -> int:
         manifest = prepare_dataset(
             raw_root=paths.raw / RAW_RELATIVE_PATH,
             archive_path=paths.downloads / ARCHIVE_NAME,
-            output_root=paths.processed / "rdd2022-china-motorbike",
+            output_root=paths.processed / "rdd2022-china-motorbike-repair-v1.1",
         )
         print(
             "[PASS] 数据准备完成 / Dataset preparation complete\n"

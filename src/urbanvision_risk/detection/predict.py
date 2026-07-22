@@ -3,24 +3,34 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
-from urbanvision_risk.data.voc import CLASS_INFO
+from urbanvision_risk.data.voc import DETECTION_CLASS_INFO
 from urbanvision_risk.detection.config import validate_run_name
 from urbanvision_risk.errors import ProjectError, report_error
 from urbanvision_risk.paths import ProjectPaths, get_paths
 
+DetectionTuple = tuple[int, float, tuple[float, float, float, float]]
 
-def serialize_result(result: Any, model_path: Path, confidence: float) -> dict[str, object]:
-    counts: Counter[str] = Counter({details["code"]: 0 for details in CLASS_INFO.values()})
+
+def serialize_detections(
+    detections_input: Iterable[DetectionTuple],
+    *,
+    source_image: str | Path,
+    width: int,
+    height: int,
+    model_path: Path,
+    confidence: float,
+) -> dict[str, object]:
+    counts: Counter[str] = Counter(
+        {details["code"]: 0 for details in DETECTION_CLASS_INFO.values()}
+    )
     detections: list[dict[str, object]] = []
-    for box in result.boxes:
-        class_id = int(box.cls[0].item())
-        score = float(box.conf[0].item())
-        coordinates = [float(value) for value in box.xyxy[0].tolist()]
-        details = CLASS_INFO[class_id]
+    for class_id, score, raw_coordinates in detections_input:
+        coordinates = [float(value) for value in raw_coordinates]
+        details = DETECTION_CLASS_INFO[class_id]
         counts[details["code"]] += 1
         detections.append(
             {
@@ -32,9 +42,8 @@ def serialize_result(result: Any, model_path: Path, confidence: float) -> dict[s
                 "bbox_xyxy": coordinates,
             }
         )
-    height, width = result.orig_shape
     payload: dict[str, object] = {
-        "source_image": str(Path(result.path).resolve()),
+        "source_image": str(Path(source_image).resolve()),
         "model_checkpoint": str(model_path.resolve()),
         "confidence_threshold": confidence,
         "image_dimensions": {"width": int(width), "height": int(height)},
@@ -42,9 +51,32 @@ def serialize_result(result: Any, model_path: Path, confidence: float) -> dict[s
         "counts": dict(counts),
     }
     if not detections:
-        payload["message_zh"] = "在当前置信度阈值下未检测到道路缺陷"
-        payload["message_en"] = "No road damage was detected at the current confidence threshold"
+        payload["message_zh"] = "当前模型未返回检测结果；这不等于道路无缺陷，必须人工复核"
+        payload["message_en"] = (
+            "The model returned no detections; this does not prove the road is defect-free "
+            "and requires human review"
+        )
     return payload
+
+
+def serialize_result(result: Any, model_path: Path, confidence: float) -> dict[str, object]:
+    detections = (
+        (
+            int(box.cls[0].item()),
+            float(box.conf[0].item()),
+            tuple(float(value) for value in box.xyxy[0].tolist()),
+        )
+        for box in result.boxes
+    )
+    height, width = result.orig_shape
+    return serialize_detections(
+        detections,
+        source_image=result.path,
+        width=int(width),
+        height=int(height),
+        model_path=model_path,
+        confidence=confidence,
+    )
 
 
 def predict_source(

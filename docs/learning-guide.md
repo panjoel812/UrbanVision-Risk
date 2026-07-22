@@ -129,3 +129,17 @@ Command / 命令: `uv run python -m urbanvision_risk.risk.assess --run-name chin
 Expected / 预期: 198 per-image risk JSON files, a deterministic ranking CSV, a batch summary, and the resolved configuration; no YOLO inference log.
 
 **复习问题 / Review question:** Why must confidence remain separate from risk_score? / 为什么置信度必须与 risk_score 分开？
+
+## Lesson 10 — Offline Interactive Report / 离线交互报告
+
+**中文：** v0.3 不重新计算风险，而是验证并读取 `risk-001`。它把摘要、排序、单图解释和已有标注图片装入一个本地 HTML 报告。搜索、筛选、排序和语言切换只发生在浏览器中，不修改 JSON、图片或分数。
+
+**English:** v0.3 does not recalculate risk; it validates and reads `risk-001`. It packages the summary, ranking, per-image explanations, and existing annotated images into a local HTML report. Search, filters, sorting, and language switching happen only in the browser and do not change JSON, images, or scores.
+
+File / 文件: `src/urbanvision_risk/reporting/build.py`, `src/urbanvision_risk/reporting/dashboard.py`
+
+Command / 命令: `uv run python -m urbanvision_risk.reporting.build --run-name china-baseline-001 --prediction-name prediction-001 --risk-name risk-001 --output-name report-001`
+
+Expected / 预期: `index.html` and `report-manifest.json`; the HTML opens locally without a server or network connection.
+
+**复习问题 / Review question:** Why should the report validate every source artifact before creating output? / 为什么报告必须在创建输出前验证全部源文件？

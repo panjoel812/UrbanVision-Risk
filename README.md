@@ -1,8 +1,8 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 项目。v0.1 完成道路缺陷检测，v0.2 把预测转换成可解释、可审计的人工维护复核优先级。
+**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 项目。v0.1 完成道路缺陷检测，v0.2 计算可审计的人工维护复核优先级，v0.3 生成完全离线的双语交互报告。
 
-**English:** An on-device AI project for urban-infrastructure inspection and risk assessment. Version 0.1 detects road damage; v0.2 turns predictions into explainable, auditable priorities for human maintenance review.
+**English:** An on-device AI project for urban-infrastructure inspection and risk assessment. Version 0.1 detects road damage, v0.2 calculates auditable priorities for human maintenance review, and v0.3 generates a fully offline bilingual interactive report.
 
 ## v0.1 Scope / v0.1 范围
 
@@ -38,6 +38,9 @@ uv run python -m urbanvision_risk.detection.predict --run-name china-baseline-00
 
 # v0.2: score an existing prediction batch; this does not rerun YOLO
 uv run python -m urbanvision_risk.risk.assess --run-name china-baseline-001 --prediction-name prediction-001 --output-name risk-001
+
+# v0.3: build an offline bilingual dashboard; this does not need a server
+uv run python -m urbanvision_risk.reporting.build --run-name china-baseline-001 --prediction-name prediction-001 --risk-name risk-001 --output-name report-001
 ```
 
 ## Generated Artifacts / 生成物
@@ -47,6 +50,7 @@ uv run python -m urbanvision_risk.risk.assess --run-name china-baseline-001 --pr
 - `results/evaluations/<run>/evaluation.json`: held-out metrics / 留出集指标。
 - `results/predictions/<run>/<output>/`: annotated JPG and JSON / 带框图片与 JSON。
 - `results/risks/<run>/<prediction>/<output>/`: per-image risk JSON, deterministic ranking, summary, and resolved config / 单图风险 JSON、确定性排序、摘要和实际配置。
+- `results/reports/<run>/<prediction>/<risk>/<output>/`: offline bilingual HTML dashboard and provenance manifest / 离线双语 HTML 仪表板和来源清单。
 
 ## Learning Guide / 学习指南
 
@@ -57,6 +61,10 @@ Read [`docs/learning-guide.md`](docs/learning-guide.md) for bilingual explanatio
 The v0.2 formula, output schema, recovery steps, and safety boundary are explained in [`docs/risk-engine-guide.md`](docs/risk-engine-guide.md).
 
 v0.2 的公式、输出结构、恢复步骤和安全边界见 [`docs/risk-engine-guide.md`](docs/risk-engine-guide.md)。
+
+The v0.3 offline dashboard workflow is explained in [`docs/local-report-guide.md`](docs/local-report-guide.md).
+
+v0.3 离线仪表板流程见 [`docs/local-report-guide.md`](docs/local-report-guide.md)。
 
 ## Data and Citation / 数据与引用
 

@@ -129,3 +129,18 @@ def test_overflowed_coordinate_is_e403() -> None:
 
     with pytest.raises(ProjectError, match="E403"):
         validate_prediction_payload(payload, CONFIG, "sample.json")
+
+
+def test_image_area_too_large_for_finite_float_is_bilingual_e403() -> None:
+    payload = prediction_payload()
+    payload["image_dimensions"] = {"width": 10**1000, "height": 1}
+    payload["detections"] = []
+    payload["counts"] = {"D00": 0, "D10": 0, "D20": 0, "D40": 0}
+
+    with pytest.raises(ProjectError) as caught:
+        validate_prediction_payload(payload, CONFIG, "huge.json")
+
+    assert caught.value.code == "E403"
+    assert "互相矛盾" in caught.value.message_zh
+    assert "inconsistent" in caught.value.message_en
+    assert "image_dimensions.width*height" in caught.value.context

@@ -10,6 +10,11 @@ from urbanvision_risk.risk.geometry import Rectangle, rectangle_union_area
 from urbanvision_risk.risk.schema import PredictionRecord
 
 
+def _display_number(value: float) -> str:
+    """Render a validated formula parameter without misleading fixed defaults."""
+    return format(value, ".12g")
+
+
 def score_prediction(
     record: PredictionRecord,
     config: RiskConfig,
@@ -57,6 +62,7 @@ def score_prediction(
     risk_level = config.risk_level(risk_score)
     confidences = [detection.confidence for detection in record.detections]
     mean_confidence = statistics.fmean(confidences) if confidences else None
+    minimum_confidence = min(confidences) if confidences else None
     evidence_quality = config.evidence_quality(mean_confidence)
     clipped_count = sum(detection.clipped for detection in record.detections)
     audit_flags: list[dict[str, str]] = []
@@ -71,11 +77,14 @@ def score_prediction(
     if evidence_quality == "low":
         audit_flags.append(
             {
-                "code": "low_evidence_quality",
+                "code": "low_confidence_evidence",
                 "en": "Mean detection confidence is low; prioritize human review.",
                 "zh": "平均检测置信度较低；请优先人工复核。",
             }
         )
+
+    count_mix_display = _display_number(config.count_mix)
+    coverage_mix_display = _display_number(config.coverage_mix)
 
     return {
         "formula_version": config.formula_version,
@@ -94,14 +103,32 @@ def score_prediction(
             "mean_detection_confidence": (
                 round(mean_confidence, 6) if mean_confidence is not None else None
             ),
+            "minimum_detection_confidence": (
+                round(minimum_confidence, 6) if minimum_confidence is not None else None
+            ),
             "quality": evidence_quality,
             "en": "Confidence describes evidence quality and never changes risk_score.",
             "zh": "置信度只描述证据质量，绝不改变 risk_score。",
         },
         "audit_flags": audit_flags,
         "formula": {
-            "en": "Per class: max_points * (0.35 * count_factor + 0.65 * coverage_factor).",
-            "zh": "每类: 最高分 * (0.35 * 数量因子 + 0.65 * 覆盖因子)。",
+            "en": (
+                "Per class: max_points * "
+                f"({count_mix_display} * count_factor + "
+                f"{coverage_mix_display} * coverage_factor)."
+            ),
+            "zh": (
+                "每类: 最高分 * "
+                f"({count_mix_display} * 数量因子 + "
+                f"{coverage_mix_display} * 覆盖因子)。"
+            ),
+            "parameters": {
+                "count_cap": config.count_cap,
+                "reference_coverage": config.reference_coverage,
+                "count_mix": config.count_mix,
+                "coverage_mix": config.coverage_mix,
+                "class_max_points": dict(config.class_max_points),
+            },
         },
         "limitation": dict(config.limitation),
     }

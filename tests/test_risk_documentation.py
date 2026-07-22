@@ -47,6 +47,9 @@ def test_risk_workflow_is_bilingual_and_safety_bounded() -> None:
     assert "1 个像素" in guide
     assert "confidence never changes risk_score" in guide
     assert "置信度绝不改变 risk_score" in guide
+    assert "mean and minimum detection confidence" in guide
+    assert "平均和最低检测置信度" in guide
+    assert "low_confidence_evidence" in guide
     for artifact in (
         "per-image/*-risk.json",
         "ranking.csv",

@@ -50,9 +50,9 @@ Risk levels / 风险等级：low `[0,20)`、moderate `[20,40)`、high `[40,70)`�
 
 ## Confidence is separate / 置信度单独处理
 
-Detection confidence describes evidence quality; confidence never changes risk_score. Evidence bands are low `[0,0.50)`, moderate `[0.50,0.75)`, and high `[0.75,1]`. No detections means evidence quality is `not_applicable`.
+Detection confidence describes evidence quality; confidence never changes risk_score. Every non-empty result reports the mean and minimum detection confidence. Evidence bands use the mean: low `[0,0.50)`, moderate `[0.50,0.75)`, and high `[0.75,1]`. Low mean confidence adds the `low_confidence_evidence` audit flag. No detections means evidence quality is `not_applicable`, with both confidence values set to `null`.
 
-检测置信度描述证据质量；置信度绝不改变 risk_score。证据质量区间为：低 `[0,0.50)`、中等 `[0.50,0.75)`、高 `[0.75,1]`；没有检测结果时证据质量为 `not_applicable`。
+检测置信度描述证据质量；置信度绝不改变 risk_score。每个非空结果都会报告平均和最低检测置信度。证据质量按平均值划分：低 `[0,0.50)`、中等 `[0.50,0.75)`、高 `[0.75,1]`；低平均置信度会增加 `low_confidence_evidence` 审计标记。没有检测结果时证据质量为 `not_applicable`，两个置信度值均为 `null`。
 
 This separation is important: a model can be confident about a small defect, or uncertain about a large one. Human review should see both facts.
 
@@ -63,7 +63,7 @@ This separation is important: a model can be confident about a small defect, or 
 `results/risks/china-baseline-001/prediction-001/risk-001/` contains / 包含：
 
 - `per-image/*-risk.json`: score, class contributions, provenance hashes, evidence, flags, and bilingual recommendation / 分数、类别贡献、来源哈希、证据、审计标记和双语建议；
-- `ranking.csv`: descending score order with filename as deterministic tie-breaker / 按分数降序，同分时按文件名稳定排序；
+- `ranking.csv`: descending score order, mean/minimum confidence, and filename as deterministic tie-breaker / 按分数降序，包含平均/最低置信度，同分时按文件名稳定排序；
 - `risk-summary.json`: batch digest, statistics, counts, and top ten / 批次摘要哈希、统计、计数和前十名；
 - `risk-config-resolved.yaml`: the exact validated settings used / 本次实际使用且验证过的完整配置。
 

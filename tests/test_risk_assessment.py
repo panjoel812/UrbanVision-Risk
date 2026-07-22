@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import pytest
 from urbanvision_risk.errors import ProjectError
 from urbanvision_risk.paths import ProjectPaths, get_paths
 from urbanvision_risk.risk.assess import assess_predictions
+from urbanvision_risk.risk.config import load_risk_config, resolved_config_yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "configs" / "risk-v0.2.yaml"
@@ -58,8 +60,8 @@ def assess(paths: ProjectPaths, output_name: str = "risk-001") -> Path:
 
 def test_batch_writes_ranked_auditable_artifacts(tmp_path: Path) -> None:
     paths = get_paths(tmp_path)
-    write_prediction(paths, "b.json", prediction_payload([0, 0, 10, 10]))
-    write_prediction(paths, "a.json", prediction_payload([0, 0, 10, 10]))
+    b_path = write_prediction(paths, "b.json", prediction_payload([0, 0, 10, 10]))
+    a_path = write_prediction(paths, "a.json", prediction_payload([0, 0, 10, 10]))
 
     output = assess(paths)
 
@@ -69,16 +71,103 @@ def test_batch_writes_ranked_auditable_artifacts(tmp_path: Path) -> None:
     assert (output / "ranking.csv").is_file()
     assert (output / "risk-config-resolved.yaml").is_file()
     with (output / "ranking.csv").open(encoding="utf-8", newline="") as handle:
-        rows = list(csv.DictReader(handle))
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+    assert reader.fieldnames == [
+        "rank",
+        "source_prediction",
+        "source_image",
+        "risk_score",
+        "risk_level",
+        "evidence_quality",
+        "mean_detection_confidence",
+        "minimum_detection_confidence",
+        "D00_count",
+        "D00_coverage_ratio",
+        "D00_score_contribution",
+        "D10_count",
+        "D10_coverage_ratio",
+        "D10_score_contribution",
+        "D20_count",
+        "D20_coverage_ratio",
+        "D20_score_contribution",
+        "D40_count",
+        "D40_coverage_ratio",
+        "D40_score_contribution",
+    ]
     assert [row["source_prediction"] for row in rows] == ["a.json", "b.json"]
     assert rows[0]["D40_count"] == "1"
     assert "D40_coverage_ratio" in rows[0]
     assert "D40_score_contribution" in rows[0]
+    assert rows[0]["minimum_detection_confidence"] == "0.8"
+
+    aggregate = hashlib.sha256()
+    for source_path in (a_path, b_path):
+        source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        aggregate.update(source_path.name.encode("utf-8"))
+        aggregate.update(b"\0")
+        aggregate.update(source_sha256.encode("ascii"))
+        aggregate.update(b"\n")
+    expected_input_digest = aggregate.hexdigest()
+    resolved_yaml = resolved_config_yaml(load_risk_config(CONFIG_PATH)).encode("utf-8")
+    expected_config_digest = hashlib.sha256(resolved_yaml).hexdigest()
+
     summary = json.loads((output / "risk-summary.json").read_text(encoding="utf-8"))
+    assert summary["run_name"] == "china-baseline-001"
+    assert summary["prediction_name"] == "prediction-001"
+    assert summary["output_name"] == "risk-001"
+    assert summary["source_directory"] == str(a_path.parent.resolve())
     assert summary["file_count"] == 2
-    assert len(summary["input_digest_sha256"]) == 64
-    assert len(summary["resolved_config_sha256"]) == 64
-    assert summary["top_priority"][0]["source_prediction"] == "a.json"
+    assert summary["input_digest_sha256"] == expected_input_digest
+    assert summary["resolved_config_sha256"] == expected_config_digest
+    assert summary["formula_version"] == "risk-v0.2.0"
+    assert summary["score_statistics"] == {
+        "minimum": 14.4,
+        "mean": 14.4,
+        "median": 14.4,
+        "maximum": 14.4,
+    }
+    assert summary["risk_level_counts"] == {
+        "low": 2,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+    }
+    assert summary["evidence_quality_counts"] == {
+        "not_applicable": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 2,
+    }
+    assert summary["detection_counts"] == {"D00": 0, "D10": 0, "D20": 0, "D40": 2}
+    assert summary["top_priority"] == [
+        {
+            "rank": 1,
+            "source_prediction": "a.json",
+            "risk_score": 14.4,
+            "risk_level": "low",
+        },
+        {
+            "rank": 2,
+            "source_prediction": "b.json",
+            "risk_score": 14.4,
+            "risk_level": "low",
+        },
+    ]
+    assert (output / "risk-config-resolved.yaml").read_bytes() == resolved_yaml
+
+
+def test_higher_score_ranks_before_lexically_earlier_filename(tmp_path: Path) -> None:
+    paths = get_paths(tmp_path)
+    write_prediction(paths, "a.json", prediction_payload([0, 0, 10, 10]))
+    write_prediction(paths, "z.json", prediction_payload([0, 0, 30, 30]))
+
+    output = assess(paths)
+
+    with (output / "ranking.csv").open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [row["source_prediction"] for row in rows] == ["z.json", "a.json"]
+    assert float(rows[0]["risk_score"]) > float(rows[1]["risk_score"])
 
 
 def test_missing_prediction_directory_uses_e201(tmp_path: Path) -> None:
@@ -144,13 +233,20 @@ def test_new_output_name_reproduces_scores_and_digests(tmp_path: Path) -> None:
     first = assess(paths, "risk-001")
     second = assess(paths, "risk-002")
 
-    first_risk = json.loads((first / "per-image" / "a-risk.json").read_text())
-    second_risk = json.loads((second / "per-image" / "a-risk.json").read_text())
+    assert (first / "per-image" / "a-risk.json").read_bytes() == (
+        second / "per-image" / "a-risk.json"
+    ).read_bytes()
+    assert (first / "ranking.csv").read_bytes() == (second / "ranking.csv").read_bytes()
+    assert (first / "risk-config-resolved.yaml").read_bytes() == (
+        second / "risk-config-resolved.yaml"
+    ).read_bytes()
     first_summary = json.loads((first / "risk-summary.json").read_text())
     second_summary = json.loads((second / "risk-summary.json").read_text())
-    assert first_risk == second_risk
-    assert first_summary["input_digest_sha256"] == second_summary["input_digest_sha256"]
-    assert first_summary["resolved_config_sha256"] == second_summary["resolved_config_sha256"]
+    first_summary.pop("created_at_utc")
+    second_summary.pop("created_at_utc")
+    assert first_summary.pop("output_name") == "risk-001"
+    assert second_summary.pop("output_name") == "risk-002"
+    assert first_summary == second_summary
 
 
 def test_write_failure_preserves_partial_output(

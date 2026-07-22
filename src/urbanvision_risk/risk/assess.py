@@ -77,6 +77,7 @@ def _ranking_fields() -> list[str]:
         "risk_level",
         "evidence_quality",
         "mean_detection_confidence",
+        "minimum_detection_confidence",
     ]
     for details in CLASS_INFO.values():
         code = details["code"]
@@ -100,6 +101,7 @@ def _ranking_row(rank: int, result: dict[str, Any]) -> dict[str, object]:
         "risk_level": result["risk_level"],
         "evidence_quality": evidence["quality"],
         "mean_detection_confidence": evidence["mean_detection_confidence"],
+        "minimum_detection_confidence": evidence["minimum_detection_confidence"],
     }
     for item in result["class_breakdown"]:
         code = item["code"]

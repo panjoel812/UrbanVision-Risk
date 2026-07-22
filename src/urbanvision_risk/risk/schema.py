@@ -111,6 +111,12 @@ def validate_prediction_payload(
     height = _integer(dimensions["height"], context, "image_dimensions.height")
     if width <= 0 or height <= 0:
         raise _semantic(context, "image_dimensions")
+    try:
+        image_area = float(width * height)
+    except OverflowError:
+        raise _semantic(context, "image_dimensions.width*height") from None
+    if not math.isfinite(image_area):
+        raise _semantic(context, "image_dimensions.width*height")
 
     confidence_threshold = _number(root["confidence_threshold"], context, "confidence_threshold")
     if not 0 <= confidence_threshold <= 1:

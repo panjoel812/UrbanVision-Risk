@@ -98,6 +98,9 @@ def test_low_evidence_uses_canonical_audit_flag() -> None:
     result = scored([detection(confidence=0.3)])
 
     assert [flag["code"] for flag in result["audit_flags"]] == ["low_confidence_evidence"]
+    assert result["decision_status"] == "review_required"
+    assert result["review_required"] is True
+    assert "low-confidence" in result["recommendation"]["en"]
 
 
 def test_empty_detection_is_zero_not_a_safety_claim() -> None:

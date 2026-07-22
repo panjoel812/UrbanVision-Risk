@@ -61,11 +61,11 @@ The model is loaded once when the server starts. Each upload is normalized for E
 - bilingual recommendation and safety limitation / 双语建议与安全限制；
 - immutable local inspection ID / 不可覆盖的本地巡检编号。
 
-## Zero detection is not low risk / 零检测不等于低风险
+## Uncertain evidence is not low risk / 不确定证据不等于低风险
 
-When none of the four scored damage classes is detected, the numeric formula still has an auditable raw value of zero, but the page withholds the score and displays **Human review required / 需要人工复核**. This is intentional: a model can miss an obvious defect, and absence of a bounding box is not evidence of a safe road.
+When none of the four scored damage classes is detected, or when mean detection confidence is low, the page withholds the score and displays **Human review required / 需要人工复核**. The numeric formula remains in `risk.json` as an audit value. This is intentional: a model can miss an obvious defect, and uncertain bounding boxes are not evidence of a safe road.
 
-四类计分缺陷均未检测到时，公式仍保留可审计的原始零值，但页面不会展示 `0.0 低优先级`，而是显示 **需要人工复核**。这是刻意的安全设计：模型可能漏掉肉眼明显的缺陷，没有检测框不能证明道路安全。
+四类计分缺陷均未检测到，或平均检测置信度较低时，页面不会展示“低优先级”，而是显示 **需要人工复核**；公式数值只在 `risk.json` 中作为审计值保留。这是刻意的安全设计：模型可能漏掉肉眼明显的缺陷，不确定的检测框也不能证明道路安全。
 
 ## Five saved artifacts / 五份保存文件
 

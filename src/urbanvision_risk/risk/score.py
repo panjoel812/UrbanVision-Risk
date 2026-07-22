@@ -64,14 +64,15 @@ def score_prediction(
         record.counts.get(details["code"], 0) for details in CLASS_INFO.values()
     )
     repair_count = record.counts.get("Repair", 0)
-    review_required = damage_detection_count == 0
+    zero_damage_detection = damage_detection_count == 0
     confidences = [detection.confidence for detection in record.detections]
     mean_confidence = statistics.fmean(confidences) if confidences else None
     minimum_confidence = min(confidences) if confidences else None
     evidence_quality = config.evidence_quality(mean_confidence)
+    review_required = zero_damage_detection or evidence_quality == "low"
     clipped_count = sum(detection.clipped for detection in record.detections)
     audit_flags: list[dict[str, str]] = []
-    if review_required:
+    if zero_damage_detection:
         audit_flags.append(
             {
                 "code": "zero_detection_inconclusive",
@@ -119,8 +120,8 @@ def score_prediction(
     count_mix_display = _display_number(config.count_mix)
     coverage_mix_display = _display_number(config.coverage_mix)
 
-    recommendation = (
-        {
+    if zero_damage_detection:
+        recommendation = {
             "en": (
                 "Human review required. The model returned no scored damage class, so a low "
                 "maintenance priority must not be inferred from the numeric zero."
@@ -129,9 +130,19 @@ def score_prediction(
                 "需要人工复核。模型没有返回计分缺陷类别，不能根据数值零推断为低维护优先级。"
             ),
         }
-        if review_required
-        else dict(config.recommendations[risk_level])
-    )
+    elif evidence_quality == "low":
+        recommendation = {
+            "en": (
+                "Human review required because detection evidence is low-confidence. The numeric "
+                "score is retained for audit, not presented as a final maintenance priority."
+            ),
+            "zh": (
+                "检测证据置信度较低，需要人工复核。数值分数仅为审计保留值，"
+                "不作为最终维护优先级展示。"
+            ),
+        }
+    else:
+        recommendation = dict(config.recommendations[risk_level])
 
     return {
         "formula_version": config.formula_version,

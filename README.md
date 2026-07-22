@@ -1,8 +1,8 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 系统。v1.1 在完全本地闭环上增加高清重叠分块推理、历史修补区域观察类，以及“零检测必须人工复核”的安全保护，避免把模型漏检误写成低风险。
+**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 系统。v1.1 在完全本地闭环上增加高清重叠分块推理、历史修补区域观察类，以及“零检测或低置信度必须人工复核”的安全保护，避免把不确定结果误写成低风险。
 
-**English:** An on-device AI system for urban-infrastructure inspection and risk assessment. Version 1.1 adds overlapping high-resolution inference, an auxiliary observation for previously repaired areas, and a zero-detection human-review safeguard so model misses are never presented as low risk.
+**English:** An on-device AI system for urban-infrastructure inspection and risk assessment. Version 1.1 adds overlapping high-resolution inference, an auxiliary observation for previously repaired areas, and a human-review safeguard for zero or low-confidence detections so uncertain results are never presented as low risk.
 
 ## v1.1 Quick Start / v1.1 快速启动
 
@@ -47,6 +47,7 @@ uv run python -m urbanvision_risk.detection.train --profile smoke --run-name smo
 uv run python -m urbanvision_risk.detection.train --profile baseline --run-name china-baseline-001
 uv run python -m urbanvision_risk.detection.train --profile repair --run-name china-repair-mps-003
 uv run python -m urbanvision_risk.detection.evaluate --run-name china-baseline-001
+uv run python -m urbanvision_risk.detection.evaluate --run-name china-repair-mps-003
 uv run python -m urbanvision_risk.detection.predict --run-name china-repair-mps-003 --source data/processed/rdd2022-china-motorbike-repair-v1.1/images/test
 
 # v0.2: score an existing prediction batch; this does not rerun YOLO
@@ -55,7 +56,7 @@ uv run python -m urbanvision_risk.risk.assess --run-name china-baseline-001 --pr
 # v0.3: build an offline bilingual dashboard; this does not need a server
 uv run python -m urbanvision_risk.reporting.build --run-name china-baseline-001 --prediction-name prediction-001 --risk-name risk-001 --output-name report-001
 
-# v1.1: full-image + overlapping tiled inference with a zero-detection safeguard
+# v1.1: full-image + overlapping tiled inference with an uncertainty safeguard
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 

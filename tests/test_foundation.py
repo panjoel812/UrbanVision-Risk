@@ -50,3 +50,7 @@ def test_get_paths_uses_supplied_repository_root(tmp_path: Path) -> None:
 
 def test_get_paths_exposes_risk_results(tmp_path: Path) -> None:
     assert get_paths(tmp_path).risks == tmp_path / "results" / "risks"
+
+
+def test_get_paths_exposes_v1_inspection_results(tmp_path: Path) -> None:
+    assert get_paths(tmp_path).inspections == tmp_path / "results" / "inspections"

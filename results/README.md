@@ -5,6 +5,7 @@
 - `predictions/`: annotated JPG files and matching JSON / 带框 JPG 与匹配 JSON。
 - `risks/`: explainable per-image maintenance priorities, deterministic ranking CSV, batch summary, and resolved configuration / 可解释单图维护优先级、确定性排序 CSV、批次摘要和实际配置。
 - `reports/`: fully offline bilingual HTML dashboards and provenance manifests / 完全离线的双语 HTML 仪表板和来源清单。
+- `inspections/`: immutable v1.0 single-image source, annotation, prediction, risk, and provenance artifacts / 不可覆盖的 v1.0 单图原图、标注、预测、风险和来源文件。
 
 Every run name is unique. Existing results are never silently overwritten.
 

@@ -26,11 +26,11 @@ def test_readme_contains_the_real_milestone_commands() -> None:
     assert "English" in readme
 
 
-def test_learning_guide_contains_ten_lessons() -> None:
+def test_learning_guide_contains_eleven_lessons() -> None:
     guide = (ROOT / "docs" / "learning-guide.md").read_text(encoding="utf-8")
 
-    assert guide.count("## Lesson ") == 10
-    assert guide.count("复习问题 / Review question") == 10
+    assert guide.count("## Lesson ") == 11
+    assert guide.count("复习问题 / Review question") == 11
 
 
 def test_committed_fixture_image_matches_xml() -> None:

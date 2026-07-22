@@ -4,23 +4,27 @@ build-backend = "hatchling.build"
 
 [project]
 name = "urbanvision-risk"
-version = "0.1.0"
-description = "Fully local road-damage detection and risk-research foundation"
+version = "1.0.0"
+description = "Fully local road-damage detection, risk assessment, and inspection app"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 license = { text = "AGPL-3.0-or-later" }
 authors = [{ name = "UrbanVision-Risk Contributors" }]
 dependencies = [
+  "fastapi>=0.115,<1",
   "numpy>=2.0,<3",
   "opencv-python>=4.10,<5",
   "pillow>=11,<13",
   "pyyaml>=6,<7",
+  "python-multipart>=0.0.20,<1",
   "torch>=2.7,<3",
   "ultralytics>=8.4,<9",
+  "uvicorn>=0.34,<1",
 ]
 
 [project.optional-dependencies]
 dev = [
+  "httpx2>=2,<3",
   "pytest>=8.4,<10",
   "ruff>=0.12,<1",
 ]

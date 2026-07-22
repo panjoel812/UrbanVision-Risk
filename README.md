@@ -1,8 +1,19 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 项目。v0.1 完成道路缺陷检测，v0.2 计算可审计的人工维护复核优先级，v0.3 生成完全离线的双语交互报告。
+**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 系统。v1.0 已完成从本地网页上传，到 YOLO/MPS 缺陷检测、可解释维护优先级、标注图片和审计记录的完整闭环；批量离线报告继续保留。
 
-**English:** An on-device AI project for urban-infrastructure inspection and risk assessment. Version 0.1 detects road damage, v0.2 calculates auditable priorities for human maintenance review, and v0.3 generates a fully offline bilingual interactive report.
+**English:** An on-device AI system for urban-infrastructure inspection and risk assessment. Version 1.0 completes the full local loop from browser upload through YOLO/MPS detection, explainable maintenance priority, annotated imagery, and auditable records, while retaining the offline batch report.
+
+## v1.0 Quick Start / v1.0 快速启动
+
+```bash
+uv sync --extra dev
+uv run python -m urbanvision_risk.app.serve --run-name china-baseline-001
+```
+
+Open `http://127.0.0.1:8000` and upload one JPEG, PNG, or WebP road image. Press `Control+C` in the terminal to stop. The app binds only to the local loopback interface and makes no cloud or paid-API call.
+
+打开 `http://127.0.0.1:8000`，上传一张 JPEG、PNG 或 WebP 道路图片。回到终端按 `Control+C` 停止。应用只监听本机回环地址，不调用云服务或付费 API。
 
 ## v0.1 Scope / v0.1 范围
 
@@ -17,11 +28,11 @@ The project uses uv-managed Python 3.11 and never replaces macOS `/usr/bin/pytho
 
 项目使用 uv 管理的 Python 3.11，不替换 macOS `/usr/bin/python3`。原始数据不可变，命令不永久删除数据，也不静默覆盖实验。
 
-## Learner Workflow / 学习者流程
+## Reproduction Workflow / 完整复现实验
 
-Run one command at a time. Return the complete terminal output for explanation before continuing.
+The commands below reproduce the project from environment setup through the final app. Code, tests, and documentation are completed as one batch; these commands are retained for learning and independent reproduction.
 
-一次只运行一条命令。继续之前，把完整终端输出发回以便解释。
+以下命令用于从环境准备完整复现到最终应用。代码、测试和文档采用整批完成方式；保留这些命令是为了学习和独立复现实验。
 
 ```bash
 uv python install 3.11
@@ -41,6 +52,9 @@ uv run python -m urbanvision_risk.risk.assess --run-name china-baseline-001 --pr
 
 # v0.3: build an offline bilingual dashboard; this does not need a server
 uv run python -m urbanvision_risk.reporting.build --run-name china-baseline-001 --prediction-name prediction-001 --risk-name risk-001 --output-name report-001
+
+# v1.0: upload one image and complete detection + risk + visualization locally
+uv run python -m urbanvision_risk.app.serve --run-name china-baseline-001
 ```
 
 ## Generated Artifacts / 生成物
@@ -51,6 +65,7 @@ uv run python -m urbanvision_risk.reporting.build --run-name china-baseline-001 
 - `results/predictions/<run>/<output>/`: annotated JPG and JSON / 带框图片与 JSON。
 - `results/risks/<run>/<prediction>/<output>/`: per-image risk JSON, deterministic ranking, summary, and resolved config / 单图风险 JSON、确定性排序、摘要和实际配置。
 - `results/reports/<run>/<prediction>/<risk>/<output>/`: offline bilingual HTML dashboard and provenance manifest / 离线双语 HTML 仪表板和来源清单。
+- `results/inspections/<run>/<inspection-id>/`: normalized source, annotated image, prediction, risk record, and provenance manifest / 规范化原图、标注图、预测、风险记录和来源清单。
 
 ## Learning Guide / 学习指南
 
@@ -65,6 +80,10 @@ v0.2 的公式、输出结构、恢复步骤和安全边界见 [`docs/risk-engin
 The v0.3 offline dashboard workflow is explained in [`docs/local-report-guide.md`](docs/local-report-guide.md).
 
 v0.3 离线仪表板流程见 [`docs/local-report-guide.md`](docs/local-report-guide.md)。
+
+The completed v1.0 local upload app is explained in [`docs/local-app-guide.md`](docs/local-app-guide.md).
+
+完整的 v1.0 本地上传应用见 [`docs/local-app-guide.md`](docs/local-app-guide.md)。
 
 ## Data and Citation / 数据与引用
 

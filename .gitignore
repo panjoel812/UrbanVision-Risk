@@ -17,5 +17,6 @@ results/evaluations/
 results/predictions/
 results/risks/
 results/reports/
+results/inspections/
 *.pt
 *.part

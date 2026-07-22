@@ -1,8 +1,8 @@
-# UrbanVision-Risk v0.1 Learning Guide / 学习指南
+# UrbanVision-Risk v1.0 Learning Guide / 学习指南
 
-This guide connects each concept to code you can run locally. Each lesson has one command; run it from the repository root and return the output before moving on.
+This guide connects each concept to code that runs locally. The lessons document reproducible commands, while development and verification can be completed in one batch.
 
-本指南把每个概念对应到可在本机运行的代码。每课包含一条命令；从仓库根目录运行，并在继续前返回输出。
+本指南把每个概念对应到可在本机运行的代码。每课保留可复现命令；开发与验证可以整批完成。
 
 ## Lesson 01 — Python, uv, and Isolation / Python、uv 与隔离环境
 
@@ -143,3 +143,17 @@ Command / 命令: `uv run python -m urbanvision_risk.reporting.build --run-name 
 Expected / 预期: `index.html` and `report-manifest.json`; the HTML opens locally without a server or network connection.
 
 **复习问题 / Review question:** Why should the report validate every source artifact before creating output? / 为什么报告必须在创建输出前验证全部源文件？
+
+## Lesson 11 — The Complete Local Application / 完整本地应用
+
+**中文：** v1.0 把前面的独立模块连接成一个产品闭环。浏览器把图片发送到本机 `127.0.0.1`；服务验证文件后调用已加载的 YOLO 模型在 MPS 上推理，把预测交给同一个风险引擎，再返回标注图和双语解释。每次成功巡检都会保存五份带哈希的本地文件，并且不覆盖旧结果。
+
+**English:** v1.0 connects the earlier modules into one product loop. The browser sends an image to local `127.0.0.1`; the service validates it, runs the loaded YOLO model on MPS, passes the prediction to the same risk engine, and returns an annotated image with bilingual explanation. Every successful inspection saves five hashed local artifacts without overwriting prior results.
+
+File / 文件: `src/urbanvision_risk/app/service.py`, `src/urbanvision_risk/app/api.py`, `src/urbanvision_risk/app/web.py`
+
+Command / 命令: `uv run python -m urbanvision_risk.app.serve --run-name china-baseline-001`
+
+Expected / 预期: the local app reports ready at `http://127.0.0.1:8000`; an uploaded image produces detection, priority, evidence, recommendation, and an immutable inspection directory.
+
+**复习问题 / Review question:** Why does the server listen only on a loopback address? / 为什么服务只监听本机回环地址？

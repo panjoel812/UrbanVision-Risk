@@ -122,9 +122,7 @@ def load_risk_config(path: Path) -> RiskConfig:
 
     formula_version = _text(root.get("formula_version"), path, "formula_version")
     count_cap = _positive_integer(root.get("count_cap"), path, "count_cap")
-    reference_coverage = _finite_number(
-        root.get("reference_coverage"), path, "reference_coverage"
-    )
+    reference_coverage = _finite_number(root.get("reference_coverage"), path, "reference_coverage")
     count_mix = _finite_number(root.get("count_mix"), path, "count_mix")
     coverage_mix = _finite_number(root.get("coverage_mix"), path, "coverage_mix")
     tolerance = _finite_number(
@@ -183,9 +181,13 @@ def load_risk_config(path: Path) -> RiskConfig:
         sum(class_points.values()), 100.0
     ):
         raise _config_error(path, "class_max_points")
-    if not 0 < risk_thresholds["moderate"] < risk_thresholds["high"] < risk_thresholds[
-        "critical"
-    ] <= 100:
+    if (
+        not 0
+        < risk_thresholds["moderate"]
+        < risk_thresholds["high"]
+        < risk_thresholds["critical"]
+        <= 100
+    ):
         raise _config_error(path, "risk_thresholds")
     if not 0 < evidence_thresholds["moderate"] < evidence_thresholds["high"] <= 1:
         raise _config_error(path, "evidence_thresholds")

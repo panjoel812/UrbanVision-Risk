@@ -115,3 +115,17 @@ Command / 命令: `uv run python -m urbanvision_risk.detection.predict --run-nam
 Expected / 预期: an annotated JPG and matching JSON, including an honest empty list when nothing exceeds the threshold.
 
 **复习问题 / Review question:** Why must an empty detection result remain valid? / 为什么空检测结果也必须是合法结果？
+
+## Lesson 09 — Explainable Maintenance Priority / 可解释维护优先级
+
+**中文：** v0.2 不重新运行模型，而是读取预测 JSON。它分别计算每类缺陷的数量因子和检测框并集覆盖因子，再按固定权重生成 0–100 的维护复核优先级。置信度只描述证据质量，不进入风险公式。
+
+**English:** v0.2 does not rerun the model; it reads prediction JSON. It combines each class's capped count factor and exact box-union coverage factor into a 0–100 maintenance-review priority. Confidence reports evidence quality and does not enter the risk formula.
+
+File / 文件: `src/urbanvision_risk/risk/score.py`, `configs/risk-v0.2.yaml`
+
+Command / 命令: `uv run python -m urbanvision_risk.risk.assess --run-name china-baseline-001 --prediction-name prediction-001 --output-name risk-001`
+
+Expected / 预期: 198 per-image risk JSON files, a deterministic ranking CSV, a batch summary, and the resolved configuration; no YOLO inference log.
+
+**复习问题 / Review question:** Why must confidence remain separate from risk_score? / 为什么置信度必须与 risk_score 分开？

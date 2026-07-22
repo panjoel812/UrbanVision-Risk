@@ -1,8 +1,8 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 项目。v0.1 在 Apple Silicon Mac 上完成 RDD2022 道路缺陷数据准备、YOLO26n 微调、真实评估和图片预测。
+**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 项目。v0.1 完成道路缺陷检测，v0.2 把预测转换成可解释、可审计的人工维护复核优先级。
 
-**English:** An on-device AI project for urban-infrastructure inspection and risk assessment. Version 0.1 prepares RDD2022 road-damage data, fine-tunes YOLO26n, evaluates real held-out metrics, and predicts locally on Apple Silicon.
+**English:** An on-device AI project for urban-infrastructure inspection and risk assessment. Version 0.1 detects road damage; v0.2 turns predictions into explainable, auditable priorities for human maintenance review.
 
 ## v0.1 Scope / v0.1 范围
 
@@ -35,6 +35,9 @@ uv run python -m urbanvision_risk.detection.train --profile smoke --run-name smo
 uv run python -m urbanvision_risk.detection.train --profile baseline --run-name china-baseline-001
 uv run python -m urbanvision_risk.detection.evaluate --run-name china-baseline-001
 uv run python -m urbanvision_risk.detection.predict --run-name china-baseline-001 --source data/processed/rdd2022-china-motorbike/images/test
+
+# v0.2: score an existing prediction batch; this does not rerun YOLO
+uv run python -m urbanvision_risk.risk.assess --run-name china-baseline-001 --prediction-name prediction-001 --output-name risk-001
 ```
 
 ## Generated Artifacts / 生成物
@@ -43,12 +46,17 @@ uv run python -m urbanvision_risk.detection.predict --run-name china-baseline-00
 - `results/experiments/<run>/weights/best.pt`: best checkpoint / 最佳模型。
 - `results/evaluations/<run>/evaluation.json`: held-out metrics / 留出集指标。
 - `results/predictions/<run>/<output>/`: annotated JPG and JSON / 带框图片与 JSON。
+- `results/risks/<run>/<prediction>/<output>/`: per-image risk JSON, deterministic ranking, summary, and resolved config / 单图风险 JSON、确定性排序、摘要和实际配置。
 
 ## Learning Guide / 学习指南
 
 Read [`docs/learning-guide.md`](docs/learning-guide.md) for bilingual explanations of Python environments, labels, splits, training, metrics, MPS, and experiment interpretation.
 
 阅读 [`docs/learning-guide.md`](docs/learning-guide.md)，了解 Python 环境、标签、数据划分、训练、指标、MPS 和实验解读。
+
+The v0.2 formula, output schema, recovery steps, and safety boundary are explained in [`docs/risk-engine-guide.md`](docs/risk-engine-guide.md).
+
+v0.2 的公式、输出结构、恢复步骤和安全边界见 [`docs/risk-engine-guide.md`](docs/risk-engine-guide.md)。
 
 ## Data and Citation / 数据与引用
 

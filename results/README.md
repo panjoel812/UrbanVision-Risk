@@ -3,6 +3,7 @@
 - `experiments/`: training logs, `best.pt`, `last.pt`, `results.csv`, and `training_summary.json` / 训练日志、权重、表格与训练摘要。
 - `evaluations/`: held-out metrics and confusion-matrix plots / 留出集指标和混淆矩阵。
 - `predictions/`: annotated JPG files and matching JSON / 带框 JPG 与匹配 JSON。
+- `risks/`: explainable per-image maintenance priorities, deterministic ranking CSV, batch summary, and resolved configuration / 可解释单图维护优先级、确定性排序 CSV、批次摘要和实际配置。
 
 Every run name is unique. Existing results are never silently overwritten.
 

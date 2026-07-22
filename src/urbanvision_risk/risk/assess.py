@@ -57,6 +57,17 @@ def _write_error(output_dir: Path) -> ProjectError:
     )
 
 
+def _output_creation_error(output_dir: Path) -> ProjectError:
+    return ProjectError(
+        "E404",
+        "风险输出目录创建失败；未留下不完整目录",
+        "Risk output directory creation failed; no partial output directory exists",
+        "检查磁盘空间、父目录和权限，修复后重试",
+        "Check disk space, the parent directory, and permissions, then retry",
+        str(output_dir),
+    )
+
+
 def _ranking_fields() -> list[str]:
     fields = [
         "rank",
@@ -227,6 +238,12 @@ def assess_predictions(
 
     try:
         output_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as error:
+        raise _existing_output_error(output_dir) from error
+    except OSError as error:
+        raise _output_creation_error(output_dir) from error
+
+    try:
         per_image_dir = output_dir / "per-image"
         per_image_dir.mkdir()
         for filename, result in assessed:
@@ -236,8 +253,6 @@ def assess_predictions(
         (output_dir / "risk-summary.json").write_text(_json_text(summary), encoding="utf-8")
         (output_dir / "ranking.csv").write_text(csv_buffer.getvalue(), encoding="utf-8")
         (output_dir / "risk-config-resolved.yaml").write_text(resolved_yaml, encoding="utf-8")
-    except FileExistsError as error:
-        raise _existing_output_error(output_dir) from error
     except OSError as error:
         raise _write_error(output_dir) from error
     return output_dir

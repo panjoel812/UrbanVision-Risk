@@ -175,3 +175,31 @@ def test_write_failure_preserves_partial_output(
     assert "incomplete directory was preserved" in str(caught.value)
     assert output.is_dir()
     assert (output / "per-image" / "a-risk.json").is_file()
+
+
+def test_initial_output_directory_failure_does_not_claim_preservation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = get_paths(tmp_path)
+    write_prediction(paths, "a.json", prediction_payload([0, 0, 10, 10]))
+    output = paths.risks / "china-baseline-001" / "prediction-001" / "risk-001"
+    original_mkdir = Path.mkdir
+
+    def fail_output_creation(path: Path, *args: object, **kwargs: object) -> None:
+        if path == output:
+            raise OSError("simulated parent permission failure")
+        original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", fail_output_creation)
+
+    with pytest.raises(ProjectError, match="E404") as caught:
+        assess(paths)
+
+    message = str(caught.value)
+    assert "目录创建失败" in message
+    assert "directory creation failed" in message
+    assert "不完整目录已保留" not in message
+    assert "incomplete directory was preserved" not in message
+    assert "检查磁盘空间、父目录和权限，修复后重试" in message
+    assert "Check disk space, the parent directory, and permissions, then retry" in message
+    assert not output.exists()

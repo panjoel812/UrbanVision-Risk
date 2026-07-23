@@ -153,6 +153,14 @@ METROLOGY_HTML = """<!doctype html>
     .utility-result strong { display: block; margin-bottom: 3px; color: var(--forest); font-size: .86rem; }
     .utility-result.alert strong { color: var(--orange); }
     .download-link { display: inline-block; margin-top: 5px; color: var(--forest); font-weight: 700; }
+    .change-map { margin-top: 10px; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #101713; }
+    .change-map img { display: block; width: 100%; max-height: 280px; object-fit: contain; image-rendering: auto; }
+    .change-legend { display: flex; flex-wrap: wrap; gap: 7px 12px; padding: 8px 9px; background: var(--card); color: var(--muted); font-size: .65rem; }
+    .legend-item { display: inline-flex; align-items: center; gap: 5px; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .legend-stable { background: rgb(115, 193, 99); }
+    .legend-added { background: rgb(239, 119, 58); }
+    .legend-missing { background: rgb(57, 133, 226); }
     details { margin-top: 13px; border-top: 1px solid var(--line); padding-top: 10px; }
     summary { cursor: pointer; color: var(--muted); font-size: .72rem; }
     pre { max-height: 360px; overflow: auto; padding: 11px; border-radius: 10px; background: #111915; color: #dceae2; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
@@ -190,7 +198,7 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v3.2 · Calibrated maintenance intelligence</p>
+        <p class="eyebrow">v3.3 · Spatial change intelligence</p>
         <h1><span data-zh>从检测框，走到<br>可验证的真实量测。</span><span data-en class="hidden-lang">From boxes to<br>verifiable measurement.</span></h1>
         <p class="hero-copy"><span data-zh>在原图上绘制裂缝掩膜，选择像素、手动四点或 ArUco 自动标定。系统将在本机计算骨架图、长度、宽度分布、分叉、方向和敏感性区间。</span><span data-en class="hidden-lang">Draw a crack mask, then choose pixel-only, manual four-point, or automatic ArUco calibration. Skeleton graphs, length, width distributions, branching, orientation, and sensitivity intervals are computed locally.</span></p>
       </div>
@@ -318,11 +326,20 @@ METROLOGY_HTML = """<!doctype html>
                 <div class="utility-fields">
                   <div class="field" style="grid-column: 1 / -1"><label for="baseline-run"><span data-zh>基线记录</span><span data-en class="hidden-lang">Baseline run</span></label><select id="baseline-run"><option value="">—</option></select></div>
                   <div class="field"><label for="elapsed-days"><span data-zh>间隔天数</span><span data-en class="hidden-lang">Elapsed days</span></label><input id="elapsed-days" type="number" min="0.1" step="0.1" value="30"></div>
+                  <div class="field"><label for="match-tolerance"><span data-zh>空间容差 mm</span><span data-en class="hidden-lang">Spatial tolerance mm</span></label><input id="match-tolerance" type="number" min="0" max="100" step="0.1" value="5"></div>
                   <div class="field"><label for="length-threshold"><span data-zh>长度增长阈值 %</span><span data-en class="hidden-lang">Length threshold %</span></label><input id="length-threshold" type="number" min="0" step="0.1" value="10"></div>
                   <div class="field"><label for="width-threshold"><span data-zh>P95 宽度阈值 %</span><span data-en class="hidden-lang">P95 width threshold %</span></label><input id="width-threshold" type="number" min="0" step="0.1" value="10"></div>
                 </div>
                 <button id="compare-button" class="utility-button" type="button" disabled><span data-zh>对比增长</span><span data-en class="hidden-lang">Compare growth</span></button>
                 <div id="comparison-result" class="utility-result hidden"></div>
+                <div id="comparison-map" class="change-map hidden">
+                  <img id="change-map-image" alt="Calibrated spatial crack change map">
+                  <div class="change-legend">
+                    <span class="legend-item"><span class="legend-dot legend-stable"></span><span data-zh>容差内稳定</span><span data-en class="hidden-lang">Stable</span></span>
+                    <span class="legend-item"><span class="legend-dot legend-added"></span><span data-zh>疑似新增</span><span data-en class="hidden-lang">Suspected added</span></span>
+                    <span class="legend-item"><span class="legend-dot legend-missing"></span><span data-zh>疑似消失</span><span data-en class="hidden-lang">Suspected missing</span></span>
+                  </div>
+                </div>
               </section>
             </div>
             <details><summary><span data-zh>查看完整 measurement.json</span><span data-en class="hidden-lang">View complete measurement.json</span></summary><pre id="json-output"></pre></details>
@@ -331,7 +348,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v3.2 · Precision Lab · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v3.3 · Precision Lab · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -394,6 +411,11 @@ METROLOGY_HTML = """<!doctype html>
           lengthChange: "网络长度变化",
           widthChange: "P95 宽度变化",
           dailyGrowth: "每日长度变化",
+          addedArea: "疑似新增面积",
+          missingArea: "疑似消失面积",
+          alignmentQuality: "物理对齐质量",
+          strongAlignment: "强",
+          acceptableAlignment: "可接受",
           reviewRequired: "变化超过用户阈值，需要人工复核",
           withinThreshold: "变化未超过用户阈值",
           downloadJson: "下载审计 JSON"
@@ -434,6 +456,11 @@ METROLOGY_HTML = """<!doctype html>
           lengthChange: "Network-length change",
           widthChange: "P95-width change",
           dailyGrowth: "Daily length change",
+          addedArea: "Suspected added area",
+          missingArea: "Suspected missing area",
+          alignmentQuality: "Physical alignment quality",
+          strongAlignment: "Strong",
+          acceptableAlignment: "Acceptable",
           reviewRequired: "Change exceeds the user threshold; human review required",
           withinThreshold: "Change remains within the user threshold",
           downloadJson: "Download audit JSON"
@@ -785,6 +812,8 @@ METROLOGY_HTML = """<!doctype html>
           latestComparison = null;
           byId("plan-result").classList.add("hidden");
           byId("comparison-result").classList.add("hidden");
+          byId("comparison-map").classList.add("hidden");
+          byId("change-map-image").removeAttribute("src");
         }
         const measurement = payload.measurement;
         const physical = measurement.physical_geometry;
@@ -959,6 +988,7 @@ METROLOGY_HTML = """<!doctype html>
         form.append("elapsed_days", String(inputNumber("elapsed-days")));
         form.append("length_review_threshold_percent", String(inputNumber("length-threshold")));
         form.append("width_review_threshold_percent", String(inputNumber("width-threshold")));
+        form.append("match_tolerance_mm", String(inputNumber("match-tolerance")));
         try {
           const response = await fetch("/api/metrology/compare", { method: "POST", body: form });
           const payload = await response.json();
@@ -977,12 +1007,19 @@ METROLOGY_HTML = """<!doctype html>
       function renderComparison(payload) {
         const comparison = payload.comparison;
         const changes = comparison.changes;
+        const spatial = comparison.spatial_change;
         const review = comparison.review_rule.human_review_required;
         const lines = [
           `${t("lengthChange")}: ${signedPercent(changes.network_length_m.percent)}`,
           `${t("widthChange")}: ${signedPercent(changes.p95_width_mm.percent)}`,
           `${t("dailyGrowth")}: ${Number(changes.network_length_growth_m_per_day).toFixed(6)} m/day`
         ];
+        if (spatial) {
+          const quality = spatial.alignment_quality.status === "strong" ? t("strongAlignment") : t("acceptableAlignment");
+          lines.push(`${t("alignmentQuality")}: ${quality} · ${Number(spatial.alignment_quality.frame_dimension_mismatch_percent).toFixed(2)}%`);
+          lines.push(`${t("addedArea")}: ${Number(spatial.classification.suspected_added_area_cm2).toFixed(2)} cm²`);
+          lines.push(`${t("missingArea")}: ${Number(spatial.classification.suspected_missing_area_cm2).toFixed(2)} cm²`);
+        }
         renderUtilityResult(
           byId("comparison-result"),
           review ? t("reviewRequired") : t("withinThreshold"),
@@ -990,6 +1027,9 @@ METROLOGY_HTML = """<!doctype html>
           payload.comparison_url,
           review
         );
+        const changeMapUrl = payload.artifacts && payload.artifacts["change-map.png"];
+        byId("comparison-map").classList.toggle("hidden", !changeMapUrl);
+        if (changeMapUrl) byId("change-map-image").src = changeMapUrl;
       }
 
       editor.addEventListener("pointerdown", pointerDown);

@@ -21,10 +21,10 @@ def _encode_image(array: np.ndarray, image_format: str = "PNG") -> bytes:
     return buffer.getvalue()
 
 
-def _straight_sample() -> tuple[bytes, bytes]:
+def _straight_sample(end_x: int = 350) -> tuple[bytes, bytes]:
     source = np.full((221, 421, 3), 128, dtype=np.uint8)
     mask = np.zeros((221, 421), dtype=np.uint8)
-    cv2.line(mask, (50, 110), (350, 110), 255, 11)
+    cv2.line(mask, (50, 110), (end_x, 110), 255, 11)
     source[mask > 0] = 28
     return _encode_image(source), _encode_image(mask)
 
@@ -281,6 +281,7 @@ def test_run_history_and_longitudinal_comparison_normalize_units(
     tmp_path: Path,
 ) -> None:
     source, mask = _straight_sample()
+    _, current_mask = _straight_sample(390)
     run_ids = iter(["baseline-001", "current-001"])
     record_ids = iter(["comparison-001"])
     service = LocalMetrologyService(
@@ -308,10 +309,14 @@ def test_run_history_and_longitudinal_comparison_normalize_units(
         unit="m",
     )
     service.analyze_bytes(
-        **{**common, "pixels_per_unit": 2.0},
+        **{
+            **common,
+            "mask_content": current_mask,
+            "pixels_per_unit": 2.0,
+        },
         source_filename="current.png",
-        physical_width=250.0,
-        physical_height=125.0,
+        physical_width=200.0,
+        physical_height=100.0,
         unit="cm",
     )
 
@@ -326,21 +331,38 @@ def test_run_history_and_longitudinal_comparison_normalize_units(
         baseline_run_id="baseline-001",
         current_run_id="current-001",
         elapsed_days=10,
-        length_review_threshold_percent=20,
-        width_review_threshold_percent=20,
+        length_review_threshold_percent=10,
+        width_review_threshold_percent=10,
+        match_tolerance_mm=5,
     )
 
     comparison = result["comparison"]
     length = comparison["changes"]["network_length_m"]
     assert length["baseline"] == pytest.approx(1.5, abs=0.03)
-    assert length["current"] == pytest.approx(1.875, abs=0.04)
-    assert length["percent"] == pytest.approx(25, abs=0.5)
+    assert length["current"] == pytest.approx(1.7, abs=0.04)
+    assert length["percent"] == pytest.approx(13.333, abs=0.8)
     assert comparison["changes"]["network_length_growth_m_per_day"] == (
-        pytest.approx(0.0375, abs=0.004)
+        pytest.approx(0.02, abs=0.004)
     )
+    assert comparison["schema_version"] == "metrology-comparison-v3.3.0"
+    spatial = comparison["spatial_change"]
+    assert spatial["alignment_quality"]["status"] == "strong"
+    assert spatial["alignment_quality"]["comparable"] is True
+    assert spatial["alignment_quality"]["match_tolerance_mm"] == 5
+    assert spatial["classification"]["suspected_added_pixels"] > 0
+    assert spatial["classification"]["suspected_added_area_cm2"] > 0
+    assert result["artifacts"]["change-map.png"].endswith("/comparison-001/change-map.png")
     assert comparison["review_rule"]["human_review_required"] is True
     assert comparison["review_rule"]["status"] == ("change_exceeds_user_threshold")
     assert service.comparison_path("comparison-001").is_file()
+    change_map = service.comparison_artifact_path(
+        "comparison-001",
+        "change-map.png",
+    )
+    assert change_map.is_file()
+    decoded_map = cv2.imread(str(change_map), cv2.IMREAD_COLOR)
+    assert decoded_map is not None
+    assert np.count_nonzero(decoded_map) > 0
 
 
 def test_pixel_only_run_cannot_generate_material_or_growth_claims(
@@ -370,3 +392,50 @@ def test_pixel_only_run_cannot_generate_material_or_growth_claims(
             route_depth_mm=10,
             waste_percent=10,
         )
+
+
+def test_spatial_comparison_rejects_mismatched_physical_frames(
+    tmp_path: Path,
+) -> None:
+    source, mask = _straight_sample()
+    run_ids = iter(["frame-a-001", "frame-b-001"])
+    service = LocalMetrologyService(
+        paths=get_paths(tmp_path),
+        id_factory=lambda: next(run_ids),
+    )
+    common = {
+        "source_content": source,
+        "source_filename": "road.png",
+        "source_content_type": "image/png",
+        "mask_content": mask,
+        "mask_filename": "mask.png",
+        "mask_content_type": "image/png",
+        "calibration_mode": "manual",
+        "manual_points": json.dumps([[10.0, 10.0], [410.0, 10.0], [410.0, 210.0], [10.0, 210.0]]),
+        "unit": "m",
+        "pixels_per_unit": 200.0,
+        "point_sigma_pixels": 1.0,
+        "uncertainty_samples": 0,
+    }
+    service.analyze_bytes(
+        **common,
+        physical_width=2.0,
+        physical_height=1.0,
+    )
+    service.analyze_bytes(
+        **common,
+        physical_width=2.2,
+        physical_height=1.1,
+    )
+
+    with pytest.raises(ProjectError, match="E506") as captured:
+        service.compare_runs(
+            baseline_run_id="frame-a-001",
+            current_run_id="frame-b-001",
+            elapsed_days=30,
+            length_review_threshold_percent=10,
+            width_review_threshold_percent=10,
+            match_tolerance_mm=5,
+        )
+
+    assert "frame mismatch" in str(captured.value)

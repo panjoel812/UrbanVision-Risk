@@ -200,7 +200,7 @@ APP_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">Reliability console · UrbanVision v3.2</p>
+        <p class="eyebrow">Reliability console · UrbanVision v3.3</p>
         <h1><span data-zh>道路缺陷，<br>从检测到可靠性证据。</span><span data-en class="hidden-lang">Road damage,<br>from detection to reliability evidence.</span></h1>
         <p class="hero-copy"><span data-zh>三视图共识、定位稳定性、不确定性量化、主动学习优先级和本地 AI 说明全部在这台 Mac 上完成。</span><span data-en class="hidden-lang">Three-view consensus, localization stability, uncertainty, active-learning priority, and local AI narrative all run on this Mac.</span></p>
       </div>
@@ -271,7 +271,7 @@ APP_HTML = """<!doctype html>
       </section>
     </div>
   </main>
-  <footer class="shell"><span>UrbanVision-Risk v3.2 · Reliability + Metrology · Fully local / 完全本地</span></footer>
+  <footer class="shell"><span>UrbanVision-Risk v3.3 · Reliability + Metrology · Fully local / 完全本地</span></footer>
 
   <script>
     (() => {

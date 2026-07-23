@@ -1,14 +1,14 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v3.2 把量测结果接入实际维护闭环：可按标定裂缝长度、用户输入的开槽宽深和损耗率生成可审计的材料/成本计划，也可把同一区域的两次标定记录统一到 SI 单位，计算长度与 P95 宽度变化、每日增长率并触发人工复核。Precision Lab 的透明掩膜编辑器现在提供实时绿色轨迹、真实笔宽光标和可撤销橡皮。v3 核心仍坚持：没有标定只报告像素，绝不把像素伪装成毫米。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v3.3 在材料/成本计划和多期指标对比之上，新增四点物理坐标对齐与空间变化图：把两期矫正掩膜归一到同一 SI 网格，按毫米容差区分稳定、疑似新增和疑似消失区域，并记录对齐质量、变化面积和不可覆盖证据；两次标定框尺寸差异超过 5% 时拒绝比较。Precision Lab 同时保留实时绿色画笔轨迹、真实笔宽光标、橡皮和撤销。没有标定时只报告像素，绝不把像素伪装成毫米。
 
-**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 3.2 closes the maintenance loop: calibrated crack length plus user-entered routing width, depth, waste, and optional unit price produce an auditable material/cost plan; two calibrated runs of the same area are normalized to SI units to report length change, P95-width change, daily growth, and user-threshold review triggers. The Precision Lab mask editor now has an immediate green stroke, true-size cursor, eraser, and undo. The v3 boundary remains strict: uncalibrated inputs stay in pixels and are never disguised as millimetres.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 3.3 adds four-point physical-frame alignment and spatial change maps on top of material/cost planning and multi-date metric comparison. Two rectified masks are normalized to one SI grid; a millimetre tolerance separates stable, suspected-added, and suspected-missing regions while alignment quality, change area, and immutable evidence are recorded. Comparison fails closed when calibrated-frame dimensions differ by more than 5%. The Precision Lab retains its immediate green brush stroke, true-size cursor, eraser, and undo. Uncalibrated inputs stay in pixels and are never disguised as millimetres.
 
 **v3.0 Calibrated Metrology / 标定量测：** printable field fiducials, semantic marker detection (`TL/TR/BR/BL`), homography rectification, graph-geodesic length, skeleton distance-transform width, immutable artifacts, privacy-minimized provenance, deterministic uncertainty analysis, and a first-hand field-validation protocol. / 可打印现场标记、语义标记检测、单应性矫正、图测地长度、骨架距离变换宽度、不可覆盖结果、最小化隐私来源记录、确定性不确定性分析和亲身现场验证方案。
 
 **v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v3.2 Quick Start / v3.2 快速启动
+## v3.3 Quick Start / v3.3 快速启动
 
 ```bash
 uv sync --extra dev
@@ -23,9 +23,9 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the reliability console at `http://127.0.0.1:8000`; its **Precision Lab** link opens `http://127.0.0.1:8000/metrology`, where the complete workflow runs in the browser: visible mask brush/eraser, manual four-point or automatic ArUco calibration, calibrated geometry, uncertainty, artifact previews, material planning, multi-date comparison, and downloadable audit JSON. If port 8000 is occupied, the server fails before loading the model and prints a bilingual `--port 8001` recovery command.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the reliability console at `http://127.0.0.1:8000`; its **Precision Lab** link opens `http://127.0.0.1:8000/metrology`, where the complete workflow runs in the browser: visible mask brush/eraser, manual four-point or automatic ArUco calibration, calibrated geometry, uncertainty, artifact previews, material planning, multi-date physical alignment, colour-coded spatial change, and downloadable audit JSON. If port 8000 is occupied, the server fails before loading the model and prints a bilingual `--port 8001` recovery command.
 
-第一条命令在 `results/metrology/metrology-demo-001` 生成可审计量测结果；第二条生成四张精确尺寸 SVG 现场标记和清单；第三条在 `http://127.0.0.1:8000` 启动可靠性巡检界面。点击顶部 **精密量测**，或直接打开 `http://127.0.0.1:8000/metrology`，即可完成实时可见的画笔/橡皮掩膜、手动四点或 ArUco 自动标定、真实几何量、不确定性、材料计划、多期增长对比和审计 JSON 下载。如果 8000 被占用，服务器会在加载模型前失败，并直接打印双语 `--port 8001` 修复命令。
+第一条命令在 `results/metrology/metrology-demo-001` 生成可审计量测结果；第二条生成四张精确尺寸 SVG 现场标记和清单；第三条在 `http://127.0.0.1:8000` 启动可靠性巡检界面。点击顶部 **精密量测**，或直接打开 `http://127.0.0.1:8000/metrology`，即可完成实时可见的画笔/橡皮掩膜、手动四点或 ArUco 自动标定、真实几何量、不确定性、材料计划、多期物理对齐、彩色空间变化图和审计 JSON 下载。如果 8000 被占用，服务器会在加载模型前失败，并直接打印双语 `--port 8001` 修复命令。
 
 The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
 
@@ -96,7 +96,7 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 - `results/inspections/<run>/<inspection-id>/`: normalized source, annotation, prediction, risk record, provenance, and optional immutable `narrative.json` / 规范化原图、标注、预测、风险、来源记录和可选不可变 `narrative.json`。
 - `results/metrology/<output>/measurement.json`: calibrated topology, physical geometry, uncertainty, provenance, and decision boundaries; sibling files contain source/rectified masks, skeletons, width heatmaps, and overlays / 标定拓扑、真实几何量、不确定性、来源和使用边界；同目录还包含原始/矫正掩膜、骨架、宽度热图和叠加图。
 - `results/metrology/<output>/plans/*.json`: immutable material quantity, cost assumptions, measurement digest, and decision boundary / 不可覆盖的材料数量、成本假设、量测摘要和使用边界。
-- `results/metrology/comparisons/*.json`: normalized two-date changes, daily growth, user thresholds, and source-record digests / 统一单位的两期变化、每日增长、用户阈值和源记录摘要。
+- `results/metrology/comparisons/*.json` and `*-change-map.png`: normalized two-date changes, physical alignment quality, spatial classes, daily growth, user thresholds, and source-record digests / 统一单位的两期变化、物理对齐质量、空间分类、每日增长、用户阈值和源记录摘要。
 
 ## Learning Guide / 学习指南
 

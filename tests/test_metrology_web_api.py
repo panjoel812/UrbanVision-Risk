@@ -91,10 +91,22 @@ class MetrologyStub:
             "local_only": True,
             "comparison": {"comparison_id": "comparison-001"},
             "comparison_url": "/api/metrology/comparisons/comparison-001.json",
+            "artifacts": {
+                "change-map.png": ("/api/metrology/comparisons/comparison-001/change-map.png")
+            },
         }
 
     def comparison_path(self, comparison_id: str) -> Path:
         if comparison_id != "comparison-001":
+            raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
+        return self.artifact
+
+    def comparison_artifact_path(
+        self,
+        comparison_id: str,
+        artifact_name: str,
+    ) -> Path:
+        if comparison_id != "comparison-001" or artifact_name != "change-map.png":
             raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
         return self.artifact
 
@@ -131,7 +143,10 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "hoverPoint" in response.text
     assert 'id="plan-button"' in response.text
     assert 'id="compare-button"' in response.text
+    assert 'id="match-tolerance"' in response.text
+    assert 'id="comparison-map"' in response.text
     assert "/api/metrology/compare" in response.text
+    assert "change-map.png" in response.text
     assert "https://" not in response.text
     assert "http://" not in response.text
     assert response.headers["x-frame-options"] == "DENY"
@@ -238,10 +253,12 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
             "elapsed_days": "30",
             "length_review_threshold_percent": "8",
             "width_review_threshold_percent": "12",
+            "match_tolerance_mm": "4",
         },
     )
     downloaded_plan = client.get("/api/metrology/runs/metrology-web-001/plans/maintenance-001.json")
     downloaded_comparison = client.get("/api/metrology/comparisons/comparison-001.json")
+    downloaded_change_map = client.get("/api/metrology/comparisons/comparison-001/change-map.png")
 
     assert runs.status_code == 200
     assert runs.json()["returned_count"] == 1
@@ -260,8 +277,11 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
         "elapsed_days": 30.0,
         "length_review_threshold_percent": 8.0,
         "width_review_threshold_percent": 12.0,
+        "match_tolerance_mm": 4.0,
     }
     assert downloaded_plan.status_code == 200
     assert downloaded_plan.headers["content-type"] == "application/json"
     assert downloaded_comparison.status_code == 200
     assert downloaded_comparison.headers["content-type"] == "application/json"
+    assert downloaded_change_map.status_code == 200
+    assert downloaded_change_map.headers["content-type"] == "image/png"

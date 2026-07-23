@@ -30,6 +30,9 @@ MAX_METROLOGY_PIXELS = 20_000_000
 SOURCE_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 MASK_CONTENT_TYPES = frozenset({"image/png", "image/webp"})
 CALIBRATION_MODES = frozenset({"pixel", "manual", "aruco"})
+COMPARISON_ARTIFACTS = frozenset({"change-map.png"})
+MAX_FRAME_DIMENSION_MISMATCH_RATIO = 0.05
+MAX_CHANGE_MAP_PIXELS_PER_METER = 2_000.0
 METROLOGY_ARTIFACTS = frozenset(
     {
         "mask.png",
@@ -297,6 +300,287 @@ class LocalMetrologyService:
                 str(path),
             ) from error
 
+    @staticmethod
+    def _write_bytes_exclusive(path: Path, content: bytes) -> None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("xb") as stream:
+                stream.write(content)
+        except FileExistsError as error:
+            raise ProjectError(
+                "E204",
+                "变化图记录已经存在",
+                "The spatial-change artifact already exists",
+                "保留现有记录并重新运行以生成新编号",
+                "Keep the record and rerun to generate a new ID",
+                str(path),
+            ) from error
+        except OSError as error:
+            raise ProjectError(
+                "E504",
+                "变化图写入失败",
+                "Writing the spatial-change artifact failed",
+                "检查本地磁盘空间和目录权限",
+                "Check local disk space and directory permissions",
+                str(path),
+            ) from error
+
+    def _calibration_frame(
+        self,
+        payload: dict[str, object],
+        run_id: str,
+    ) -> dict[str, float]:
+        calibration = payload.get("calibration")
+        if not isinstance(calibration, dict):
+            raise _input_error(f"{run_id} calibration is missing")
+        physical_size = calibration.get("physical_size")
+        if not isinstance(physical_size, dict):
+            raise _input_error(f"{run_id} physical calibration size is missing")
+        unit = physical_size.get("unit")
+        unit_m = self._length_m(1.0, unit, f"{run_id} physical unit")
+        width_m = self._length_m(
+            physical_size.get("width"),
+            unit,
+            f"{run_id} calibration width",
+        )
+        height_m = self._length_m(
+            physical_size.get("height"),
+            unit,
+            f"{run_id} calibration height",
+        )
+        pixels_per_unit = calibration.get("pixels_per_unit")
+        if (
+            isinstance(pixels_per_unit, bool)
+            or not isinstance(pixels_per_unit, (int, float))
+            or not math.isfinite(float(pixels_per_unit))
+            or float(pixels_per_unit) <= 0
+        ):
+            raise _input_error(f"{run_id} pixels_per_unit={pixels_per_unit!r}")
+        return {
+            "width_m": width_m,
+            "height_m": height_m,
+            "pixels_per_meter": float(pixels_per_unit) / unit_m,
+        }
+
+    def _rectified_mask(self, run_id: str) -> np.ndarray:
+        path = self.paths.metrology / run_id / "rectified-mask.png"
+        mask = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+        if mask is None or mask.ndim != 2 or mask.size < 3 or mask.size > MAX_METROLOGY_PIXELS:
+            raise _input_error(f"{run_id} rectified mask is missing or invalid")
+        return mask >= 128
+
+    @staticmethod
+    def _crop_and_resize_mask(
+        mask: np.ndarray,
+        *,
+        source_width_m: float,
+        source_height_m: float,
+        common_width_m: float,
+        common_height_m: float,
+        target_width: int,
+        target_height: int,
+    ) -> np.ndarray:
+        crop_width = max(
+            2,
+            min(
+                mask.shape[1],
+                round((mask.shape[1] - 1) * common_width_m / source_width_m) + 1,
+            ),
+        )
+        crop_height = max(
+            2,
+            min(
+                mask.shape[0],
+                round((mask.shape[0] - 1) * common_height_m / source_height_m) + 1,
+            ),
+        )
+        cropped = mask[:crop_height, :crop_width].astype(np.uint8)
+        return (
+            cv2.resize(
+                cropped,
+                (target_width, target_height),
+                interpolation=cv2.INTER_NEAREST,
+            )
+            > 0
+        )
+
+    def _spatial_change(
+        self,
+        *,
+        baseline_run_id: str,
+        current_run_id: str,
+        baseline: dict[str, object],
+        current: dict[str, object],
+        match_tolerance_mm: float,
+    ) -> tuple[dict[str, object], bytes]:
+        tolerance_mm = _finite_nonnegative(
+            match_tolerance_mm,
+            "match_tolerance_mm",
+        )
+        if tolerance_mm > 100:
+            raise _input_error(f"match_tolerance_mm={tolerance_mm}")
+        baseline_frame = self._calibration_frame(baseline, baseline_run_id)
+        current_frame = self._calibration_frame(current, current_run_id)
+        width_mismatch = abs(baseline_frame["width_m"] - current_frame["width_m"]) / max(
+            baseline_frame["width_m"], current_frame["width_m"]
+        )
+        height_mismatch = abs(baseline_frame["height_m"] - current_frame["height_m"]) / max(
+            baseline_frame["height_m"], current_frame["height_m"]
+        )
+        frame_mismatch = max(width_mismatch, height_mismatch)
+        if frame_mismatch > MAX_FRAME_DIMENSION_MISMATCH_RATIO:
+            raise _input_error(
+                "calibrated frame mismatch "
+                f"{frame_mismatch * 100:.3f}% exceeds "
+                f"{MAX_FRAME_DIMENSION_MISMATCH_RATIO * 100:.1f}%"
+            )
+
+        baseline_mask = self._rectified_mask(baseline_run_id)
+        current_mask = self._rectified_mask(current_run_id)
+        common_width_m = min(
+            baseline_frame["width_m"],
+            current_frame["width_m"],
+        )
+        common_height_m = min(
+            baseline_frame["height_m"],
+            current_frame["height_m"],
+        )
+        target_pixels_per_meter = min(
+            baseline_frame["pixels_per_meter"],
+            current_frame["pixels_per_meter"],
+            MAX_CHANGE_MAP_PIXELS_PER_METER,
+        )
+        target_width = max(2, round(common_width_m * target_pixels_per_meter) + 1)
+        target_height = max(2, round(common_height_m * target_pixels_per_meter) + 1)
+        if target_width * target_height > MAX_METROLOGY_PIXELS:
+            scale = math.sqrt(MAX_METROLOGY_PIXELS / (target_width * target_height))
+            target_width = max(2, math.floor(target_width * scale))
+            target_height = max(2, math.floor(target_height * scale))
+            target_pixels_per_meter *= scale
+
+        baseline_normalized = self._crop_and_resize_mask(
+            baseline_mask,
+            source_width_m=baseline_frame["width_m"],
+            source_height_m=baseline_frame["height_m"],
+            common_width_m=common_width_m,
+            common_height_m=common_height_m,
+            target_width=target_width,
+            target_height=target_height,
+        )
+        current_normalized = self._crop_and_resize_mask(
+            current_mask,
+            source_width_m=current_frame["width_m"],
+            source_height_m=current_frame["height_m"],
+            common_width_m=common_width_m,
+            common_height_m=common_height_m,
+            target_width=target_width,
+            target_height=target_height,
+        )
+        tolerance_pixels = round(tolerance_mm / 1000.0 * target_pixels_per_meter)
+        if tolerance_pixels > 0:
+            baseline_distance = cv2.distanceTransform(
+                (~baseline_normalized).astype(np.uint8),
+                cv2.DIST_L2,
+                cv2.DIST_MASK_PRECISE,
+            )
+            current_distance = cv2.distanceTransform(
+                (~current_normalized).astype(np.uint8),
+                cv2.DIST_L2,
+                cv2.DIST_MASK_PRECISE,
+            )
+            baseline_near = baseline_distance <= tolerance_pixels
+            current_near = current_distance <= tolerance_pixels
+        else:
+            baseline_near = baseline_normalized
+            current_near = current_normalized
+
+        baseline_stable = baseline_normalized & current_near
+        current_stable = current_normalized & baseline_near
+        stable = baseline_stable | current_stable
+        added = current_normalized & ~baseline_near
+        missing = baseline_normalized & ~current_near
+        change_map = np.zeros(
+            (target_height, target_width, 3),
+            dtype=np.uint8,
+        )
+        change_map[stable] = (99, 193, 115)
+        change_map[missing] = (226, 133, 57)
+        change_map[added] = (58, 119, 239)
+        encoded_ok, encoded = cv2.imencode(".png", change_map)
+        if not encoded_ok:
+            raise ProjectError(
+                "E504",
+                "变化图编码失败",
+                "Encoding the spatial-change map failed",
+                "保留量测记录并检查 OpenCV 环境",
+                "Keep the measurements and inspect the OpenCV environment",
+            )
+
+        baseline_pixels = int(np.count_nonzero(baseline_normalized))
+        current_pixels = int(np.count_nonzero(current_normalized))
+        if baseline_pixels == 0 or current_pixels == 0:
+            raise _input_error(
+                "one normalized mask has no foreground inside the common calibrated frame"
+            )
+        pixel_area_cm2 = 10_000.0 / target_pixels_per_meter**2
+        added_pixels = int(np.count_nonzero(added))
+        missing_pixels = int(np.count_nonzero(missing))
+        stable_pixels = int(np.count_nonzero(stable))
+        quality_status = "strong" if frame_mismatch <= 0.02 else "acceptable"
+        spatial_change: dict[str, object] = {
+            "method": "four_point_physical_plane_normalization",
+            "alignment_quality": {
+                "status": quality_status,
+                "comparable": True,
+                "frame_dimension_mismatch_percent": round(
+                    frame_mismatch * 100,
+                    4,
+                ),
+                "maximum_allowed_mismatch_percent": (MAX_FRAME_DIMENSION_MISMATCH_RATIO * 100),
+                "effective_pixels_per_meter": round(
+                    target_pixels_per_meter,
+                    4,
+                ),
+                "match_tolerance_mm": tolerance_mm,
+                "tolerance_pixels": tolerance_pixels,
+                "comparison_raster": {
+                    "width": target_width,
+                    "height": target_height,
+                },
+                "physical_overlap_m": {
+                    "width": round(common_width_m, 6),
+                    "height": round(common_height_m, 6),
+                },
+            },
+            "classification": {
+                "stable_union_pixels": stable_pixels,
+                "suspected_added_pixels": added_pixels,
+                "suspected_missing_pixels": missing_pixels,
+                "suspected_added_area_cm2": round(
+                    added_pixels * pixel_area_cm2,
+                    4,
+                ),
+                "suspected_missing_area_cm2": round(
+                    missing_pixels * pixel_area_cm2,
+                    4,
+                ),
+                "baseline_matched_percent": round(
+                    int(np.count_nonzero(baseline_stable)) / baseline_pixels * 100,
+                    4,
+                ),
+                "current_matched_percent": round(
+                    int(np.count_nonzero(current_stable)) / current_pixels * 100,
+                    4,
+                ),
+            },
+            "legend": {
+                "green": "stable_within_tolerance",
+                "orange": "suspected_added_in_current",
+                "blue": "suspected_missing_from_current",
+            },
+        }
+        return spatial_change, encoded.tobytes()
+
     def _response(self, run_id: str, output_dir: Path) -> dict[str, object]:
         try:
             measurement = json.loads((output_dir / "measurement.json").read_text(encoding="utf-8"))
@@ -551,6 +835,7 @@ class LocalMetrologyService:
         elapsed_days: float,
         length_review_threshold_percent: float,
         width_review_threshold_percent: float,
+        match_tolerance_mm: float = 5.0,
     ) -> dict[str, object]:
         baseline_id = validate_run_name(baseline_run_id)
         current_id = validate_run_name(current_run_id)
@@ -611,9 +896,17 @@ class LocalMetrologyService:
             if isinstance(current_topology, dict)
             else 0
         )
+        spatial_change, change_map_png = self._spatial_change(
+            baseline_run_id=baseline_id,
+            current_run_id=current_id,
+            baseline=baseline,
+            current=current,
+            match_tolerance_mm=match_tolerance_mm,
+        )
         comparison_id = validate_run_name(self._record_id_factory("comparison"))
+        change_map_name = f"{comparison_id}-change-map.png"
         payload: dict[str, object] = {
-            "schema_version": "metrology-comparison-v3.2.0",
+            "schema_version": "metrology-comparison-v3.3.0",
             "created_at_utc": datetime.now(UTC).isoformat(),
             "comparison_id": comparison_id,
             "baseline_run_id": baseline_id,
@@ -640,6 +933,11 @@ class LocalMetrologyService:
                     8,
                 ),
             },
+            "spatial_change": spatial_change,
+            "artifacts": {
+                "change_map_png": change_map_name,
+                "change_map_sha256": _sha256(change_map_png),
+            },
             "review_rule": {
                 "length_growth_threshold_percent": length_threshold,
                 "p95_width_growth_threshold_percent": width_threshold,
@@ -650,23 +948,38 @@ class LocalMetrologyService:
             },
             "decision_boundary": {
                 "message_zh": (
-                    "对比要求两次巡检覆盖同一裂缝区域并采用一致标定与掩膜协议；"
-                    "阈值由用户输入，不是道路安全标准"
+                    "变化图依赖同一物理参考框、统一掩膜协议和用户输入的空间容差；"
+                    "橙色/蓝色是疑似变化而非自动确认的新增/修复，复核阈值不是道路安全标准"
                 ),
                 "message_en": (
-                    "Comparison requires the same crack region and a consistent "
-                    "calibration/masking protocol; user thresholds are not road-safety "
-                    "standards"
+                    "The change map requires the same physical reference frame, a "
+                    "consistent masking protocol, and a user-entered spatial tolerance; "
+                    "orange/blue are suspected rather than confirmed additions/repairs, "
+                    "and review thresholds are not road-safety standards"
                 ),
             },
         }
         path = self.paths.metrology / "comparisons" / f"{comparison_id}.json"
+        change_map_path = self.paths.metrology / "comparisons" / change_map_name
         with self._write_lock:
+            if path.exists() or change_map_path.exists():
+                raise ProjectError(
+                    "E204",
+                    "增长对比记录已经存在",
+                    "The growth-comparison record already exists",
+                    "保留现有记录并重新运行以生成新编号",
+                    "Keep the record and rerun to generate a new ID",
+                    comparison_id,
+                )
+            self._write_bytes_exclusive(change_map_path, change_map_png)
             self._write_json_exclusive(path, payload)
         return {
             "local_only": True,
             "comparison": payload,
             "comparison_url": (f"/api/metrology/comparisons/{comparison_id}.json"),
+            "artifacts": {
+                "change-map.png": (f"/api/metrology/comparisons/{comparison_id}/change-map.png"),
+            },
         }
 
     def artifact_path(self, run_id: str, artifact_name: str) -> Path:
@@ -718,5 +1031,32 @@ class LocalMetrologyService:
                 "检查对比编号，或重新运行对比",
                 "Check the comparison ID or run the comparison again",
                 safe_id,
+            )
+        return path
+
+    def comparison_artifact_path(
+        self,
+        comparison_id: str,
+        artifact_name: str,
+    ) -> Path:
+        safe_id = validate_run_name(comparison_id)
+        if artifact_name not in COMPARISON_ARTIFACTS:
+            raise ProjectError(
+                "E201",
+                "变化图文件不存在",
+                "The spatial-change artifact does not exist",
+                "检查对比编号和文件名",
+                "Check the comparison ID and artifact name",
+                artifact_name,
+            )
+        path = self.paths.metrology / "comparisons" / f"{safe_id}-{artifact_name}"
+        if not path.is_file():
+            raise ProjectError(
+                "E201",
+                "变化图文件不存在",
+                "The spatial-change artifact does not exist",
+                "重新运行同一路段的两期标定对比",
+                "Rerun a calibrated two-date comparison of the same area",
+                f"{safe_id}/{artifact_name}",
             )
         return path

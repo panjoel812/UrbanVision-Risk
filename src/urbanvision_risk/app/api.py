@@ -58,7 +58,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="3.2.0",
+        version="3.3.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -223,6 +223,7 @@ def create_app(
         elapsed_days: Annotated[float, Form()],
         length_review_threshold_percent: Annotated[float, Form()] = 10.0,
         width_review_threshold_percent: Annotated[float, Form()] = 10.0,
+        match_tolerance_mm: Annotated[float, Form()] = 5.0,
     ) -> dict[str, object]:
         return active_metrology.compare_runs(
             baseline_run_id=baseline_run_id,
@@ -230,6 +231,7 @@ def create_app(
             elapsed_days=elapsed_days,
             length_review_threshold_percent=length_review_threshold_percent,
             width_review_threshold_percent=width_review_threshold_percent,
+            match_tolerance_mm=match_tolerance_mm,
         )
 
     @app.get("/api/metrology/comparisons/{comparison_id}.json")
@@ -238,6 +240,21 @@ def create_app(
         return FileResponse(
             path,
             media_type="application/json",
+            filename=path.name,
+        )
+
+    @app.get("/api/metrology/comparisons/{comparison_id}/{artifact_name}")
+    async def metrology_comparison_artifact(
+        comparison_id: str,
+        artifact_name: str,
+    ) -> FileResponse:
+        path = active_metrology.comparison_artifact_path(
+            comparison_id,
+            artifact_name,
+        )
+        return FileResponse(
+            path,
+            media_type="image/png",
             filename=path.name,
         )
 

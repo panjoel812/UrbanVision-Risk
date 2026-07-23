@@ -102,13 +102,25 @@ The result is useful for a property manager, campus maintenance team, parking-fa
 
 ### Multi-date growth comparison / 多期增长对比
 
-Measure the same crack region again with the same marker placement protocol, mask policy, and camera procedure. Choose the older run as baseline, enter elapsed days and your organization’s review thresholds, then compare. The service normalizes `m`, `cm`, and `mm` into SI units and reports network-length change, mean/P95 width change, junction change, and growth per day.
+Measure the same crack region again with the same physical control points, mask policy, and camera procedure. Choose the older run as baseline, enter elapsed days, a spatial matching tolerance in millimetres, and your organization’s review thresholds, then compare. The service normalizes `m`, `cm`, and `mm` into SI units and reports network-length change, mean/P95 width change, junction change, and growth per day.
 
-对同一裂缝区域采用一致的标记布置、掩膜规则和拍摄流程再次量测。选择旧记录作为基线，填写间隔天数和组织内部复核阈值后执行对比。服务会把 `m`、`cm`、`mm` 统一到 SI 单位，输出网络长度、平均/P95 宽度、分叉数量变化和每日增长率。
+对同一裂缝区域采用相同物理控制点、掩膜规则和拍摄流程再次量测。选择旧记录作为基线，填写间隔天数、毫米级空间匹配容差和组织内部复核阈值后执行对比。服务会把 `m`、`cm`、`mm` 统一到 SI 单位，输出网络长度、平均/P95 宽度、分叉数量变化和每日增长率。
 
-This turns a one-off image demo into a repeatable maintenance record. The threshold only decides whether a human should review the change; it is deliberately not called a road-safety threshold. Registration of independently framed images is not yet automated, so two runs are comparable only when the operator followed the same-region protocol.
+The v3.3 spatial layer uses each run’s four-point homography as a physical coordinate frame. It crops both calibrated planes to their common physical area, resamples them at the lower available resolution, and uses the declared millimetre tolerance to classify pixels:
 
-这把一次性图片 Demo 变成可重复的养护记录。阈值只决定是否触发人工复核，程序不会把它称为道路安全阈值。当前尚未自动配准独立拍摄的画面，因此只有操作者遵循同区域协议时，两次记录才有可比性。
+v3.3 空间层把每次量测的四点单应性作为物理坐标框，裁取共同真实区域，按两者较低分辨率重采样，再使用声明的毫米容差分类：
+
+- green: stable within tolerance / 绿色：容差内稳定；
+- orange: suspected addition in the current mask / 橙色：当前掩膜中疑似新增；
+- blue: suspected missing region / 蓝色：当前掩膜中疑似消失。
+
+If calibrated-frame width or height differs by more than 5%, the service refuses the spatial comparison. At 2% or less the alignment label is `strong`; between 2% and 5% it is `acceptable`. This is a quality gate, not an image-similarity guess.
+
+如果两次标定框宽度或高度差异超过 5%，服务拒绝空间对比；差异不超过 2% 标为 `strong`，2%–5% 标为 `acceptable`。这是明确的质量门槛，不是根据画面相似度猜测位置。
+
+This turns a one-off image demo into a repeatable maintenance record. Orange and blue mean **suspected** change because mask inconsistency, occlusion, dirt, or calibration error can produce the same colours. A missing region must not be called “repaired” without field confirmation. Review thresholds decide only whether a person should inspect the evidence; they are not road-safety thresholds.
+
+这把一次性图片 Demo 变成可重复的养护记录。橙色和蓝色只能称为**疑似变化**，因为掩膜不一致、遮挡、污渍或标定误差也可能产生相同颜色；未经现场确认，蓝色区域不能直接称为“已经修复”。阈值只决定是否要求人工查看证据，不是道路安全阈值。
 
 ### CLI demo / 命令行 Demo
 

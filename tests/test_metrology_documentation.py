@@ -27,9 +27,10 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "留出现场" in guide
     assert "OpenCV homography documentation" in guide
     assert "measurement.json" in readme
-    assert "http://127.0.0.1:8000/metrology" in readme
+    assert "complete workflow directly at `http://127.0.0.1:8000`" in readme
+    assert "完整单页流程" in readme
     assert "Run calibrated demo / 运行完整标定 Demo" in guide
-    assert "mask brush" in readme
+    assert "automatically starts three-view detection" in readme
     assert "画笔/橡皮" in readme
     assert "ArUco" in portfolio
     assert "Ground truth / 人工参考值" in template

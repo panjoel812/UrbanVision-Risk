@@ -155,9 +155,9 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     response = client.get("/metrology")
 
     assert response.status_code == 200
-    assert "Precision Lab" in response.text
-    assert "从检测框" in response.text
-    assert "verifiable measurement" in response.text
+    assert "Unified Local Inspection" in response.text
+    assert "上传一次" in response.text
+    assert "One upload" in response.text
     assert "editor-canvas" in response.text
     assert "brush-tool" in response.text
     assert "eraser-tool" in response.text
@@ -171,8 +171,13 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="compare-button"' in response.text
     assert 'id="match-tolerance"' in response.text
     assert 'id="comparison-map"' in response.text
-    assert 'id="proposal-button"' in response.text
+    assert 'id="proposal-button"' not in response.text
     assert 'id="proposal-sensitivity"' in response.text
+    assert 'id="inspection-section"' in response.text
+    assert 'id="narrative-button"' in response.text
+    assert "/api/inspect" in response.text
+    assert "Promise.allSettled" in response.text
+    assert "runAutomaticInspection" in response.text
     assert "/api/metrology/compare" in response.text
     assert "/api/metrology/proposals" in response.text
     assert "change-map.png" in response.text
@@ -182,15 +187,19 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "connect-src 'self'" in response.headers["content-security-policy"]
 
 
-def test_detection_console_links_to_precision_lab(tmp_path: Path) -> None:
+def test_home_is_the_unified_workflow_and_legacy_route_is_an_alias(tmp_path: Path) -> None:
     client, _ = _client(tmp_path)
 
     response = client.get("/")
+    legacy = client.get("/metrology")
 
     assert response.status_code == 200
-    assert 'href="/metrology"' in response.text
-    assert "精密量测" in response.text
-    assert "Precision Lab" in response.text
+    assert response.text == legacy.text
+    assert 'href="/metrology"' not in response.text
+    assert "自动检测、风险与可靠性" in response.text
+    assert "复核并修正自动掩膜" in response.text
+    assert "材料与成本规划" in response.text
+    assert "多期裂缝增长对比" in response.text
 
 
 def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:

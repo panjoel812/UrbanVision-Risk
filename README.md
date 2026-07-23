@@ -1,14 +1,14 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v4.0 新增人机协同裂缝掩膜：本地多尺度形态学暗脊、Hessian 暗线响应和种子连通迟滞共同生成可编辑候选，人工再用画笔/橡皮修订；系统不可覆盖地保存候选、参数、源图摘要以及人工增加/删除像素和候选—最终 IoU。它不是自动真值，阴影、接缝、标线和污渍仍必须人工复核。v3.3 的四点物理对齐、空间变化图、材料计划和多期增长仍完整保留；没有标定时只报告像素。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v4.1 将原来的检测台和精密量测合并为一个页面：选择一次图片后，三视图目标检测与裂缝掩膜建议会在本机并行自动运行，系统先画出绿色候选，人工只需用画笔/橡皮复核修订，再继续标定、量测、材料计划与多期增长分析。不可覆盖证据链保存候选、参数、源图摘要、人工增加/删除像素和候选—最终 IoU。它不是自动真值，阴影、接缝、标线和污渍仍必须人工复核；没有标定时只报告像素。
 
-**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 4.0 adds human-in-the-loop crack masking: local multi-scale morphological blackhat, Hessian dark-ridge response, and seeded component hysteresis create an editable proposal, then the operator corrects it with the brush and eraser. The immutable evidence chain stores the proposal, parameters, source digest, human-added/removed pixels, and proposal-to-final IoU. It is not automatic ground truth—shadows, joints, markings, and stains still require review. Version 3.3 physical alignment, spatial change maps, material planning, and multi-date growth remain intact; uncalibrated inputs stay in pixels.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 4.1 unifies the former detection console and Precision Lab. Choosing one image automatically starts three-view detection and a crack-mask proposal in parallel on the Mac; the system paints the green proposal first, the operator reviews it with the brush and eraser, then continues to calibration, metrology, material planning, and longitudinal growth analysis. The immutable evidence chain stores proposal parameters, source digest, human-added/removed pixels, and proposal-to-final IoU. It is not automatic ground truth—shadows, joints, markings, and stains still require review; uncalibrated inputs stay in pixels.
 
 **v3.0 Calibrated Metrology / 标定量测：** printable field fiducials, semantic marker detection (`TL/TR/BR/BL`), homography rectification, graph-geodesic length, skeleton distance-transform width, immutable artifacts, privacy-minimized provenance, deterministic uncertainty analysis, and a first-hand field-validation protocol. / 可打印现场标记、语义标记检测、单应性矫正、图测地长度、骨架距离变换宽度、不可覆盖结果、最小化隐私来源记录、确定性不确定性分析和亲身现场验证方案。
 
 **v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v4.0 Quick Start / v4.0 快速启动
+## v4.1 Quick Start / v4.1 快速启动
 
 ```bash
 uv sync --extra dev
@@ -19,13 +19,13 @@ uv run python -m urbanvision_risk.metrology.demo --output-name metrology-demo-00
 # Generate four printable field fiducials
 uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit-001
 
-# Start the existing reliability-aware inspection console
+# Start the unified reliability + metrology workflow
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the reliability console at `http://127.0.0.1:8000`; its **Precision Lab** link opens `http://127.0.0.1:8000/metrology`, where the complete workflow runs in the browser: one-click local mask proposal, human mask brush/eraser revision, manual four-point or automatic ArUco calibration, calibrated geometry, uncertainty, material planning, multi-date physical alignment, colour-coded spatial change, and downloadable audit JSON. If port 8000 is occupied, the server fails before loading the model and prints a bilingual `--port 8001` recovery command.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`: upload once, automatically run reliability-aware detection and a local editable mask proposal in parallel, review the green mask, then use manual four-point or automatic ArUco calibration, calibrated geometry, uncertainty, material planning, multi-date physical alignment, colour-coded spatial change, and downloadable audit JSON. The legacy `/metrology` URL remains only as a compatibility alias. If port 8000 is occupied, the server fails before loading the model and prints a bilingual `--port 8001` recovery command.
 
-第一条命令在 `results/metrology/metrology-demo-001` 生成可审计量测结果；第二条生成四张精确尺寸 SVG 现场标记和清单；第三条在 `http://127.0.0.1:8000` 启动可靠性巡检界面。点击顶部 **精密量测**，或直接打开 `http://127.0.0.1:8000/metrology`，即可完成一键本地候选、人工画笔/橡皮修订、手动四点或 ArUco 自动标定、真实几何量、不确定性、材料计划、多期物理对齐、彩色空间变化图和审计 JSON 下载。如果 8000 被占用，服务器会在加载模型前失败，并直接打印双语 `--port 8001` 修复命令。
+第一条命令在 `results/metrology/metrology-demo-001` 生成可审计量测结果；第二条生成四张精确尺寸 SVG 现场标记和清单；第三条直接在 `http://127.0.0.1:8000` 打开完整单页流程：上传一次，可靠性检测与本地可编辑掩膜建议并行自动运行，人工复核绿色掩膜后，再进行手动四点或 ArUco 自动标定、真实几何量、不确定性、材料计划、多期物理对齐、彩色空间变化图和审计 JSON 下载。旧 `/metrology` 地址只作为书签兼容别名保留。如果 8000 被占用，服务器会在加载模型前失败，并直接打印双语 `--port 8001` 修复命令。
 
 The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
 

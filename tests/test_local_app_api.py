@@ -80,19 +80,21 @@ def test_local_app_page_is_bilingual_private_and_self_contained(
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "道路缺陷，" in response.text
-    assert "从检测到可靠性证据" in response.text
-    assert "Road damage," in response.text
-    assert "from detection to reliability evidence" in response.text
-    assert "多视图模型可靠性" in response.text
-    assert "Multi-view model reliability" in response.text
-    assert "active-learning priority" in response.text
+    assert "上传一次，自动巡检到" in response.text
+    assert "One upload, from inspection" in response.text
+    assert "自动检测、风险与可靠性" in response.text
+    assert "Automatic detection, risk, and reliability" in response.text
+    assert "多视图可靠性" in response.text
+    assert "Multi-view reliability" in response.text
+    assert "Active-learning priority" in response.text
     assert "本地 AI 巡检说明" in response.text
     assert "Local AI inspection narrative" in response.text
     assert "narrative-button" in response.text
     assert "/narrative" in response.text
-    assert "维护复核优先级，不是道路安全判定" in response.text
-    assert "image-input" in response.text
+    assert "不是道路安全认证" in response.text
+    assert "source-input" in response.text
+    assert "editor-canvas" in response.text
+    assert "/api/metrology/analyze" in response.text
     assert "https://" not in response.text
     assert "http://" not in response.text
     assert response.headers["x-frame-options"] == "DENY"

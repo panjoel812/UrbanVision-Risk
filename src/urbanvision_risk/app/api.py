@@ -14,7 +14,6 @@ from urbanvision_risk.app.metrology_service import (
 )
 from urbanvision_risk.app.metrology_web import METROLOGY_HTML
 from urbanvision_risk.app.service import MAX_UPLOAD_BYTES, LocalInspectionService
-from urbanvision_risk.app.web import APP_HTML
 from urbanvision_risk.errors import ProjectError
 
 
@@ -58,7 +57,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="4.0.0",
+        version="4.1.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -110,10 +109,11 @@ def create_app(
 
     @app.get("/", response_class=HTMLResponse)
     async def home() -> HTMLResponse:
-        return HTMLResponse(APP_HTML)
+        return HTMLResponse(METROLOGY_HTML)
 
     @app.get("/metrology", response_class=HTMLResponse)
     async def metrology_home() -> HTMLResponse:
+        """Compatibility alias for saved v4.0 bookmarks / 兼容旧书签。"""
         return HTMLResponse(METROLOGY_HTML)
 
     @app.get("/favicon.ico", include_in_schema=False)

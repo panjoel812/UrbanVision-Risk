@@ -62,21 +62,21 @@ The software perturbs calibration corners with deterministic Gaussian noise and 
 
 ### Browser demo / 网页 Demo
 
-Start the existing local app and open the Precision Lab:
+Start the unified local app:
 
-启动现有本地应用并打开精密量测工作台：
+启动巡检与精密量测合一的本地应用：
 
 ```bash
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-Open `http://127.0.0.1:8000/metrology`, then select **Run calibrated demo / 运行完整标定 Demo**. The page displays the calibrated overlay, rectified plane, width heatmaps, topology, physical geometry, sensitivity interval, and complete JSON without requiring an upload.
+Open `http://127.0.0.1:8000`, then select **Run calibrated demo / 运行完整标定 Demo**. The page displays the calibrated overlay, rectified plane, width heatmaps, topology, physical geometry, sensitivity interval, and complete JSON without requiring an upload.
 
-打开 `http://127.0.0.1:8000/metrology`，点击 **Run calibrated demo / 运行完整标定 Demo**。无需上传图片，网页就会显示标定叠加图、矫正平面、宽度热图、拓扑、真实几何量、敏感性区间和完整 JSON。
+打开 `http://127.0.0.1:8000`，点击 **Run calibrated demo / 运行完整标定 Demo**。无需上传图片，网页就会显示标定叠加图、矫正平面、宽度热图、拓扑、真实几何量、敏感性区间和完整 JSON。
 
-For a real image, upload it on the same page, paint the crack surface with the brush, correct it with the eraser, choose a calibration mode, and run local metrology. The mask is exported at the source image's original resolution rather than the displayed CSS size.
+For a real image, upload it once. Detection and the independent mask proposal start automatically in parallel. Review the green proposal with the brush and eraser, choose a calibration mode, and run local metrology. The mask is exported at the source image's original resolution rather than the displayed CSS size.
 
-对真实图片，在同一页面上传原图，用画笔覆盖裂缝、用橡皮修正、选择标定模式，再运行本地量测。网页导出的掩膜保持原图分辨率，不会使用屏幕显示尺寸代替。
+对真实图片只需上传一次，检测与独立掩膜建议会并行自动启动。用画笔和橡皮复核绿色候选，选择标定模式，再运行本地量测。网页导出的掩膜保持原图分辨率，不会使用屏幕显示尺寸代替。
 
 The circular cursor shows the exact brush diameter. Every brush move appears immediately as a green overlay; erasing removes both the mask alpha and the green overlay. The browser exports a transparent PNG, and the local service composites transparency onto black before thresholding, so unpainted pixels cannot accidentally become foreground.
 
@@ -84,9 +84,9 @@ The circular cursor shows the exact brush diameter. Every brush move appears imm
 
 ## Human-in-the-loop mask proposal / 人机协同候选掩膜
 
-After choosing a source image, **Local smart proposal / 本地智能建议** runs three complementary, deterministic views on the Mac:
+After choosing a source image, the page automatically runs three complementary, deterministic proposal views on the Mac—there is no separate proposal button:
 
-选择原图后，点击 **本地智能建议**。Mac 会运行三个互补、确定性的视图：
+选择原图后，页面会自动在 Mac 上运行三个互补、确定性的建议视图，不再需要单独点击建议按钮：
 
 1. multi-scale morphological blackhat for locally dark structures / 多尺度形态学黑帽提取局部暗结构；
 2. multi-scale Hessian eigenvalue response for thin dark ridges / 多尺度 Hessian 特征值响应提取细暗脊；

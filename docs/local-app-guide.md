@@ -29,11 +29,11 @@ Open `http://127.0.0.1:8000` in a browser. Keep the terminal window running whil
 
 在浏览器打开 `http://127.0.0.1:8000`。使用应用期间不要关闭终端；完成后在该终端按 `Control+C`。
 
-## Precision Lab / 精密量测工作台
+## Unified inspection and metrology / 巡检与量测合一
 
-Open `http://127.0.0.1:8000/metrology`, or select **Precision Lab / 精密量测** in the top navigation. This route uses the same loopback-only FastAPI process and the same v3 metrology engine as the CLI.
+Open `http://127.0.0.1:8000`. Detection, reliability evidence, editable mask review, calibration, metrology, material planning, and longitudinal change now live on one page. The old `/metrology` address returns the same page only for bookmark compatibility.
 
-打开 `http://127.0.0.1:8000/metrology`，或点击顶部 **Precision Lab / 精密量测**。这个页面仍由同一个仅监听本机的 FastAPI 进程提供，并直接复用 CLI 的 v3 量测引擎。
+打开 `http://127.0.0.1:8000`。检测、可靠性证据、可编辑掩膜复核、标定、量测、材料计划和多期变化现在全部位于同一页面；旧 `/metrology` 地址只为兼容书签而返回相同页面。
 
 The browser workflow includes:
 
@@ -44,9 +44,9 @@ The browser workflow includes:
 - overlay, rectified overlay, width heatmap, skeleton, topology, physical geometry, interval evidence, and complete `measurement.json` / 叠加图、矫正图、宽度热图、骨架、拓扑、真实几何量、区间证据和完整 JSON；
 - immutable local output under `results/metrology/<run-id>/` / 保存到不可覆盖的本地量测目录。
 
-The browser never turns detector boxes into a mask. A human-reviewed mask or a separately validated segmentation model remains required for defensible width measurement.
+One upload automatically starts transform-consensus detection and the independent local crack proposal in parallel. The proposal is painted green before editing; sensitivity changes rerun it automatically after the slider is released. The browser never turns detector boxes into a mask. A human-reviewed mask or a separately validated segmentation model remains required for defensible width measurement.
 
-网页不会把检测框直接转换成掩膜。可信宽度量测仍然需要人工复核掩膜，或经过独立验证的分割模型。
+上传一次会并行自动启动变换共识检测和独立的本地裂缝建议算法；绿色底稿会先自动画出，松开灵敏度滑块后也会自动重算。网页不会把检测框直接转换成掩膜。可信宽度量测仍然需要人工复核掩膜，或经过独立验证的分割模型。
 
 ## What happens after upload / 上传后发生什么
 

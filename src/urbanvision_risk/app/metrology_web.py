@@ -6,7 +6,7 @@ METROLOGY_HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>UrbanVision-Risk · Precision Lab</title>
+  <title>UrbanVision-Risk · Unified Local Inspection</title>
   <style>
     :root {
       color-scheme: light;
@@ -100,6 +100,43 @@ METROLOGY_HTML = """<!doctype html>
     .file-label input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
     .file-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; font-size: .82rem; }
     .file-meta { display: block; margin-top: 2px; color: var(--muted); font-size: .7rem; }
+    .inspection-loading { display: flex; align-items: center; gap: 9px; padding: 12px; border-radius: 12px; background: var(--soft); color: var(--muted); font-size: .76rem; }
+    .spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--line); border-top-color: var(--forest-2); border-radius: 50%; animation: spin 800ms linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .inspection-overview { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(190px, .65fr); gap: 12px; }
+    .inspection-visual { min-height: 250px; display: grid; place-items: center; overflow: hidden; border-radius: 14px; background: #101713; }
+    .inspection-visual img { display: block; width: 100%; max-height: 520px; object-fit: contain; }
+    .inspection-summary { display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--soft); }
+    .inspection-score { font-size: 2.6rem; line-height: 1; font-weight: 800; letter-spacing: -.06em; }
+    .inspection-score small { font-size: .72rem; color: var(--muted); letter-spacing: 0; }
+    .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+    .badge { display: inline-flex; width: fit-content; padding: 4px 8px; border: 1px solid currentColor; border-radius: 999px; color: var(--forest); font-size: .66rem; font-weight: 720; }
+    .badge-review_required, .badge-low { color: var(--orange); }
+    .badge-high, .badge-critical { color: var(--red); }
+    .inspection-recommendation { margin: 0; padding: 10px; border-radius: 10px; background: var(--card); color: var(--muted); font-size: .72rem; }
+    .inspection-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+    .inspection-class { min-width: 0; padding: 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }
+    .inspection-class-code { display: block; color: var(--forest); font-size: .67rem; font-weight: 760; }
+    .inspection-class-line { display: flex; justify-content: space-between; gap: 6px; align-items: end; margin-top: 5px; }
+    .inspection-class-name { overflow: hidden; color: var(--muted); font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
+    .inspection-class-count { font-size: 1.08rem; }
+    .inspection-evidence-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 10px; }
+    .inspection-evidence { padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); }
+    .inspection-evidence h3 { margin-bottom: 6px; font-size: .78rem; }
+    .inspection-evidence-row { display: flex; justify-content: space-between; gap: 9px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: .67rem; }
+    .inspection-evidence-row:last-child { border-bottom: 0; }
+    .inspection-evidence-row span { color: var(--muted); }
+    .inspection-flags { display: grid; gap: 5px; margin-top: 8px; }
+    .inspection-flag { margin: 0; padding: 7px 8px; border-radius: 8px; background: color-mix(in srgb, var(--amber) 9%, var(--card)); color: var(--muted); font-size: .67rem; }
+    .inspection-record { margin: 8px 0 0; color: var(--muted); font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+    .narrative-panel { margin-top: 10px; padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--soft); }
+    .narrative-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .narrative-content { margin-top: 8px; color: var(--muted); font-size: .7rem; }
+    .narrative-content ul { margin: 6px 0; padding-left: 18px; }
+    .detection-table-wrap { max-height: 250px; margin-top: 8px; overflow: auto; border: 1px solid var(--line); border-radius: 9px; }
+    .detection-table { width: 100%; border-collapse: collapse; font-size: .67rem; }
+    .detection-table th, .detection-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+    .detection-table th { position: sticky; top: 0; background: var(--soft); color: var(--muted); }
     .canvas-shell { position: relative; min-height: 320px; display: grid; place-items: center; overflow: hidden; border-radius: 15px; background: #101713; }
     #editor-canvas { display: block; width: 100%; height: auto; max-height: 720px; object-fit: contain; touch-action: none; cursor: crosshair; }
     .canvas-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 34px; color: #b6c4bc; text-align: center; pointer-events: none; }
@@ -178,6 +215,8 @@ METROLOGY_HTML = """<!doctype html>
       .physical-grid { grid-template-columns: 1fr 1fr; }
       .advanced-grid { grid-template-columns: 1fr 1fr; }
       .point-list, .metric-grid { grid-template-columns: 1fr 1fr; }
+      .inspection-overview, .inspection-evidence-grid { grid-template-columns: 1fr; }
+      .inspection-grid { grid-template-columns: 1fr 1fr; }
       .practical-grid { grid-template-columns: 1fr; }
       .brush-control { width: 100%; margin-left: 0; }
       .run-row { align-items: stretch; flex-direction: column; }
@@ -193,15 +232,15 @@ METROLOGY_HTML = """<!doctype html>
     <nav aria-label="Primary">
       <div class="brand"><span class="brand-mark" aria-hidden="true">UV</span><span>UrbanVision-Risk</span></div>
       <div class="nav-actions">
-        <a class="nav-button back" href="/"><span aria-hidden="true">←&nbsp;</span><span data-zh>返回检测台</span><span data-en class="hidden-lang">Detection console</span></a>
+        <span class="nav-button"><span data-zh>本机自动流水线</span><span data-en class="hidden-lang">On-device auto pipeline</span></span>
         <button id="language-button" class="nav-button" type="button">English</button>
       </div>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v4.0 · Human-in-the-loop metrology</p>
-        <h1><span data-zh>从检测框，走到<br>可验证的真实量测。</span><span data-en class="hidden-lang">From boxes to<br>verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>在原图上绘制裂缝掩膜，选择像素、手动四点或 ArUco 自动标定。系统将在本机计算骨架图、长度、宽度分布、分叉、方向和敏感性区间。</span><span data-en class="hidden-lang">Draw a crack mask, then choose pixel-only, manual four-point, or automatic ArUco calibration. Skeleton graphs, length, width distributions, branching, orientation, and sensitivity intervals are computed locally.</span></p>
+        <p class="eyebrow">v4.1 · Unified auto-to-human workflow</p>
+        <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
+        <p class="hero-copy"><span data-zh>选择道路图片后，目标检测与裂缝掩膜建议会在本机并行自动运行。系统先画出绿色候选，你只需修正，再完成标定、量测、材料计划和多期变化分析。</span><span data-en class="hidden-lang">Choose one road image and the detector plus crack-mask proposal run automatically in parallel on this Mac. Review the green proposal, then continue to calibration, metrology, material planning, and longitudinal change analysis.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -215,8 +254,8 @@ METROLOGY_HTML = """<!doctype html>
       <section class="card workbench">
         <div class="section">
           <div class="section-head">
-            <div><h2><span data-zh>选择道路原图</span><span data-en class="hidden-lang">Choose source image</span></h2><p class="subcopy">JPEG · PNG · WebP · ≤ 15 MiB · ≤ 20 MP</p></div>
-            <span class="step">01 · SOURCE</span>
+            <div><h2><span data-zh>选择一次，自动开始</span><span data-en class="hidden-lang">Choose once, start automatically</span></h2><p class="subcopy">JPEG · PNG · WebP · ≤ 15 MiB · ≤ 20 MP</p></div>
+            <span class="step">01 · UPLOAD + AUTO</span>
           </div>
           <div class="upload-row">
             <label class="file-label">
@@ -228,17 +267,45 @@ METROLOGY_HTML = """<!doctype html>
           </div>
         </div>
 
+        <div id="inspection-section" class="section hidden">
+          <div class="section-head">
+            <div><h2><span data-zh>自动检测、风险与可靠性</span><span data-en class="hidden-lang">Automatic detection, risk, and reliability</span></h2><p id="inspection-meta" class="subcopy"><span data-zh>目标检测与多视图可靠性在本机自动运行。</span><span data-en class="hidden-lang">Detection and multi-view reliability run automatically on-device.</span></p></div>
+            <span class="step">AUTO · DETECT</span>
+          </div>
+          <div id="inspection-loading" class="inspection-loading"><span class="spinner" aria-hidden="true"></span><span id="inspection-loading-text"><span data-zh>正在通过 MPS 运行三视图检测与可靠性分析…</span><span data-en class="hidden-lang">Running three-view detection and reliability analysis on MPS…</span></span></div>
+          <div id="inspection-result" class="hidden">
+            <div class="inspection-overview">
+              <div class="inspection-visual"><img id="inspection-image" alt="Automatic road-damage detections"></div>
+              <aside class="inspection-summary">
+                <strong id="inspection-score" class="inspection-score">— <small>/ 100</small></strong>
+                <div class="badges"><span id="inspection-risk-badge" class="badge">—</span><span id="inspection-evidence-badge" class="badge">—</span></div>
+                <p id="inspection-recommendation" class="inspection-recommendation">—</p>
+                <p id="inspection-record" class="inspection-record">—</p>
+              </aside>
+            </div>
+            <div id="inspection-class-grid" class="inspection-grid"></div>
+            <div class="inspection-evidence-grid">
+              <section class="inspection-evidence"><h3><span data-zh>证据质量</span><span data-en class="hidden-lang">Evidence quality</span></h3><div id="inspection-evidence"></div><div id="inspection-flags" class="inspection-flags"></div></section>
+              <section class="inspection-evidence"><h3><span data-zh>多视图可靠性</span><span data-en class="hidden-lang">Multi-view reliability</span></h3><div id="inspection-reliability"></div><div id="inspection-reliability-flags" class="inspection-flags"></div></section>
+            </div>
+            <section class="narrative-panel">
+              <div class="narrative-head"><div><h3><span data-zh>本地 AI 巡检说明</span><span data-en class="hidden-lang">Local AI inspection narrative</span></h3><p id="narrative-meta" class="subcopy"><span data-zh>仅使用结构化结果，不上传图片。</span><span data-en class="hidden-lang">Uses structured results only; the image is not uploaded.</span></p></div><button id="narrative-button" class="tool-button" type="button" disabled><span data-zh>生成双语说明</span><span data-en class="hidden-lang">Generate narrative</span></button></div>
+              <div id="narrative-content" class="narrative-content hidden"><strong id="narrative-summary">—</strong><div id="narrative-details"></div><p id="narrative-limitation">—</p></div>
+            </section>
+            <details><summary><span data-zh>查看检测明细</span><span data-en class="hidden-lang">View detection details</span></summary><div class="detection-table-wrap"><table class="detection-table"><thead><tr><th>#</th><th><span data-zh>类别</span><span data-en class="hidden-lang">Class</span></th><th><span data-zh>置信度</span><span data-en class="hidden-lang">Confidence</span></th><th>Box</th></tr></thead><tbody id="inspection-detections"></tbody></table></div><p id="inspection-empty" class="subcopy hidden"><span data-zh>没有检测框不代表没有缺陷，仍须人工复核绿色掩膜。</span><span data-en class="hidden-lang">No boxes does not prove no damage; the green mask still requires review.</span></p></details>
+          </div>
+        </div>
+
         <div class="section">
           <div class="section-head">
-            <div><h2><span data-zh>绘制裂缝掩膜</span><span data-en class="hidden-lang">Draw crack mask</span></h2><p class="subcopy"><span data-zh>笔尖圆环显示当前位置，拖动后绿色轨迹会立即保留；检测框不会被冒充为掩膜。</span><span data-en class="hidden-lang">The tip ring shows the exact brush position and the green stroke remains visible immediately; detector boxes are never treated as masks.</span></p></div>
-            <span class="step">02 · MASK</span>
+            <div><h2><span data-zh>复核并修正自动掩膜</span><span data-en class="hidden-lang">Review and correct the automatic mask</span></h2><p class="subcopy"><span data-zh>系统先自动绘制绿色候选；画笔补漏、橡皮删错。笔尖圆环显示当前位置，检测框不会被冒充为掩膜。</span><span data-en class="hidden-lang">The system draws the green proposal first. Add missed areas with the brush and erase mistakes; detector boxes are never treated as masks.</span></p></div>
+            <span class="step">02 · AUTO MASK + REVIEW</span>
           </div>
           <div class="canvas-shell">
             <canvas id="editor-canvas" tabindex="0" aria-label="Road image mask editor"></canvas>
             <div id="canvas-empty" class="canvas-empty"><span><strong><span data-zh>先选择一张原图</span><span data-en class="hidden-lang">Choose an image first</span></strong><br><span data-zh>然后使用画笔覆盖裂缝表面</span><span data-en class="hidden-lang">Then paint over the crack surface</span></span></div>
           </div>
           <div class="toolbar" aria-label="Mask tools">
-            <button id="proposal-button" class="tool-button" type="button" disabled><span data-zh>本地智能建议</span><span data-en class="hidden-lang">Local smart proposal</span></button>
             <button id="brush-tool" class="tool-button active" type="button" disabled><span data-zh>画笔</span><span data-en class="hidden-lang">Brush</span></button>
             <button id="eraser-tool" class="tool-button" type="button" disabled><span data-zh>橡皮</span><span data-en class="hidden-lang">Eraser</span></button>
             <button id="point-tool" class="tool-button" type="button" disabled><span data-zh>标定点</span><span data-en class="hidden-lang">Calibration points</span></button>
@@ -247,7 +314,7 @@ METROLOGY_HTML = """<!doctype html>
             <label class="brush-control"><span><span data-zh>笔宽</span><span data-en class="hidden-lang">Brush</span> <strong id="brush-value">18</strong> px</span><input id="brush-size" type="range" min="2" max="100" value="18" disabled></label>
             <label class="brush-control proposal-control"><span><span data-zh>建议灵敏度</span><span data-en class="hidden-lang">Proposal sensitivity</span> <strong id="proposal-sensitivity-value">55</strong>%</span><input id="proposal-sensitivity" type="range" min="0" max="1" step="0.05" value="0.55" disabled></label>
           </div>
-          <p id="proposal-state" class="subcopy"><span data-zh>自动建议只生成可编辑底稿；提交量测前必须人工复核。</span><span data-en class="hidden-lang">Automation creates an editable starting point only; human review is required before metrology.</span></p>
+          <p id="proposal-state" class="subcopy"><span data-zh>上传图片后自动生成可编辑底稿；提交量测前必须人工复核。</span><span data-en class="hidden-lang">An editable proposal is generated automatically after upload; human review is required before metrology.</span></p>
         </div>
 
         <div class="section">
@@ -294,7 +361,7 @@ METROLOGY_HTML = """<!doctype html>
 
       <aside class="results" aria-live="polite">
         <section id="placeholder" class="card placeholder">
-          <div><div class="placeholder-mark" aria-hidden="true">μ</div><strong><span data-zh>量测结果将在这里出现</span><span data-en class="hidden-lang">Measurements appear here</span></strong><p><span data-zh>先运行内置 Demo，或上传图片并绘制白色裂缝掩膜。</span><span data-en class="hidden-lang">Run the built-in demo, or upload an image and draw a white crack mask.</span></p></div>
+          <div><div class="placeholder-mark" aria-hidden="true">μ</div><strong><span data-zh>量测结果将在这里出现</span><span data-en class="hidden-lang">Measurements appear here</span></strong><p><span data-zh>上传图片后先复核自动绿色掩膜，再选择标定方式并运行量测。</span><span data-en class="hidden-lang">Upload an image, review the automatic green mask, choose calibration, and run metrology.</span></p></div>
         </section>
         <section id="result" class="card result-card hidden">
           <div class="artifact-frame"><img id="artifact-image" alt="Metrology artifact"></div>
@@ -352,7 +419,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v4.0 · Precision Lab · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v4.1 · Unified Reliability + Metrology · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -379,16 +446,38 @@ METROLOGY_HTML = """<!doctype html>
       let latestPlan = null;
       let latestComparison = null;
       let latestProposal = null;
+      let latestInspection = null;
+      let latestNarrative = null;
       let activeProposalId = null;
       let hoverPoint = null;
+      let sourceGeneration = 0;
 
       const text = {
         zh: {
           choose: "点击选择道路图片",
           private: "图片不会发送到互联网",
-          ready: "原图已就绪。请使用画笔覆盖裂缝表面。",
+          ready: "原图已就绪，自动检测与自动掩膜正在并行运行。",
+          pipelineComplete: "自动检测与绿色掩膜底稿已完成；请人工复核后运行量测。",
+          pipelinePartial: "自动流水线部分完成；请检查上方结果并人工补充掩膜。",
+          inspectionRunning: "正在通过 MPS 运行三视图检测与可靠性分析…",
+          inspectionComplete: "自动检测与可靠性分析完成。",
+          inspectionFailed: "自动检测失败；掩膜与手工量测仍可继续。",
+          detections: "个检测",
+          evidence: "证据",
+          mean: "平均置信度",
+          minimum: "最低置信度",
+          views: "推理视图",
+          consensus: "共识 / 分歧簇",
+          stability: "平均定位稳定性",
+          uncertainty: "平均不确定性",
+          activeLearning: "主动学习优先级",
+          narrativeReady: "可以生成本地双语说明。",
+          narrativeLoading: "正在通过本地 Ollama 或审计模板生成说明…",
+          narrativeTemplate: "审计模板 · 完全本地",
+          narrativeOllama: "Ollama 本地模型",
+          narrativeError: "本地说明生成失败，请检查终端日志。",
           drawingRequired: "请先选择原图并绘制裂缝掩膜。",
-          proposalIdle: "自动建议只生成可编辑底稿；提交量测前必须人工复核。",
+          proposalIdle: "上传图片后自动生成可编辑底稿；提交量测前必须人工复核。",
           proposalRunning: "正在本机运行多尺度暗脊与形态学集成…",
           proposalReady: "候选底稿已载入；请用画笔和橡皮人工复核。",
           proposalEmpty: "没有找到可靠候选；请手动画笔标注或提高建议灵敏度。",
@@ -435,9 +524,28 @@ METROLOGY_HTML = """<!doctype html>
         en: {
           choose: "Click to choose a road image",
           private: "The image never leaves this machine",
-          ready: "Source ready. Paint over the crack surface.",
+          ready: "Source ready; automatic detection and mask proposal are running in parallel.",
+          pipelineComplete: "Detection and the green mask proposal are ready; review them before metrology.",
+          pipelinePartial: "The automatic pipeline partially completed; inspect the result and correct the mask.",
+          inspectionRunning: "Running three-view detection and reliability analysis on MPS…",
+          inspectionComplete: "Automatic detection and reliability analysis complete.",
+          inspectionFailed: "Automatic detection failed; mask review and manual metrology can continue.",
+          detections: "detections",
+          evidence: "Evidence",
+          mean: "Mean confidence",
+          minimum: "Minimum confidence",
+          views: "Inference views",
+          consensus: "Consensus / disputed",
+          stability: "Mean localization stability",
+          uncertainty: "Mean uncertainty",
+          activeLearning: "Active-learning priority",
+          narrativeReady: "Ready to generate a local bilingual narrative.",
+          narrativeLoading: "Generating through local Ollama or the audited template…",
+          narrativeTemplate: "Audited template · fully local",
+          narrativeOllama: "Local Ollama model",
+          narrativeError: "Local narrative generation failed; check the terminal log.",
           drawingRequired: "Choose a source image and draw a crack mask first.",
-          proposalIdle: "Automation creates an editable starting point only; human review is required before metrology.",
+          proposalIdle: "An editable proposal is generated automatically after upload; human review is required before metrology.",
           proposalRunning: "Running the multi-scale dark-ridge and morphology ensemble locally…",
           proposalReady: "The proposal is loaded; review it with the brush and eraser.",
           proposalEmpty: "No reliable candidate was found; draw manually or increase proposal sensitivity.",
@@ -483,6 +591,19 @@ METROLOGY_HTML = """<!doctype html>
         }
       };
       const t = (key) => text[language][key] || key;
+      const priorityLabels = {
+        zh: { low: "低优先级", moderate: "中等优先级", high: "高优先级", critical: "严重优先级", review_required: "需要人工复核" },
+        en: { low: "Low priority", moderate: "Moderate priority", high: "High priority", critical: "Critical priority", review_required: "Human review required" }
+      };
+      const evidenceLabels = {
+        zh: { not_applicable: "不适用", low: "低", moderate: "中等", high: "高" },
+        en: { not_applicable: "N/A", low: "Low", moderate: "Moderate", high: "High" }
+      };
+      const tierLabels = {
+        zh: { low: "低", medium: "中", high: "高", not_applicable: "不适用" },
+        en: { low: "Low", medium: "Medium", high: "High", not_applicable: "N/A" }
+      };
+      const number = (value, digits = 1) => value === null || value === undefined ? "—" : Number(value).toFixed(digits);
 
       function renderProposalState() {
         if (activeProposalId && latestProposal) {
@@ -498,6 +619,166 @@ METROLOGY_HTML = """<!doctype html>
         byId("status").classList.toggle("error", error);
       }
 
+      function addInspectionRow(container, label, value) {
+        const row = document.createElement("div");
+        row.className = "inspection-evidence-row";
+        const name = document.createElement("span");
+        name.textContent = label;
+        const result = document.createElement("strong");
+        result.textContent = value ?? "—";
+        row.append(name, result);
+        container.appendChild(row);
+      }
+
+      function renderInspection(payload) {
+        latestInspection = payload;
+        const prediction = payload.prediction || {};
+        const detections = prediction.detections || [];
+        const risk = payload.risk || {};
+        const evidence = risk.evidence || {};
+        const reliability = prediction.reliability || {};
+        const reliabilitySummary = reliability.summary || {};
+        const reviewRequired = risk.decision_status === "review_required" || risk.review_required === true;
+        const riskLevel = reviewRequired ? "review_required" : (risk.risk_level || "review_required");
+        const evidenceQuality = evidence.quality || "not_applicable";
+
+        byId("inspection-loading").classList.add("hidden");
+        byId("inspection-result").classList.remove("hidden");
+        byId("inspection-image").src = `${payload.annotated_url}?v=${encodeURIComponent(payload.inspection_id)}`;
+        byId("inspection-score").innerHTML = `${reviewRequired ? "—" : number(risk.risk_score)} <small>/ 100</small>`;
+        byId("inspection-risk-badge").className = `badge badge-${riskLevel}`;
+        byId("inspection-risk-badge").textContent = priorityLabels[language][riskLevel] || riskLevel;
+        byId("inspection-evidence-badge").className = `badge badge-${evidenceQuality}`;
+        byId("inspection-evidence-badge").textContent = `${t("evidence")}: ${evidenceLabels[language][evidenceQuality] || evidenceQuality}`;
+        byId("inspection-recommendation").textContent = risk.recommendation ? risk.recommendation[language] : t("inspectionComplete");
+        byId("inspection-record").textContent = `ID ${payload.inspection_id} · ${payload.source_filename || "—"}`;
+        const dimensions = prediction.image_dimensions || {};
+        byId("inspection-meta").textContent = `${dimensions.width || "—"} × ${dimensions.height || "—"} px · ${detections.length} ${t("detections")}`;
+
+        const classes = byId("inspection-class-grid");
+        classes.replaceChildren();
+        const classItems = [...(risk.class_breakdown || []), ...(risk.auxiliary_observations || [])];
+        classItems.forEach((item) => {
+          const card = document.createElement("div");
+          card.className = "inspection-class";
+          const code = document.createElement("span");
+          code.className = "inspection-class-code";
+          code.textContent = item.code;
+          const line = document.createElement("div");
+          line.className = "inspection-class-line";
+          const name = document.createElement("span");
+          name.className = "inspection-class-name";
+          name.textContent = language === "zh" ? item.name_zh : item.name_en;
+          const count = document.createElement("strong");
+          count.className = "inspection-class-count";
+          count.textContent = String(item.count);
+          line.append(name, count);
+          card.append(code, line);
+          classes.appendChild(card);
+        });
+
+        const evidenceBox = byId("inspection-evidence");
+        evidenceBox.replaceChildren();
+        addInspectionRow(evidenceBox, t("mean"), number(evidence.mean_detection_confidence, 3));
+        addInspectionRow(evidenceBox, t("minimum"), number(evidence.minimum_detection_confidence, 3));
+        const flags = byId("inspection-flags");
+        flags.replaceChildren();
+        (risk.audit_flags || []).forEach((item) => {
+          const flag = document.createElement("p");
+          flag.className = "inspection-flag";
+          flag.textContent = `⚑ ${item[language]}`;
+          flags.appendChild(flag);
+        });
+
+        const reliabilityBox = byId("inspection-reliability");
+        reliabilityBox.replaceChildren();
+        addInspectionRow(reliabilityBox, t("views"), reliability.view_count);
+        addInspectionRow(reliabilityBox, t("consensus"), `${reliabilitySummary.accepted_cluster_count ?? "—"} / ${reliabilitySummary.disputed_cluster_count ?? "—"}`);
+        addInspectionRow(reliabilityBox, t("stability"), number(reliabilitySummary.mean_stability, 3));
+        addInspectionRow(reliabilityBox, t("uncertainty"), number(reliabilitySummary.mean_uncertainty, 3));
+        addInspectionRow(reliabilityBox, t("activeLearning"), `${number(reliabilitySummary.active_learning_priority)} · ${tierLabels[language][reliabilitySummary.active_learning_tier] || "—"}`);
+        const reliabilityFlags = byId("inspection-reliability-flags");
+        reliabilityFlags.replaceChildren();
+        if (reliabilitySummary.review_recommended) {
+          const flag = document.createElement("p");
+          flag.className = "inspection-flag";
+          flag.textContent = language === "zh" ? "⚑ 多视图证据不稳定，已进入人工复核与主动学习队列。" : "⚑ Unstable multi-view evidence: routed to human review and active learning.";
+          reliabilityFlags.appendChild(flag);
+        }
+
+        const rows = byId("inspection-detections");
+        rows.replaceChildren();
+        byId("inspection-empty").classList.toggle("hidden", detections.length !== 0);
+        detections.forEach((item, index) => {
+          const row = document.createElement("tr");
+          [String(index + 1), `${item.code} · ${language === "zh" ? item.name_zh : item.name_en}`, number(item.confidence, 3), (item.bbox_xyxy || []).map((value) => Math.round(value)).join(", ")].forEach((value) => {
+            const cell = document.createElement("td");
+            cell.textContent = value;
+            row.appendChild(cell);
+          });
+          rows.appendChild(row);
+        });
+        if (!latestNarrative) {
+          byId("narrative-content").classList.add("hidden");
+          byId("narrative-button").disabled = false;
+          byId("narrative-meta").textContent = t("narrativeReady");
+        }
+      }
+
+      function renderNarrative(payload) {
+        latestNarrative = payload;
+        const generator = payload.generator || {};
+        byId("narrative-meta").textContent = generator.mode === "ollama" ? `${t("narrativeOllama")} · ${generator.model}` : t("narrativeTemplate");
+        byId("narrative-summary").textContent = payload.summary[language];
+        const details = byId("narrative-details");
+        details.replaceChildren();
+        [payload.observations || [], payload.actions || []].forEach((items) => {
+          const list = document.createElement("ul");
+          items.forEach((item) => {
+            const row = document.createElement("li");
+            row.textContent = item[language];
+            list.appendChild(row);
+          });
+          details.appendChild(list);
+        });
+        byId("narrative-limitation").textContent = payload.limitation[language];
+        byId("narrative-content").classList.remove("hidden");
+        byId("narrative-button").disabled = true;
+      }
+
+      async function generateNarrative() {
+        if (!latestInspection) return;
+        byId("narrative-button").disabled = true;
+        byId("narrative-meta").textContent = t("narrativeLoading");
+        try {
+          const inspectionId = encodeURIComponent(latestInspection.inspection_id);
+          const response = await fetch(`/api/inspections/${inspectionId}/narrative`, { method: "POST" });
+          const payload = await response.json();
+          if (!response.ok) throw payload.error || payload;
+          renderNarrative(payload);
+        } catch (error) {
+          const message = error && (language === "zh" ? error.message_zh : error.message_en);
+          byId("narrative-meta").textContent = message || t("narrativeError");
+          byId("narrative-button").disabled = false;
+        }
+      }
+
+      async function runAutomaticInspection(file, generation) {
+        byId("inspection-section").classList.remove("hidden");
+        byId("inspection-result").classList.add("hidden");
+        byId("inspection-loading").classList.remove("hidden");
+        byId("inspection-loading-text").textContent = t("inspectionRunning");
+        const form = new FormData();
+        form.append("image", file, file.name);
+        const response = await fetch("/api/inspect", { method: "POST", body: form });
+        const payload = await response.json();
+        if (!response.ok) throw payload.error || payload;
+        if (generation !== sourceGeneration) return false;
+        latestNarrative = null;
+        renderInspection(payload);
+        return true;
+      }
+
       function applyLanguage() {
         document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
         document.querySelectorAll("[data-zh]").forEach((item) => item.classList.toggle("hidden-lang", language !== "zh"));
@@ -510,6 +791,8 @@ METROLOGY_HTML = """<!doctype html>
         if (latestResult) renderResult(latestResult);
         if (latestPlan) renderPlan(latestPlan);
         if (latestComparison) renderComparison(latestComparison);
+        if (latestInspection) renderInspection(latestInspection);
+        if (latestNarrative) renderNarrative(latestNarrative);
         renderProposalState();
       }
 
@@ -627,7 +910,7 @@ METROLOGY_HTML = """<!doctype html>
 
       function updateControls() {
         const ready = Boolean(sourceImage);
-        ["proposal-button", "proposal-sensitivity", "brush-tool", "eraser-tool", "clear-button", "brush-size"].forEach((id) => { byId(id).disabled = !ready; });
+        ["proposal-sensitivity", "brush-tool", "eraser-tool", "clear-button", "brush-size"].forEach((id) => { byId(id).disabled = !ready; });
         byId("point-tool").disabled = !ready || byId("calibration-mode").value !== "manual";
         byId("undo-button").disabled = !ready || strokes.length === 0;
         byId("replace-button").disabled = !ready;
@@ -664,6 +947,7 @@ METROLOGY_HTML = """<!doctype html>
 
       async function loadSource(file) {
         if (!file) return;
+        const generation = ++sourceGeneration;
         if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 15 * 1024 * 1024) {
           setStatus(language === "zh" ? "请选择不超过 15 MiB 的 JPEG、PNG 或 WebP。" : "Choose a JPEG, PNG, or WebP no larger than 15 MiB.", true);
           return;
@@ -678,6 +962,7 @@ METROLOGY_HTML = """<!doctype html>
           setStatus(language === "zh" ? "浏览器无法解码这张图片。" : "The browser cannot decode this image.", true);
           return;
         }
+        if (generation !== sourceGeneration) return;
         if (image.naturalWidth * image.naturalHeight > 20_000_000) {
           setStatus(language === "zh" ? "量测工作台限制为 2000 万像素。" : "The metrology workbench is limited to 20 megapixels.", true);
           return;
@@ -691,9 +976,26 @@ METROLOGY_HTML = """<!doctype html>
         byId("canvas-empty").classList.add("hidden");
         byId("file-title").textContent = file.name;
         byId("file-meta").textContent = `${image.naturalWidth} × ${image.naturalHeight} px · ${(file.size / 1024 / 1024).toFixed(2)} MiB`;
+        latestInspection = null;
+        latestNarrative = null;
+        byId("inspection-section").classList.remove("hidden");
+        byId("inspection-result").classList.add("hidden");
+        byId("inspection-loading").classList.remove("hidden");
         setTool("brush");
         updateControls();
         setStatus(t("ready"));
+        const tasks = await Promise.allSettled([
+          runAutomaticInspection(file, generation),
+          generateProposal(file, generation)
+        ]);
+        if (generation !== sourceGeneration) return;
+        const inspectionSucceeded = tasks[0].status === "fulfilled" && tasks[0].value === true;
+        const proposalSucceeded = tasks[1].status === "fulfilled" && tasks[1].value === true;
+        if (!inspectionSucceeded) {
+          byId("inspection-loading").classList.remove("hidden");
+          byId("inspection-loading-text").textContent = t("inspectionFailed");
+        }
+        setStatus(inspectionSucceeded && proposalSucceeded ? t("pipelineComplete") : t("pipelinePartial"), !inspectionSucceeded && !proposalSucceeded);
       }
 
       async function applyProposal(payload) {
@@ -725,31 +1027,30 @@ METROLOGY_HTML = """<!doctype html>
         updateControls();
       }
 
-      async function generateProposal() {
-        if (!sourceFile) return;
-        byId("proposal-button").disabled = true;
+      async function generateProposal(file = sourceFile, generation = sourceGeneration) {
+        if (!file) return false;
         byId("proposal-sensitivity").disabled = true;
         byId("proposal-state").textContent = t("proposalRunning");
-        setStatus(t("proposalRunning"));
         const form = new FormData();
-        form.append("image", sourceFile, sourceFile.name);
+        form.append("image", file, file.name);
         form.append("sensitivity", byId("proposal-sensitivity").value);
         try {
           const response = await fetch("/api/metrology/proposals", { method: "POST", body: form });
           const payload = await response.json();
           if (!response.ok) throw payload.error || payload;
+          if (generation !== sourceGeneration) return false;
           if (!payload.candidate_found) {
             byId("proposal-state").textContent = t("proposalEmpty");
-            setStatus(t("proposalEmpty"), true);
-            return;
+            return false;
           }
           await applyProposal(payload);
           setTool("brush");
-          setStatus(t("proposalReady"));
+          return true;
         } catch (error) {
           const message = error && (language === "zh" ? error.message_zh : error.message_en);
           const recovery = error && (language === "zh" ? error.recovery_zh : error.recovery_en);
-          setStatus([message, recovery].filter(Boolean).join(" — ") || t("failed"), true);
+          byId("proposal-state").textContent = [message, recovery].filter(Boolean).join(" — ") || t("failed");
+          throw error;
         } finally {
           updateControls();
         }
@@ -1135,9 +1436,18 @@ METROLOGY_HTML = """<!doctype html>
       });
       byId("source-input").addEventListener("change", (event) => loadSource(event.target.files[0]));
       byId("replace-button").addEventListener("click", () => byId("source-input").click());
-      byId("proposal-button").addEventListener("click", generateProposal);
       byId("proposal-sensitivity").addEventListener("input", () => {
         byId("proposal-sensitivity-value").textContent = String(Math.round(Number(byId("proposal-sensitivity").value) * 100));
+      });
+      byId("proposal-sensitivity").addEventListener("change", async () => {
+        if (!sourceFile) return;
+        setStatus(t("proposalRunning"));
+        try {
+          const found = await generateProposal(sourceFile, sourceGeneration);
+          setStatus(found ? t("proposalReady") : t("proposalEmpty"), !found);
+        } catch {
+          setStatus(t("pipelinePartial"), true);
+        }
       });
       byId("brush-tool").addEventListener("click", () => setTool("brush"));
       byId("eraser-tool").addEventListener("click", () => setTool("eraser"));
@@ -1169,6 +1479,7 @@ METROLOGY_HTML = """<!doctype html>
       });
       byId("measure-button").addEventListener("click", runMeasurement);
       byId("demo-button").addEventListener("click", runDemo);
+      byId("narrative-button").addEventListener("click", generateNarrative);
       byId("plan-button").addEventListener("click", createPlan);
       byId("compare-button").addEventListener("click", compareGrowth);
       byId("baseline-run").addEventListener("change", () => {

@@ -29,6 +29,25 @@ Open `http://127.0.0.1:8000` in a browser. Keep the terminal window running whil
 
 在浏览器打开 `http://127.0.0.1:8000`。使用应用期间不要关闭终端；完成后在该终端按 `Control+C`。
 
+## Precision Lab / 精密量测工作台
+
+Open `http://127.0.0.1:8000/metrology`, or select **Precision Lab / 精密量测** in the top navigation. This route uses the same loopback-only FastAPI process and the same v3 metrology engine as the CLI.
+
+打开 `http://127.0.0.1:8000/metrology`，或点击顶部 **Precision Lab / 精密量测**。这个页面仍由同一个仅监听本机的 FastAPI 进程提供，并直接复用 CLI 的 v3 量测引擎。
+
+The browser workflow includes:
+
+- deterministic built-in calibrated demo / 确定性内置标定 Demo；
+- original-resolution mask brush, eraser, undo, and clear / 原分辨率掩膜画笔、橡皮、撤销和清空；
+- pixel-only, manual `TL → TR → BR → BL`, and automatic ArUco modes / 仅像素、手动四点和 ArUco 自动模式；
+- physical width, height, unit, rectification resolution, corner sigma, Monte Carlo sample count, and boundary sensitivity controls / 真实宽高、单位、矫正分辨率、点位 sigma、Monte Carlo 样本数和边界敏感性设置；
+- overlay, rectified overlay, width heatmap, skeleton, topology, physical geometry, interval evidence, and complete `measurement.json` / 叠加图、矫正图、宽度热图、骨架、拓扑、真实几何量、区间证据和完整 JSON；
+- immutable local output under `results/metrology/<run-id>/` / 保存到不可覆盖的本地量测目录。
+
+The browser never turns detector boxes into a mask. A human-reviewed mask or a separately validated segmentation model remains required for defensible width measurement.
+
+网页不会把检测框直接转换成掩膜。可信宽度量测仍然需要人工复核掩膜，或经过独立验证的分割模型。
+
 ## What happens after upload / 上传后发生什么
 
 ```text

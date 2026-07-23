@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import FastAPI, File, Query, UploadFile
+from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.requests import Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.middleware.base import RequestResponseEndpoint
 
+from urbanvision_risk.app.metrology_service import (
+    MAX_METROLOGY_UPLOAD_BYTES,
+    LocalMetrologyService,
+)
+from urbanvision_risk.app.metrology_web import METROLOGY_HTML
 from urbanvision_risk.app.service import MAX_UPLOAD_BYTES, LocalInspectionService
 from urbanvision_risk.app.web import APP_HTML
 from urbanvision_risk.errors import ProjectError
@@ -35,18 +40,31 @@ def _status_code(error: ProjectError) -> int:
         "E601": 400,
         "E602": 500,
         "E603": 409,
+        "E501": 422,
+        "E502": 422,
+        "E503": 400,
+        "E504": 500,
+        "E505": 422,
+        "E506": 422,
     }.get(error.code, 500)
 
 
-def create_app(service: LocalInspectionService) -> FastAPI:
+def create_app(
+    service: LocalInspectionService,
+    metrology_service: LocalMetrologyService | None = None,
+) -> FastAPI:
+    active_metrology = metrology_service or LocalMetrologyService(
+        paths=getattr(service, "paths", None)
+    )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="3.0.0",
+        version="3.1.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
     )
     app.state.inspection_service = service
+    app.state.metrology_service = active_metrology
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -67,20 +85,36 @@ def create_app(service: LocalInspectionService) -> FastAPI:
         return JSONResponse(_error_payload(error), status_code=_status_code(error))
 
     @app.exception_handler(RequestValidationError)
-    async def validation_error_handler(_: Request, error: RequestValidationError) -> JSONResponse:
-        project_error = ProjectError(
-            "E601",
-            "请求中缺少有效的图片文件",
-            "The request is missing a valid image file",
-            "使用名为 image 的字段上传一张 JPEG、PNG 或 WebP",
-            "Upload one JPEG, PNG, or WebP in a field named image",
-            str(error.errors()),
-        )
+    async def validation_error_handler(
+        request: Request, error: RequestValidationError
+    ) -> JSONResponse:
+        if request.url.path.startswith("/api/metrology"):
+            project_error = ProjectError(
+                "E506",
+                "量测请求缺少必要字段或字段格式错误",
+                "The metrology request is missing a field or contains an invalid value",
+                "检查原图、PNG 掩膜、标定模式和数值字段",
+                "Check the source, PNG mask, calibration mode, and numeric fields",
+                str(error.errors()),
+            )
+        else:
+            project_error = ProjectError(
+                "E601",
+                "请求中缺少有效的图片文件",
+                "The request is missing a valid image file",
+                "使用名为 image 的字段上传一张 JPEG、PNG 或 WebP",
+                "Upload one JPEG, PNG, or WebP in a field named image",
+                str(error.errors()),
+            )
         return JSONResponse(_error_payload(project_error), status_code=422)
 
     @app.get("/", response_class=HTMLResponse)
     async def home() -> HTMLResponse:
         return HTMLResponse(APP_HTML)
+
+    @app.get("/metrology", response_class=HTMLResponse)
+    async def metrology_home() -> HTMLResponse:
+        return HTMLResponse(METROLOGY_HTML)
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> Response:
@@ -88,7 +122,10 @@ def create_app(service: LocalInspectionService) -> FastAPI:
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:
-        return service.health_payload()
+        payload = service.health_payload()
+        payload["precision_metrology"] = True
+        payload["metrology_modes"] = ["pixel", "manual", "aruco"]
+        return payload
 
     @app.get("/api/review-queue")
     async def review_queue(
@@ -107,6 +144,56 @@ def create_app(service: LocalInspectionService) -> FastAPI:
             filename=image.filename,
             content_type=image.content_type or "",
         )
+
+    @app.post("/api/metrology/demo")
+    async def metrology_demo() -> dict[str, object]:
+        return active_metrology.demo()
+
+    @app.post("/api/metrology/analyze")
+    async def metrology_analyze(
+        image: Annotated[UploadFile, File(description="One local road image")],
+        mask: Annotated[UploadFile, File(description="A same-size binary PNG mask")],
+        calibration_mode: Annotated[str, Form()],
+        manual_points: Annotated[str | None, Form()] = None,
+        physical_width: Annotated[float | None, Form()] = None,
+        physical_height: Annotated[float | None, Form()] = None,
+        unit: Annotated[str | None, Form()] = None,
+        pixels_per_unit: Annotated[float | None, Form()] = None,
+        point_sigma_pixels: Annotated[float | None, Form()] = None,
+        uncertainty_samples: Annotated[int, Form()] = 64,
+        segmentation_radius_pixels: Annotated[int, Form()] = 1,
+    ) -> dict[str, object]:
+        source_content = await image.read(MAX_METROLOGY_UPLOAD_BYTES + 1)
+        mask_content = await mask.read(MAX_METROLOGY_UPLOAD_BYTES + 1)
+        await image.close()
+        await mask.close()
+        return active_metrology.analyze_bytes(
+            source_content=source_content,
+            source_filename=image.filename,
+            source_content_type=image.content_type or "",
+            mask_content=mask_content,
+            mask_filename=mask.filename,
+            mask_content_type=mask.content_type or "",
+            calibration_mode=calibration_mode,
+            manual_points=manual_points,
+            physical_width=physical_width,
+            physical_height=physical_height,
+            unit=unit,
+            pixels_per_unit=pixels_per_unit,
+            point_sigma_pixels=point_sigma_pixels,
+            uncertainty_samples=uncertainty_samples,
+            segmentation_radius_pixels=segmentation_radius_pixels,
+        )
+
+    @app.get("/api/metrology/runs/{run_id}/{artifact_name}")
+    async def metrology_artifact(run_id: str, artifact_name: str) -> FileResponse:
+        path = active_metrology.artifact_path(run_id, artifact_name)
+        media_type = {
+            ".jpg": "image/jpeg",
+            ".png": "image/png",
+            ".json": "application/json",
+        }.get(path.suffix.lower(), "application/octet-stream")
+        return FileResponse(path, media_type=media_type, filename=path.name)
 
     @app.get("/api/inspections/{inspection_id}/annotated.jpg")
     async def annotated_image(inspection_id: str) -> FileResponse:

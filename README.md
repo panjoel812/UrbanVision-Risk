@@ -1,8 +1,8 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v3.0 不再停在检测框：它把裂缝掩膜细化为单像素中心线，构建拓扑图，计算长度、宽度分布、端点、分叉、方向与曲折度；通过四张 ArUco 现场标记自动建立真实平面标定，并用 Monte Carlo 标定扰动和掩膜边界扰动报告敏感性区间。没有标定时只报告像素，绝不把像素伪装成毫米。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v3.1 把完整量测流程接入本地 Precision Lab 网页；v3 核心不再停在检测框：它把裂缝掩膜细化为单像素中心线，构建拓扑图，计算长度、宽度分布、端点、分叉、方向与曲折度；通过四张 ArUco 现场标记自动建立真实平面标定，并用 Monte Carlo 标定扰动和掩膜边界扰动报告敏感性区间。没有标定时只报告像素，绝不把像素伪装成毫米。
 
-**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 3.0 moves beyond boxes: it skeletonizes crack masks, builds topology graphs, measures length and width distributions, detects endpoints and junctions, and estimates orientation and tortuosity. Four field ArUco markers automate planar calibration, while Monte Carlo corner perturbation and mask-boundary perturbation expose sensitivity. Without calibration, the software reports pixels only and never disguises pixels as millimetres.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 3.1 brings the complete workflow into a local Precision Lab web app; the v3 core moves beyond boxes by skeletonizing masks, building topology graphs, measuring length and width distributions, detecting endpoints and junctions, and estimating orientation and tortuosity. Four field ArUco markers automate planar calibration, while Monte Carlo corner perturbation and mask-boundary perturbation expose sensitivity. Without calibration, the software reports pixels only and never disguises pixels as millimetres.
 
 **v3.0 Calibrated Metrology / 标定量测：** printable field fiducials, semantic marker detection (`TL/TR/BR/BL`), homography rectification, graph-geodesic length, skeleton distance-transform width, immutable artifacts, privacy-minimized provenance, deterministic uncertainty analysis, and a first-hand field-validation protocol. / 可打印现场标记、语义标记检测、单应性矫正、图测地长度、骨架距离变换宽度、不可覆盖结果、最小化隐私来源记录、确定性不确定性分析和亲身现场验证方案。
 
@@ -23,9 +23,9 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the reliability console at `http://127.0.0.1:8000`. If port 8000 is occupied, the server now fails before loading the model and prints a bilingual `--port 8001` recovery command.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the reliability console at `http://127.0.0.1:8000`; its **Precision Lab** link opens `http://127.0.0.1:8000/metrology`, where the complete v3 workflow now runs in the browser: mask brush/eraser, manual four-point or automatic ArUco calibration, calibrated geometry, uncertainty, artifact previews, and full JSON evidence. If port 8000 is occupied, the server fails before loading the model and prints a bilingual `--port 8001` recovery command.
 
-第一条命令在 `results/metrology/metrology-demo-001` 生成可审计量测结果；第二条生成四张精确尺寸 SVG 现场标记和清单；第三条在 `http://127.0.0.1:8000` 启动可靠性巡检界面。如果 8000 被占用，服务器会在加载模型前失败，并直接打印双语 `--port 8001` 修复命令。
+第一条命令在 `results/metrology/metrology-demo-001` 生成可审计量测结果；第二条生成四张精确尺寸 SVG 现场标记和清单；第三条在 `http://127.0.0.1:8000` 启动可靠性巡检界面。点击顶部 **精密量测**，或直接打开 `http://127.0.0.1:8000/metrology`，即可在网页完成 v3 全流程：画笔/橡皮绘制掩膜、手动四点或 ArUco 自动标定、真实几何量、不确定性、结果图切换和完整 JSON 证据。如果 8000 被占用，服务器会在加载模型前失败，并直接打印双语 `--port 8001` 修复命令。
 
 The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
 

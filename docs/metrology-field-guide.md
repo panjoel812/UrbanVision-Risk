@@ -60,6 +60,26 @@ The software perturbs calibration corners with deterministic Gaussian noise and 
 
 ## Run the deterministic demo / 先运行确定性演示
 
+### Browser demo / 网页 Demo
+
+Start the existing local app and open the Precision Lab:
+
+启动现有本地应用并打开精密量测工作台：
+
+```bash
+uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
+```
+
+Open `http://127.0.0.1:8000/metrology`, then select **Run calibrated demo / 运行完整标定 Demo**. The page displays the calibrated overlay, rectified plane, width heatmaps, topology, physical geometry, sensitivity interval, and complete JSON without requiring an upload.
+
+打开 `http://127.0.0.1:8000/metrology`，点击 **Run calibrated demo / 运行完整标定 Demo**。无需上传图片，网页就会显示标定叠加图、矫正平面、宽度热图、拓扑、真实几何量、敏感性区间和完整 JSON。
+
+For a real image, upload it on the same page, paint the crack surface with the brush, correct it with the eraser, choose a calibration mode, and run local metrology. The mask is exported at the source image's original resolution rather than the displayed CSS size.
+
+对真实图片，在同一页面上传原图，用画笔覆盖裂缝、用橡皮修正、选择标定模式，再运行本地量测。网页导出的掩膜保持原图分辨率，不会使用屏幕显示尺寸代替。
+
+### CLI demo / 命令行 Demo
+
 ```bash
 uv run python -m urbanvision_risk.metrology.demo \
   --output-name metrology-demo-001

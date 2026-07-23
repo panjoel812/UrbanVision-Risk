@@ -65,11 +65,12 @@ APP_HTML = """<!doctype html>
     .brand { display: flex; align-items: center; gap: 11px; font-weight: 780; letter-spacing: -0.02em; }
     .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; color: #fff; background: var(--forest); box-shadow: var(--shadow); }
     .nav-actions { display: flex; align-items: center; gap: 9px; }
-    .local-chip, .language-button { border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); }
+    .local-chip, .language-button, .metrology-link { border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); }
     .local-chip { display: flex; align-items: center; gap: 7px; padding: 7px 11px; font-size: .76rem; color: var(--muted); }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
     .status-dot.ready { background: var(--forest-2); box-shadow: 0 0 0 4px color-mix(in srgb, var(--forest-2) 15%, transparent); }
     .language-button { padding: 7px 12px; cursor: pointer; }
+    .metrology-link { padding: 7px 12px; color: var(--forest); font-size: .76rem; font-weight: 720; text-decoration: none; }
     .hero { padding: 34px 0 30px; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); gap: 28px; align-items: end; }
     .eyebrow { margin: 0 0 9px; color: var(--forest); font-size: .78rem; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; }
     h1 { margin: 0; max-width: 820px; font-size: clamp(2.15rem, 4.4vw, 4.05rem); line-height: .98; letter-spacing: -.055em; }
@@ -193,12 +194,13 @@ APP_HTML = """<!doctype html>
       <div class="brand"><span class="brand-mark" aria-hidden="true">UV</span><span>UrbanVision-Risk</span></div>
       <div class="nav-actions">
         <div class="local-chip"><span id="status-dot" class="status-dot"></span><span id="model-status"><span data-zh>正在检查本地模型</span><span data-en class="hidden-lang">Checking local model</span></span></div>
+        <a class="metrology-link" href="/metrology"><span data-zh>精密量测</span><span data-en class="hidden-lang">Precision Lab</span></a>
         <button id="language-button" class="language-button" type="button" aria-label="Switch language">English</button>
       </div>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">Reliability console · UrbanVision v3.0</p>
+        <p class="eyebrow">Reliability console · UrbanVision v3.1</p>
         <h1><span data-zh>道路缺陷，<br>从检测到可靠性证据。</span><span data-en class="hidden-lang">Road damage,<br>from detection to reliability evidence.</span></h1>
         <p class="hero-copy"><span data-zh>三视图共识、定位稳定性、不确定性量化、主动学习优先级和本地 AI 说明全部在这台 Mac 上完成。</span><span data-en class="hidden-lang">Three-view consensus, localization stability, uncertainty, active-learning priority, and local AI narrative all run on this Mac.</span></p>
       </div>
@@ -269,7 +271,7 @@ APP_HTML = """<!doctype html>
       </section>
     </div>
   </main>
-  <footer class="shell"><span>UrbanVision-Risk v3.0 · Reliability + Metrology · Fully local / 完全本地</span></footer>
+  <footer class="shell"><span>UrbanVision-Risk v3.1 · Reliability + Metrology · Fully local / 完全本地</span></footer>
 
   <script>
     (() => {

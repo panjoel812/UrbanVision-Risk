@@ -4,6 +4,8 @@
 
 **English:** An on-device AI system for urban-infrastructure inspection and risk assessment. Version 1.2 adds bilingual local inspection narratives on top of tiled detection and uncertainty safeguards: it uses local Ollama/Qwen when available and an audited deterministic template otherwise, with no cloud API dependency.
 
+**v1.2.1 修复 / Fix:** 网页上传使用 Pillow RGB 图片，但 Ultralytics 把 NumPy 图片解释为 OpenCV BGR。v1.2.1 在推理边界明确进行 RGB → BGR 转换，避免颜色通道错误压低裂缝置信度。 / Web uploads arrive as Pillow RGB, while Ultralytics interprets NumPy images as OpenCV BGR. v1.2.1 explicitly converts RGB → BGR at the inference boundary so channel order cannot suppress crack confidence.
+
 ## v1.2 Quick Start / v1.2 快速启动
 
 ```bash

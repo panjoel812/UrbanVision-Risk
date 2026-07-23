@@ -48,9 +48,9 @@ Bilingual result + optional local narrative / 双语结果与可选本地说明
 Immutable local audit files / 不可变本地审计文件
 ```
 
-The model is loaded once when the server starts. Each upload is normalized for EXIF orientation and converted to RGB. Images larger than 1280 pixels on either axis receive a full-image pass plus overlapping 1024 × 1024 tiles; class-aware non-maximum suppression merges duplicate boxes. The four damage classes enter the tested `risk-v0.2.0` formula; `Repair` remains an unscored auxiliary observation.
+The model is loaded once when the server starts. Each upload is normalized for EXIF orientation, converted to RGB for storage and annotation, then explicitly converted to OpenCV-style BGR before NumPy inference. Images larger than 1280 pixels on either axis receive a full-image pass plus overlapping 1024 × 1024 tiles; class-aware non-maximum suppression merges duplicate boxes. The four damage classes enter the tested `risk-v0.2.0` formula; `Repair` remains an unscored auxiliary observation.
 
-服务启动时只加载一次模型。每次上传都会规范化 EXIF 方向并转换成 RGB。任一边大于 1280 像素时，会同时运行全图与 1024 × 1024 重叠分块，再用分类非极大值抑制合并重复框。四类缺陷进入经过测试的 `risk-v0.2.0` 公式；`Repair` 始终是零分辅助观察项。
+服务启动时只加载一次模型。每次上传都会规范化 EXIF 方向，使用 RGB 保存和绘图，并在 NumPy 推理前明确转换成 OpenCV 使用的 BGR 通道顺序。任一边大于 1280 像素时，会同时运行全图与 1024 × 1024 重叠分块，再用分类非极大值抑制合并重复框。四类缺陷进入经过测试的 `risk-v0.2.0` 公式；`Repair` 始终是零分辅助观察项。
 
 ## What the page shows / 页面显示内容
 

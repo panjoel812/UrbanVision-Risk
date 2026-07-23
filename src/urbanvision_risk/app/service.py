@@ -330,7 +330,9 @@ class LocalInspectionService:
             raise _existing_error(output_dir)
         source_path = output_dir / "source.jpg"
 
-        rgb_array = np.asarray(image)
+        # Ultralytics treats NumPy image sources as OpenCV-style BGR. Pillow gives us RGB,
+        # so passing the array unchanged can suppress otherwise confident detections.
+        inference_array = np.ascontiguousarray(np.asarray(image)[:, :, ::-1])
         width, height = image.size
         use_tiles = max(width, height) > HIGH_RES_THRESHOLD
         windows = tile_windows(
@@ -343,7 +345,7 @@ class LocalInspectionService:
             with self._inference_lock:
                 full_results = list(
                     self.model.predict(
-                        source=rgb_array,
+                        source=inference_array,
                         conf=self.confidence,
                         device=DEVICE,
                         verbose=False,
@@ -355,7 +357,7 @@ class LocalInspectionService:
                     tile_results.extend(
                         self.model.predict(
                             source=[
-                                np.ascontiguousarray(rgb_array[y1:y2, x1:x2])
+                                np.ascontiguousarray(inference_array[y1:y2, x1:x2])
                                 for x1, y1, x2, y2 in window_batch
                             ],
                             conf=self.confidence,

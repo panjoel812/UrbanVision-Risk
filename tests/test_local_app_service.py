@@ -90,9 +90,10 @@ def test_local_inspection_runs_detection_risk_and_writes_auditable_artifacts(
     tmp_path: Path,
 ) -> None:
     service, calls = _service(tmp_path)
+    content = _image_bytes()
 
     response = service.inspect_bytes(
-        _image_bytes(),
+        content,
         filename="../unsafe/road.jpg",
         content_type="image/jpeg",
     )
@@ -128,6 +129,9 @@ def test_local_inspection_runs_detection_risk_and_writes_auditable_artifacts(
     assert calls[0]["device"] == "mps"
     assert calls[0]["conf"] == 0.25
     assert isinstance(calls[0]["source"], np.ndarray)
+    with Image.open(io.BytesIO(content)) as uploaded:
+        expected_bgr = np.asarray(uploaded.convert("RGB"))[0, 0, ::-1].tolist()
+    assert calls[0]["source"][0, 0].tolist() == expected_bgr
 
 
 def test_local_inspection_health_does_not_expose_absolute_paths(tmp_path: Path) -> None:

@@ -4,7 +4,7 @@
 
 **English:** An on-device AI system for urban-infrastructure inspection and risk assessment. Version 1.2 adds bilingual local inspection narratives on top of tiled detection and uncertainty safeguards: it uses local Ollama/Qwen when available and an audited deterministic template otherwise, with no cloud API dependency.
 
-**v1.2.1 修复 / Fix:** 网页上传使用 Pillow RGB 图片，但 Ultralytics 把 NumPy 图片解释为 OpenCV BGR。v1.2.1 在推理边界明确进行 RGB → BGR 转换，避免颜色通道错误压低裂缝置信度。 / Web uploads arrive as Pillow RGB, while Ultralytics interprets NumPy images as OpenCV BGR. v1.2.1 explicitly converts RGB → BGR at the inference boundary so channel order cannot suppress crack confidence.
+**v1.2.2 修复 / Fix:** 网页首先以常规分辨率检测；如果小图没有任何结果，会自动以 1280 像素高清复检。它可恢复被 640 像素重采样削弱的细长裂缝，同时保留 0.25 置信度门槛，避免全局降阈值引入误报。此前的 RGB → BGR 通道修复继续保留。 / The web app first uses standard-resolution detection and automatically retries an empty small-image result at 1280 pixels. This recovers thin cracks weakened by 640-pixel resampling while preserving the 0.25 confidence threshold instead of globally increasing false positives. The earlier RGB → BGR channel fix remains in place.
 
 ## v1.2 Quick Start / v1.2 快速启动
 

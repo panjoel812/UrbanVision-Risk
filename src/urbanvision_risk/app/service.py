@@ -36,6 +36,7 @@ MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 ALLOWED_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 HIGH_RES_THRESHOLD = 1280
+EMPTY_DETECTION_RETRY_SIZE = 1280
 TILE_SIZE = 1024
 TILE_OVERLAP = 0.20
 TILE_NMS_IOU = 0.50
@@ -233,6 +234,7 @@ class LocalInspectionService:
             "max_upload_mib": MAX_UPLOAD_BYTES // (1024 * 1024),
             "max_image_megapixels": MAX_IMAGE_PIXELS // 1_000_000,
             "high_resolution_tiling": True,
+            "empty_detection_retry_size": EMPTY_DETECTION_RETRY_SIZE,
             "tile_size": TILE_SIZE,
             "tile_overlap": TILE_OVERLAP,
             "tile_batch_size": TILE_BATCH_SIZE,
@@ -387,6 +389,35 @@ class LocalInspectionService:
                         image_height=height,
                     )
                 )
+            retry_used = False
+            if not candidates and not windows:
+                # Thin cracks in small source images can disappear when the model's
+                # default 640px inference size resamples them. Retry only an empty
+                # first pass at 1280px so normal detections keep their current speed
+                # and confidence threshold.
+                with self._inference_lock:
+                    retry_results = list(
+                        self.model.predict(
+                            source=inference_array,
+                            conf=self.confidence,
+                            device=DEVICE,
+                            imgsz=EMPTY_DETECTION_RETRY_SIZE,
+                            verbose=False,
+                        )
+                    )
+                if len(retry_results) != 1:
+                    raise ValueError(
+                        "expected one high-resolution retry result, "
+                        f"received {len(retry_results)}"
+                    )
+                retry_used = True
+                candidates.extend(
+                    extract_candidates(
+                        retry_results[0],
+                        image_width=width,
+                        image_height=height,
+                    )
+                )
             candidates = class_aware_nms(candidates, iou_threshold=TILE_NMS_IOU)
             prediction = serialize_detections(
                 (
@@ -400,7 +431,17 @@ class LocalInspectionService:
                 confidence=self.confidence,
             )
             prediction["inference"] = {
-                "mode": "full_and_tiled" if windows else "full_image",
+                "mode": (
+                    "full_and_tiled"
+                    if windows
+                    else "full_image_high_resolution_retry"
+                    if retry_used
+                    else "full_image"
+                ),
+                "empty_detection_retry_used": retry_used,
+                "empty_detection_retry_size": (
+                    EMPTY_DETECTION_RETRY_SIZE if retry_used else None
+                ),
                 "tile_count": len(windows),
                 "tile_size": TILE_SIZE if windows else None,
                 "tile_overlap": TILE_OVERLAP if windows else None,

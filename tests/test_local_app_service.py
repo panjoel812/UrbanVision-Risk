@@ -191,6 +191,64 @@ def test_local_narrative_is_generated_once_and_saved_with_source_digests(
     ).hexdigest()
 
 
+def test_empty_small_image_detection_retries_at_high_resolution(tmp_path: Path) -> None:
+    paths = get_paths(tmp_path)
+    checkpoint = paths.experiments / RUN / "weights" / "best.pt"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"checkpoint")
+    paths.configs.mkdir(parents=True)
+    (paths.configs / "risk-v0.2.yaml").write_text(
+        (ROOT / "configs" / "risk-v0.2.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    crack_box = SimpleNamespace(
+        cls=[Scalar(0)],
+        conf=[Scalar(0.56)],
+        xyxy=[Vector([36.0, 40.0, 160.0, 359.0])],
+    )
+    calls: list[dict[str, object]] = []
+
+    class RetryModel:
+        def predict(self, **kwargs: object) -> list[FakeResult]:
+            calls.append(kwargs)
+            boxes = [] if len(calls) == 1 else [crack_box]
+            return [FakeResult(path="small-road.jpg", orig_shape=(365, 547), boxes=boxes)]
+
+    service = LocalInspectionService(
+        RUN,
+        paths=paths,
+        model_factory=lambda _: RetryModel(),
+        id_factory=lambda: INSPECTION,
+    )
+
+    response = service.inspect_bytes(
+        _image_bytes(size=(547, 365)),
+        filename="small-road.png",
+        content_type="image/png",
+    )
+
+    assert len(calls) == 2
+    assert "imgsz" not in calls[0]
+    assert calls[1]["imgsz"] == 1280
+    assert calls[1]["conf"] == 0.25
+    assert response["prediction"]["counts"]["D00"] == 1
+    manifest = json.loads(
+        (
+            paths.inspections / RUN / INSPECTION / "inspection-manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert manifest["inference"] == {
+        "mode": "full_image_high_resolution_retry",
+        "empty_detection_retry_used": True,
+        "empty_detection_retry_size": 1280,
+        "tile_count": 0,
+        "tile_size": None,
+        "tile_overlap": None,
+        "tile_batch_size": None,
+        "nms_iou": 0.5,
+    }
+
+
 def test_high_resolution_image_runs_overlapping_tiles_and_keeps_repair_unscored(
     tmp_path: Path,
 ) -> None:
@@ -247,6 +305,7 @@ def test_high_resolution_image_runs_overlapping_tiles_and_keeps_repair_unscored(
         ).read_text(encoding="utf-8")
     )
     assert manifest["inference"]["mode"] == "full_and_tiled"
+    assert manifest["inference"]["empty_detection_retry_used"] is False
     assert manifest["inference"]["tile_count"] == 2
 
 

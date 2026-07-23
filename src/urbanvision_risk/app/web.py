@@ -198,9 +198,9 @@ APP_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">On-device infrastructure AI · v1.2</p>
-        <h1><span data-zh>道路缺陷，<br>从图片到可解释结果。</span><span data-en class="hidden-lang">Road damage,<br>from image to explainable result.</span></h1>
-        <p class="hero-copy"><span data-zh>上传一张道路图片。检测、评分、标注、本地 AI 说明和保存全部在这台 Mac 上完成。</span><span data-en class="hidden-lang">Upload one road image. Detection, scoring, annotation, local AI narrative, and saving all happen on this Mac.</span></p>
+        <p class="eyebrow">Reliability-aware edge AI · v2.0</p>
+        <h1><span data-zh>道路缺陷，<br>从检测到可靠性证据。</span><span data-en class="hidden-lang">Road damage,<br>from detection to reliability evidence.</span></h1>
+        <p class="hero-copy"><span data-zh>三视图共识、定位稳定性、不确定性量化、主动学习优先级和本地 AI 说明全部在这台 Mac 上完成。</span><span data-en class="hidden-lang">Three-view consensus, localization stability, uncertainty, active-learning priority, and local AI narrative all run on this Mac.</span></p>
       </div>
       <div class="safety" role="note"><strong><span data-zh>重要边界:</span><span data-en class="hidden-lang">Important boundary: </span></strong><span data-zh>这是维护复核优先级，不是道路安全判定；最终检查、封闭和维修必须由人决定。</span><span data-en class="hidden-lang">This is a maintenance-review priority, not a road-safety verdict; humans make final inspection, closure, and repair decisions.</span></div>
     </section>
@@ -244,6 +244,7 @@ APP_HTML = """<!doctype html>
             <section class="card section-card"><h3><span data-zh>检测与观察统计</span><span data-en class="hidden-lang">Detections and observations</span></h3><p class="section-subtitle" id="image-meta">—</p><div id="class-grid" class="class-grid"></div></section>
             <section class="card section-card"><h3><span data-zh>分数贡献</span><span data-en class="hidden-lang">Score contributions</span></h3><p class="section-subtitle"><span data-zh>每类对 0-100 维护优先级的贡献</span><span data-en class="hidden-lang">Each class contribution to the 0-100 maintenance priority</span></p><div id="contribution-list" class="contribution-list"></div></section>
             <section class="card section-card"><h3><span data-zh>证据质量</span><span data-en class="hidden-lang">Evidence quality</span></h3><p class="section-subtitle"><span data-zh>置信度描述证据，不改变风险分数</span><span data-en class="hidden-lang">Confidence describes evidence; it never changes the score</span></p><div id="evidence-details"></div><div id="flags" class="flags"></div></section>
+            <section class="card section-card"><h3><span data-zh>多视图模型可靠性</span><span data-en class="hidden-lang">Multi-view model reliability</span></h3><p id="reliability-method" class="section-subtitle">—</p><div id="reliability-details"></div><div id="reliability-alert" class="flags"></div></section>
             <section class="card section-card"><h3><span data-zh>巡检记录</span><span data-en class="hidden-lang">Inspection record</span></h3><p class="section-subtitle"><span data-zh>结果已在本机保存且不会覆盖</span><span data-en class="hidden-lang">Saved locally without overwriting prior results</span></p><div class="evidence-line"><span class="evidence-label">ID</span><strong id="inspection-id">—</strong></div><div class="evidence-line"><span class="evidence-label"><span data-zh>源文件</span><span data-en class="hidden-lang">Source file</span></span><strong id="source-file">—</strong></div><div class="evidence-line"><span class="evidence-label"><span data-zh>生成时间</span><span data-en class="hidden-lang">Created</span></span><strong id="created-time">—</strong></div></section>
           </div>
 
@@ -268,7 +269,7 @@ APP_HTML = """<!doctype html>
       </section>
     </div>
   </main>
-  <footer class="shell"><span>UrbanVision-Risk v1.2 · Fully local / 完全本地 · MPS + optional Ollama</span></footer>
+  <footer class="shell"><span>UrbanVision-Risk v2.0 · Reliability-aware · Fully local / 完全本地</span></footer>
 
   <script>
     (() => {
@@ -280,8 +281,8 @@ APP_HTML = """<!doctype html>
       let modelState = "checking";
       const byId = (id) => document.getElementById(id);
       const labels = {
-        zh: { low: "低优先级", moderate: "中等优先级", high: "高优先级", critical: "严重优先级", review_required: "需要人工复核", not_applicable: "证据不适用", evidence: "证据", checking: "正在检查本地模型", ready: "本地模型就绪", unavailable: "本地服务未连接", analyzing: "正在通过 MPS 进行全图与高清分块检测…", complete: "巡检完成，结果已保存在本机。", detections: "个检测", mean: "平均置信度", minimum: "最低置信度", count: "数量", coverage: "覆盖率", points: "贡献", auxiliary: "辅助观察，不参与评分", narrative_ready: "可以生成本地双语说明。", narrative_loading: "正在通过本地 Ollama 或审计模板生成说明…", narrative_template: "审计模板 · 完全本地", narrative_ollama: "Ollama 本地模型", narrative_error: "本地说明生成失败，请检查终端日志。" },
-        en: { low: "Low priority", moderate: "Moderate priority", high: "High priority", critical: "Critical priority", review_required: "Human review required", not_applicable: "Evidence N/A", evidence: "Evidence", checking: "Checking local model", ready: "Local model ready", unavailable: "Local service unavailable", analyzing: "Running full-image and high-resolution tiled MPS detection…", complete: "Inspection complete and saved locally.", detections: "detections", mean: "Mean confidence", minimum: "Minimum confidence", count: "count", coverage: "coverage", points: "contribution", auxiliary: "Auxiliary observation; not scored", narrative_ready: "Ready to generate a local bilingual narrative.", narrative_loading: "Generating through local Ollama or the audited template…", narrative_template: "Audited template · fully local", narrative_ollama: "Local Ollama model", narrative_error: "Local narrative generation failed; check the terminal log." }
+        zh: { low: "低优先级", moderate: "中等优先级", high: "高优先级", critical: "严重优先级", review_required: "需要人工复核", not_applicable: "证据不适用", evidence: "证据", checking: "正在检查本地模型", ready: "本地模型就绪", unavailable: "本地服务未连接", analyzing: "正在通过 MPS 运行三视图共识与可靠性分析…", complete: "巡检完成，结果已保存在本机。", detections: "个检测", mean: "平均置信度", minimum: "最低置信度", count: "数量", coverage: "覆盖率", points: "贡献", auxiliary: "辅助观察，不参与评分", narrative_ready: "可以生成本地双语说明。", narrative_loading: "正在通过本地 Ollama 或审计模板生成说明…", narrative_template: "审计模板 · 完全本地", narrative_ollama: "Ollama 本地模型", narrative_error: "本地说明生成失败，请检查终端日志。" },
+        en: { low: "Low priority", moderate: "Moderate priority", high: "High priority", critical: "Critical priority", review_required: "Human review required", not_applicable: "Evidence N/A", evidence: "Evidence", checking: "Checking local model", ready: "Local model ready", unavailable: "Local service unavailable", analyzing: "Running three-view MPS consensus and reliability analysis…", complete: "Inspection complete and saved locally.", detections: "detections", mean: "Mean confidence", minimum: "Minimum confidence", count: "count", coverage: "coverage", points: "contribution", auxiliary: "Auxiliary observation; not scored", narrative_ready: "Ready to generate a local bilingual narrative.", narrative_loading: "Generating through local Ollama or the audited template…", narrative_template: "Audited template · fully local", narrative_ollama: "Local Ollama model", narrative_error: "Local narrative generation failed; check the terminal log." }
       };
       const qualityLabels = {
         zh: { not_applicable: "不适用", low: "低", moderate: "中等", high: "高" },
@@ -390,6 +391,39 @@ APP_HTML = """<!doctype html>
           const right = document.createElement("strong"); right.textContent = value;
           row.append(left, right); evidenceDetails.appendChild(row);
         });
+        const reliability = prediction.reliability || {};
+        const reliabilitySummary = reliability.summary || {};
+        const tierLabels = {
+          zh: { low: "低", medium: "中", high: "高", not_applicable: "不适用" },
+          en: { low: "Low", medium: "Medium", high: "High", not_applicable: "N/A" }
+        };
+        byId("reliability-method").textContent = reliability.method ? reliability.method[language] : "—";
+        const reliabilityDetails = byId("reliability-details"); reliabilityDetails.replaceChildren();
+        const reliabilityRows = language === "zh" ? [
+          ["推理视图", reliability.view_count],
+          ["共识 / 分歧簇", `${reliabilitySummary.accepted_cluster_count ?? "—"} / ${reliabilitySummary.disputed_cluster_count ?? "—"}`],
+          ["平均定位稳定性", number(reliabilitySummary.mean_stability, 3)],
+          ["平均不确定性", number(reliabilitySummary.mean_uncertainty, 3)],
+          ["主动学习优先级", `${number(reliabilitySummary.active_learning_priority)} · ${tierLabels.zh[reliabilitySummary.active_learning_tier] || "—"}`]
+        ] : [
+          ["Inference views", reliability.view_count],
+          ["Consensus / disputed", `${reliabilitySummary.accepted_cluster_count ?? "—"} / ${reliabilitySummary.disputed_cluster_count ?? "—"}`],
+          ["Mean localization stability", number(reliabilitySummary.mean_stability, 3)],
+          ["Mean uncertainty", number(reliabilitySummary.mean_uncertainty, 3)],
+          ["Active-learning priority", `${number(reliabilitySummary.active_learning_priority)} · ${tierLabels.en[reliabilitySummary.active_learning_tier] || "—"}`]
+        ];
+        reliabilityRows.forEach(([label, value]) => {
+          const row = document.createElement("div"); row.className = "evidence-line";
+          const left = document.createElement("span"); left.className = "evidence-label"; left.textContent = label;
+          const right = document.createElement("strong"); right.textContent = value ?? "—";
+          row.append(left, right); reliabilityDetails.appendChild(row);
+        });
+        const reliabilityAlert = byId("reliability-alert"); reliabilityAlert.replaceChildren();
+        if (reliabilitySummary.review_recommended) {
+          const line = document.createElement("p"); line.className = "flag";
+          line.textContent = language === "zh" ? "⚑ 多视图证据不稳定，已进入人工复核与主动学习队列。" : "⚑ Unstable multi-view evidence: routed to human review and the active-learning queue.";
+          reliabilityAlert.appendChild(line);
+        }
         const flags = byId("flags"); flags.replaceChildren();
         risk.audit_flags.forEach((item) => { const line = document.createElement("p"); line.className = "flag"; line.textContent = `⚑ ${item[language]}`; flags.appendChild(line); });
 

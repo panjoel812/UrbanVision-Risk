@@ -1,12 +1,12 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检与风险评估的端侧 AI 系统。v1.2 在高清分块检测和不确定性保护之上，增加本地双语巡检说明：优先调用本机 Ollama/Qwen，模型不可用时自动使用可审计模板，始终不依赖云 API。
+**中文：** 面向城市基础设施智能巡检与风险评估的可靠性端侧 AI 系统。v2.0 不再把单次 YOLO 输出当作事实：它在 Apple MPS 上运行 640、1280 与水平镜像三视图推理，通过跨视图关联、加权框融合、稳定性与不确定性量化生成可审计证据，并自动构建主动学习复核队列。
 
-**English:** An on-device AI system for urban-infrastructure inspection and risk assessment. Version 1.2 adds bilingual local inspection narratives on top of tiled detection and uncertainty safeguards: it uses local Ollama/Qwen when available and an audited deterministic template otherwise, with no cloud API dependency.
+**English:** A reliability-aware on-device AI system for urban-infrastructure inspection and risk assessment. Version 2.0 replaces single-pass YOLO claims with 640, 1280, and horizontally mirrored inference views on Apple MPS, then performs cross-view association, weighted box fusion, stability and uncertainty measurement, and active-learning review prioritization.
 
-**v1.2.2 修复 / Fix:** 网页首先以常规分辨率检测；如果小图没有任何结果，会自动以 1280 像素高清复检。它可恢复被 640 像素重采样削弱的细长裂缝，同时保留 0.25 置信度门槛，避免全局降阈值引入误报。此前的 RGB → BGR 通道修复继续保留。 / The web app first uses standard-resolution detection and automatically retries an empty small-image result at 1280 pixels. This recovers thin cracks weakened by 640-pixel resampling while preserving the 0.25 confidence threshold instead of globally increasing false positives. The earlier RGB → BGR channel fix remains in place.
+**v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v1.2 Quick Start / v1.2 快速启动
+## v2.0 Quick Start / v2.0 快速启动
 
 ```bash
 uv sync --extra dev
@@ -62,7 +62,7 @@ uv run python -m urbanvision_risk.risk.assess --run-name china-baseline-001 --pr
 # v0.3: build an offline bilingual dashboard; this does not need a server
 uv run python -m urbanvision_risk.reporting.build --run-name china-baseline-001 --prediction-name prediction-001 --risk-name risk-001 --output-name report-001
 
-# v1.2: tiled inference, uncertainty safeguard, and local bilingual narrative
+# v2.0: multi-view consensus, reliability evidence, active learning, and local narrative
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
@@ -91,9 +91,9 @@ The v0.3 offline dashboard workflow is explained in [`docs/local-report-guide.md
 
 v0.3 离线仪表板流程见 [`docs/local-report-guide.md`](docs/local-report-guide.md)。
 
-The completed v1.2 local upload app is explained in [`docs/local-app-guide.md`](docs/local-app-guide.md). The local Ollama/template layer is explained in [`docs/local-ai-narrative-guide.md`](docs/local-ai-narrative-guide.md).
+The v2.0 local app is explained in [`docs/local-app-guide.md`](docs/local-app-guide.md). Its algorithms and interview-ready engineering decisions are documented in [`docs/reliability-engineering-guide.md`](docs/reliability-engineering-guide.md) and [`docs/portfolio-guide.md`](docs/portfolio-guide.md). The optional Ollama/template layer remains documented in [`docs/local-ai-narrative-guide.md`](docs/local-ai-narrative-guide.md).
 
-完整的 v1.2 本地上传应用见 [`docs/local-app-guide.md`](docs/local-app-guide.md)。本地 Ollama/模板说明层见 [`docs/local-ai-narrative-guide.md`](docs/local-ai-narrative-guide.md)。
+完整的 v2.0 本地应用见 [`docs/local-app-guide.md`](docs/local-app-guide.md)。算法、工程取舍与简历/面试表达见 [`docs/reliability-engineering-guide.md`](docs/reliability-engineering-guide.md) 和 [`docs/portfolio-guide.md`](docs/portfolio-guide.md)；本地 Ollama/模板层仍见 [`docs/local-ai-narrative-guide.md`](docs/local-ai-narrative-guide.md)。
 
 ## Data and Citation / 数据与引用
 

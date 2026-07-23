@@ -82,6 +82,7 @@ def _service(
         paths=paths,
         model_factory=lambda _: FakeModel(result, calls),
         id_factory=lambda: inspection_id,
+        inference_mode="fast",
     )
     return service, calls
 
@@ -115,6 +116,7 @@ def test_local_inspection_runs_detection_risk_and_writes_auditable_artifacts(
         "annotated.jpg",
         "inspection-manifest.json",
         "prediction.json",
+        "reliability.json",
         "risk.json",
         "source.jpg",
     ]
@@ -123,6 +125,7 @@ def test_local_inspection_runs_detection_risk_and_writes_auditable_artifacts(
         ("source.jpg", "source_jpg_sha256"),
         ("annotated.jpg", "annotated_jpg_sha256"),
         ("prediction.json", "prediction_json_sha256"),
+        ("reliability.json", "reliability_json_sha256"),
         ("risk.json", "risk_json_sha256"),
     ):
         assert hashlib.sha256((output / filename).read_bytes()).hexdigest() == manifest[digest_key]
@@ -142,6 +145,8 @@ def test_local_inspection_health_does_not_expose_absolute_paths(tmp_path: Path) 
     assert health["local_only"] is True
     assert health["device"] == "mps"
     assert health["checkpoint"] == "best.pt"
+    assert health["inference_mode"] == "fast"
+    assert health["active_learning_queue"] is True
     assert health["local_narrative"]["local_only"] is True
     assert health["local_narrative"]["cloud_api"] is False
     assert str(tmp_path) not in json.dumps(health)
@@ -219,6 +224,7 @@ def test_empty_small_image_detection_retries_at_high_resolution(tmp_path: Path) 
         paths=paths,
         model_factory=lambda _: RetryModel(),
         id_factory=lambda: INSPECTION,
+        inference_mode="fast",
     )
 
     response = service.inspect_bytes(
@@ -246,6 +252,136 @@ def test_empty_small_image_detection_retries_at_high_resolution(tmp_path: Path) 
         "tile_overlap": None,
         "tile_batch_size": None,
         "nms_iou": 0.5,
+    }
+
+
+def test_consensus_mode_runs_three_views_and_exposes_reliability_evidence(
+    tmp_path: Path,
+) -> None:
+    paths = get_paths(tmp_path)
+    checkpoint = paths.experiments / RUN / "weights" / "best.pt"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"checkpoint")
+    paths.configs.mkdir(parents=True)
+    (paths.configs / "risk-v0.2.yaml").write_text(
+        (ROOT / "configs" / "risk-v0.2.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    def result(confidence: float, bbox: list[float]) -> FakeResult:
+        box = SimpleNamespace(
+            cls=[Scalar(0)],
+            conf=[Scalar(confidence)],
+            xyxy=[Vector(bbox)],
+        )
+        return FakeResult(path="road.jpg", orig_shape=(100, 100), boxes=[box])
+
+    calls: list[dict[str, object]] = []
+
+    class ConsensusModel:
+        def predict(self, **kwargs: object) -> list[FakeResult]:
+            calls.append(kwargs)
+            if isinstance(kwargs["source"], list):
+                return [
+                    result(0.82, [11.0, 9.0, 51.0, 81.0]),
+                    result(0.78, [49.0, 10.0, 90.0, 80.0]),
+                ]
+            return [result(0.74, [10.0, 10.0, 50.0, 80.0])]
+
+    service = LocalInspectionService(
+        RUN,
+        paths=paths,
+        model_factory=lambda _: ConsensusModel(),
+        id_factory=lambda: INSPECTION,
+    )
+
+    response = service.inspect_bytes(
+        _image_bytes(size=(100, 100)),
+        filename="road.jpg",
+        content_type="image/jpeg",
+    )
+
+    assert len(calls) == 2
+    assert calls[0]["imgsz"] == 640
+    assert calls[0]["conf"] == 0.1
+    assert calls[1]["imgsz"] == 1280
+    assert len(calls[1]["source"]) == 2  # type: ignore[arg-type]
+    assert response["prediction"]["counts"]["D00"] == 1
+    reliability = response["prediction"]["reliability"]
+    assert reliability["mode"] == "transform_consensus"
+    assert reliability["summary"]["accepted_cluster_count"] == 1
+    assert reliability["summary"]["disputed_cluster_count"] == 0
+    assert reliability["summary"]["review_recommended"] is False
+    saved = json.loads(
+        (
+            paths.inspections / RUN / INSPECTION / "reliability.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert saved == reliability
+    queue = service.review_queue()
+    assert queue["candidate_count"] == 1
+    assert queue["items"][0]["inspection_id"] == INSPECTION
+
+
+def test_single_view_high_score_is_withheld_and_routed_to_review(tmp_path: Path) -> None:
+    paths = get_paths(tmp_path)
+    checkpoint = paths.experiments / RUN / "weights" / "best.pt"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"checkpoint")
+    paths.configs.mkdir(parents=True)
+    (paths.configs / "risk-v0.2.yaml").write_text(
+        (ROOT / "configs" / "risk-v0.2.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    high_score_box = SimpleNamespace(
+        cls=[Scalar(3)],
+        conf=[Scalar(0.94)],
+        xyxy=[Vector([10.0, 10.0, 60.0, 70.0])],
+    )
+
+    class DisputedModel:
+        def predict(self, **kwargs: object) -> list[FakeResult]:
+            if isinstance(kwargs["source"], list):
+                return [
+                    FakeResult(path="road.jpg", orig_shape=(100, 100), boxes=[]),
+                    FakeResult(path="road.jpg", orig_shape=(100, 100), boxes=[]),
+                ]
+            return [
+                FakeResult(
+                    path="road.jpg",
+                    orig_shape=(100, 100),
+                    boxes=[high_score_box],
+                )
+            ]
+
+    service = LocalInspectionService(
+        RUN,
+        paths=paths,
+        model_factory=lambda _: DisputedModel(),
+        id_factory=lambda: INSPECTION,
+    )
+
+    response = service.inspect_bytes(
+        _image_bytes(),
+        filename="road.jpg",
+        content_type="image/jpeg",
+    )
+
+    assert response["prediction"]["detections"] == []
+    assert response["risk"]["decision_status"] == "review_required"
+    assert response["prediction"]["reliability"]["summary"] == {
+        "raw_candidate_count": 1,
+        "cluster_count": 1,
+        "accepted_cluster_count": 0,
+        "disputed_cluster_count": 1,
+        "mean_stability": None,
+        "mean_uncertainty": 1.0,
+        "active_learning_priority": 100.0,
+        "active_learning_tier": "high",
+        "review_recommended": True,
+    }
+    assert "multi_view_disagreement" in {
+        flag["code"] for flag in response["risk"]["audit_flags"]
     }
 
 

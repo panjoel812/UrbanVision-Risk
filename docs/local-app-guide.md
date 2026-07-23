@@ -1,10 +1,10 @@
-# UrbanVision-Risk v1.2 Local App / 本地应用指南
+# UrbanVision-Risk v2.0 Reliability-Aware Local App / 可靠性本地应用指南
 
 ## Finished product / 最终产品
 
-**English:** v1.2 runs the five-class corrected YOLO model locally on Apple MPS, performs overlapping 1024-pixel tile inference, and can turn the structured result into a bilingual local narrative. Ollama/Qwen is optional; an audited deterministic template is always available.
+**English:** v2.0 runs a three-view transform-consensus detector locally on Apple MPS. It associates boxes across 640, 1280, and horizontally mirrored views; fuses supported boxes; quantifies localization stability and uncertainty; and ranks inspections for active learning. Large images retain overlapping 1024-pixel spatial inference. The bilingual Ollama/template narrative remains optional.
 
-**中文：** v1.2 在 Apple MPS 上运行修正后的五类 YOLO 模型，进行 1024 像素重叠分块推理，并可把结构化结果转换为双语本地说明。Ollama/Qwen 是可选项；可审计确定性模板始终可用。
+**中文：** v2.0 在 Apple MPS 上运行三视图变换共识检测：关联 640、1280 和水平镜像视图中的检测框，融合得到共识框，量化定位稳定性与不确定性，并为主动学习排列巡检样本。大图继续使用 1024 像素重叠空间推理；双语 Ollama/模板说明仍为可选层。
 
 It uses no AWS, Azure, Google Cloud, paid API, remote model, CDN, analytics, or telemetry. After dependencies and the model are present, the complete workflow can run without internet access.
 
@@ -36,7 +36,11 @@ Road image / 道路图片
         ↓
 Input validation / 输入验证
         ↓
-YOLO + Apple MPS full/tiled inference / 全图与分块本地推理
+YOLO + Apple MPS multi-view inference / 多视图本地推理
+        ↓
+Cross-view association + weighted box fusion / 跨视图关联与加权框融合
+        ↓
+Stability + uncertainty + active-learning priority / 稳定性、不确定性与主动学习优先级
         ↓
 D00 · D10 · D20 · D40 scored damage / 计分缺陷
 Repair auxiliary observation / 历史修补辅助观察
@@ -48,9 +52,9 @@ Bilingual result + optional local narrative / 双语结果与可选本地说明
 Immutable local audit files / 不可变本地审计文件
 ```
 
-The model is loaded once when the server starts. Each upload is normalized for EXIF orientation, converted to RGB for storage and annotation, then explicitly converted to OpenCV-style BGR before NumPy inference. When a small image's standard-resolution pass is empty, the app automatically retries at 1280 pixels to preserve thin cracks without lowering the confidence threshold. Images larger than 1280 pixels on either axis receive a full-image pass plus overlapping 1024 × 1024 tiles; class-aware non-maximum suppression merges duplicate boxes. The four damage classes enter the tested `risk-v0.2.0` formula; `Repair` remains an unscored auxiliary observation.
+The model is loaded once when the server starts. Each small image runs through native 640, native 1280, and horizontally mirrored 1280 views at a candidate confidence floor. Class-aware IoU association groups corresponding detections, confidence-weighted fusion estimates one box, and a conservative mean confidence replaces the most optimistic score. A cluster needs support from at least two views before it enters `risk-v0.2.0`. Images larger than 1280 pixels retain full-image plus overlapping 1024 × 1024 spatial inference.
 
-服务启动时只加载一次模型。每次上传都会规范化 EXIF 方向，使用 RGB 保存和绘图，并在 NumPy 推理前明确转换成 OpenCV 使用的 BGR 通道顺序。小图的常规分辨率检测如果没有结果，应用会自动使用 1280 像素高清复检，在不降低置信度门槛的前提下保留细长裂缝。任一边大于 1280 像素时，会同时运行全图与 1024 × 1024 重叠分块，再用分类非极大值抑制合并重复框。四类缺陷进入经过测试的 `risk-v0.2.0` 公式；`Repair` 始终是零分辅助观察项。
+服务启动时只加载一次模型。每张小图会以原图 640、原图 1280 和水平镜像 1280 三种视图运行；分类感知 IoU 关联聚合同一缺陷，置信度加权融合定位框，并以保守平均置信度替代最乐观的单次分数。一个检测簇至少得到两个视图支持后才能进入 `risk-v0.2.0`。任一边大于 1280 像素时，保留全图与 1024 × 1024 重叠空间推理。
 
 ## What the page shows / 页面显示内容
 
@@ -59,6 +63,7 @@ The model is loaded once when the server starts. Each upload is normalized for E
 - Repair previously repaired area as an unscored observation / Repair 历史修补区域作为不计分观察项；
 - 0–100 maintenance-review priority and level / 0–100 维护复核优先级与等级；
 - evidence quality, mean/minimum confidence, and audit flags / 证据质量、平均/最低置信度和审计标记；
+- multi-view support, localization stability, uncertainty, and active-learning priority / 多视图支持、定位稳定性、不确定性与主动学习优先级；
 - count, coverage, and score contribution for every class / 每类数量、覆盖率与分数贡献；
 - bilingual recommendation and safety limitation / 双语建议与安全限制；
 - optional Ollama/Qwen or audited-template narrative / 可选 Ollama/Qwen 或审计模板说明；
@@ -81,6 +86,7 @@ results/inspections/china-repair-mps-003/<inspection-id>/
 ├── source.jpg
 ├── annotated.jpg
 ├── prediction.json
+├── reliability.json
 ├── risk.json
 ├── inspection-manifest.json
 └── narrative.json              # after Generate locally / 点击生成后出现
@@ -88,6 +94,7 @@ results/inspections/china-repair-mps-003/<inspection-id>/
 
 - `source.jpg`: normalized local copy / 规范化本地副本；
 - `annotated.jpg`: model boxes and labels / 模型检测框与标签；
+- `reliability.json`: view-level consensus clusters, uncertainty, stability, and active-learning evidence / 视图级共识簇、不确定性、稳定性与主动学习证据；
 - `prediction.json`: dimensions, detections, confidence, and counts / 尺寸、检测、置信度与数量；
 - `risk.json`: formula, priority, evidence, flags, recommendation, and limitation / 公式、优先级、证据、标记、建议与限制；
 - `inspection-manifest.json`: timestamp, model/config identity, and SHA-256 digests / 时间、模型/配置身份和 SHA-256。

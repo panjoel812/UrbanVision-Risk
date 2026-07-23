@@ -54,6 +54,14 @@ class StubService:
             "limitation": {"zh": "不是安全结论", "en": "Not a safety verdict"},
         }
 
+    def review_queue(self, *, limit: int = 50) -> dict[str, object]:
+        return {
+            "schema_version": "active-learning-queue-v2.0.0",
+            "local_only": True,
+            "returned_count": min(limit, 1),
+            "items": [{"inspection_id": "inspection-test-001"}],
+        }
+
 
 @pytest.fixture
 def local_client(tmp_path: Path) -> tuple[TestClient, StubService]:
@@ -72,9 +80,12 @@ def test_local_app_page_is_bilingual_private_and_self_contained(
 
     assert response.status_code == 200
     assert "道路缺陷，" in response.text
-    assert "从图片到可解释结果" in response.text
+    assert "从检测到可靠性证据" in response.text
     assert "Road damage," in response.text
-    assert "from image to explainable result" in response.text
+    assert "from detection to reliability evidence" in response.text
+    assert "多视图模型可靠性" in response.text
+    assert "Multi-view model reliability" in response.text
+    assert "active-learning priority" in response.text
     assert "本地 AI 巡检说明" in response.text
     assert "Local AI inspection narrative" in response.text
     assert "narrative-button" in response.text
@@ -101,6 +112,20 @@ def test_health_and_upload_contract(local_client: tuple[TestClient, StubService]
     assert response.status_code == 200
     assert response.json()["inspection_id"] == "inspection-test-001"
     assert service.upload == (b"image-bytes", "road.jpg", "image/jpeg")
+
+
+def test_active_learning_queue_endpoint_is_local_and_bounded(
+    local_client: tuple[TestClient, StubService],
+) -> None:
+    client, _ = local_client
+
+    response = client.get("/api/review-queue?limit=1")
+    invalid = client.get("/api/review-queue?limit=501")
+
+    assert response.status_code == 200
+    assert response.json()["local_only"] is True
+    assert response.json()["items"][0]["inspection_id"] == "inspection-test-001"
+    assert invalid.status_code == 422
 
 
 def test_annotated_image_is_served_from_the_service(

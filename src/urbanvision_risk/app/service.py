@@ -25,6 +25,12 @@ from urbanvision_risk.detection.tiled import (
 )
 from urbanvision_risk.errors import ProjectError
 from urbanvision_risk.paths import ProjectPaths, get_paths
+from urbanvision_risk.reliability.consensus import (
+    CONSENSUS_SCHEMA_VERSION,
+    analyze_consensus,
+    horizontal_flip_candidates,
+)
+from urbanvision_risk.reliability.queue import build_review_queue
 from urbanvision_risk.reporting.local_narrative import LocalNarrativeGenerator
 from urbanvision_risk.risk.config import load_risk_config, resolved_config_yaml
 from urbanvision_risk.risk.schema import validate_prediction_payload
@@ -37,6 +43,11 @@ MAX_IMAGE_PIXELS = 40_000_000
 ALLOWED_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 HIGH_RES_THRESHOLD = 1280
 EMPTY_DETECTION_RETRY_SIZE = 1280
+CONSENSUS_CANDIDATE_CONFIDENCE = 0.10
+CONSENSUS_LOW_RES_SIZE = 640
+CONSENSUS_HIGH_RES_SIZE = 1280
+CONSENSUS_ASSOCIATION_IOU = 0.45
+CONSENSUS_MINIMUM_VIEW_SUPPORT = 2
 TILE_SIZE = 1024
 TILE_OVERLAP = 0.20
 TILE_NMS_IOU = 0.50
@@ -170,6 +181,62 @@ def _annotate_image(
     return annotated
 
 
+def _non_consensus_reliability(
+    mode: str,
+    candidates: list[DetectionCandidate],
+    *,
+    view_count: int,
+) -> dict[str, object]:
+    return {
+        "schema_version": CONSENSUS_SCHEMA_VERSION,
+        "mode": mode,
+        "view_count": view_count,
+        "views": [],
+        "summary": {
+            "raw_candidate_count": len(candidates),
+            "cluster_count": len(candidates),
+            "accepted_cluster_count": len(candidates),
+            "disputed_cluster_count": 0,
+            "mean_stability": None,
+            "mean_uncertainty": None,
+            "active_learning_priority": None,
+            "active_learning_tier": "not_applicable",
+            "review_recommended": False,
+        },
+        "clusters": [],
+        "method": {
+            "en": "Transform consensus is not applied in this inference mode.",
+            "zh": "此推理模式未应用变换共识。",
+        },
+    }
+
+
+def _apply_reliability_guard(
+    risk: dict[str, object], reliability: dict[str, object]
+) -> None:
+    summary = reliability.get("summary")
+    if not isinstance(summary, dict) or not summary.get("review_recommended"):
+        return
+    risk["decision_status"] = "review_required"
+    risk["review_required"] = True
+    risk["recommendation"] = {
+        "en": (
+            "Human review required because transformed model views disagree or provide "
+            "unstable localization. The numeric score is retained only for audit."
+        ),
+        "zh": "变换后的多个模型视图存在分歧或定位不稳定，需要人工复核；数值分数仅供审计。",
+    }
+    flags = risk.get("audit_flags")
+    if isinstance(flags, list):
+        flags.append(
+            {
+                "code": "multi_view_disagreement",
+                "en": "Multi-view consensus evidence is unstable; route this sample to review.",
+                "zh": "多视图共识证据不稳定；请将此样本送入人工复核。",
+            }
+        )
+
+
 class LocalInspectionService:
     """Load one local model and create immutable single-image inspections."""
 
@@ -182,6 +249,7 @@ class LocalInspectionService:
         model_factory: Callable[[str], Any] | None = None,
         id_factory: Callable[[], str] | None = None,
         narrative_generator: LocalNarrativeGenerator | None = None,
+        inference_mode: str = "consensus",
     ) -> None:
         self.run_name = validate_run_name(run_name)
         if not 0 <= confidence <= 1:
@@ -194,6 +262,16 @@ class LocalInspectionService:
                 str(confidence),
             )
         self.confidence = float(confidence)
+        if inference_mode not in {"consensus", "fast"}:
+            raise ProjectError(
+                "E302",
+                "推理模式必须为 consensus 或 fast",
+                "Inference mode must be consensus or fast",
+                "使用 --inference-mode consensus 或 --inference-mode fast",
+                "Use --inference-mode consensus or --inference-mode fast",
+                inference_mode,
+            )
+        self.inference_mode = inference_mode
         self.paths = paths or get_paths()
         self.checkpoint = self.paths.experiments / self.run_name / "weights" / "best.pt"
         if not self.checkpoint.is_file():
@@ -229,12 +307,19 @@ class LocalInspectionService:
             "checkpoint": self.checkpoint.name,
             "device": DEVICE,
             "confidence": self.confidence,
+            "inference_mode": self.inference_mode,
             "local_only": True,
             "accepted_content_types": sorted(ALLOWED_CONTENT_TYPES),
             "max_upload_mib": MAX_UPLOAD_BYTES // (1024 * 1024),
             "max_image_megapixels": MAX_IMAGE_PIXELS // 1_000_000,
             "high_resolution_tiling": True,
             "empty_detection_retry_size": EMPTY_DETECTION_RETRY_SIZE,
+            "consensus_views": ["native-640", "native-1280", "hflip-1280"],
+            "consensus_candidate_confidence": min(
+                self.confidence, CONSENSUS_CANDIDATE_CONFIDENCE
+            ),
+            "consensus_minimum_view_support": CONSENSUS_MINIMUM_VIEW_SUPPORT,
+            "active_learning_queue": True,
             "tile_size": TILE_SIZE,
             "tile_overlap": TILE_OVERLAP,
             "tile_batch_size": TILE_BATCH_SIZE,
@@ -317,6 +402,9 @@ class LocalInspectionService:
                 raise _write_error(narrative_path) from error
             return narrative
 
+    def review_queue(self, *, limit: int = 50) -> dict[str, object]:
+        return build_review_queue(self.run_name, self.paths, limit=limit)
+
     def inspect_bytes(
         self,
         content: bytes,
@@ -344,81 +432,141 @@ class LocalInspectionService:
             overlap=TILE_OVERLAP,
         ) if use_tiles else ()
         try:
-            with self._inference_lock:
-                full_results = list(
-                    self.model.predict(
-                        source=inference_array,
-                        conf=self.confidence,
-                        device=DEVICE,
-                        verbose=False,
-                    )
+            retry_used = False
+            if self.inference_mode == "consensus" and not windows:
+                candidate_confidence = min(
+                    self.confidence, CONSENSUS_CANDIDATE_CONFIDENCE
                 )
-                tile_results = []
-                for start in range(0, len(windows), TILE_BATCH_SIZE):
-                    window_batch = windows[start : start + TILE_BATCH_SIZE]
-                    tile_results.extend(
+                flipped_array = np.ascontiguousarray(inference_array[:, ::-1])
+                with self._inference_lock:
+                    low_results = list(
                         self.model.predict(
-                            source=[
-                                np.ascontiguousarray(inference_array[y1:y2, x1:x2])
-                                for x1, y1, x2, y2 in window_batch
-                            ],
-                            conf=self.confidence,
+                            source=inference_array,
+                            conf=candidate_confidence,
                             device=DEVICE,
-                            imgsz=TILE_SIZE,
+                            imgsz=CONSENSUS_LOW_RES_SIZE,
                             verbose=False,
                         )
                     )
-            if len(full_results) != 1:
-                raise ValueError(f"expected one full result, received {len(full_results)}")
-            if len(tile_results) != len(windows):
-                raise ValueError(
-                    f"expected {len(windows)} tile results, received {len(tile_results)}"
-                )
-            candidates = extract_candidates(
-                full_results[0],
-                image_width=width,
-                image_height=height,
-            )
-            for result, (x1, y1, _, _) in zip(tile_results, windows, strict=True):
-                candidates.extend(
-                    extract_candidates(
-                        result,
-                        offset_x=x1,
-                        offset_y=y1,
-                        image_width=width,
-                        image_height=height,
+                    high_results = list(
+                        self.model.predict(
+                            source=[inference_array, flipped_array],
+                            conf=candidate_confidence,
+                            device=DEVICE,
+                            imgsz=CONSENSUS_HIGH_RES_SIZE,
+                            verbose=False,
+                        )
                     )
+                if len(low_results) != 1:
+                    raise ValueError(
+                        f"expected one low-resolution result, received {len(low_results)}"
+                    )
+                if len(high_results) != 2:
+                    raise ValueError(
+                        f"expected two high-resolution results, received {len(high_results)}"
+                    )
+                low_candidates = extract_candidates(
+                    low_results[0], image_width=width, image_height=height
                 )
-            retry_used = False
-            if not candidates and not windows:
-                # Thin cracks in small source images can disappear when the model's
-                # default 640px inference size resamples them. Retry only an empty
-                # first pass at 1280px so normal detections keep their current speed
-                # and confidence threshold.
+                native_high_candidates = extract_candidates(
+                    high_results[0], image_width=width, image_height=height
+                )
+                flipped_candidates = horizontal_flip_candidates(
+                    extract_candidates(
+                        high_results[1], image_width=width, image_height=height
+                    ),
+                    width,
+                )
+                consensus = analyze_consensus(
+                    {
+                        "native-640": low_candidates,
+                        "native-1280": native_high_candidates,
+                        "hflip-1280": flipped_candidates,
+                    },
+                    decision_confidence=self.confidence,
+                    association_iou=CONSENSUS_ASSOCIATION_IOU,
+                    minimum_view_support=CONSENSUS_MINIMUM_VIEW_SUPPORT,
+                    per_view_nms_iou=TILE_NMS_IOU,
+                )
+                candidates = list(consensus.candidates)
+                reliability = consensus.evidence
+                retry_used = not low_candidates and bool(candidates)
+            else:
                 with self._inference_lock:
-                    retry_results = list(
+                    full_results = list(
                         self.model.predict(
                             source=inference_array,
                             conf=self.confidence,
                             device=DEVICE,
-                            imgsz=EMPTY_DETECTION_RETRY_SIZE,
                             verbose=False,
                         )
                     )
-                if len(retry_results) != 1:
+                    tile_results = []
+                    for start in range(0, len(windows), TILE_BATCH_SIZE):
+                        window_batch = windows[start : start + TILE_BATCH_SIZE]
+                        tile_results.extend(
+                            self.model.predict(
+                                source=[
+                                    np.ascontiguousarray(inference_array[y1:y2, x1:x2])
+                                    for x1, y1, x2, y2 in window_batch
+                                ],
+                                conf=self.confidence,
+                                device=DEVICE,
+                                imgsz=TILE_SIZE,
+                                verbose=False,
+                            )
+                        )
+                if len(full_results) != 1:
                     raise ValueError(
-                        "expected one high-resolution retry result, "
-                        f"received {len(retry_results)}"
+                        f"expected one full result, received {len(full_results)}"
                     )
-                retry_used = True
-                candidates.extend(
-                    extract_candidates(
-                        retry_results[0],
-                        image_width=width,
-                        image_height=height,
+                if len(tile_results) != len(windows):
+                    raise ValueError(
+                        f"expected {len(windows)} tile results, received {len(tile_results)}"
                     )
+                candidates = extract_candidates(
+                    full_results[0], image_width=width, image_height=height
                 )
-            candidates = class_aware_nms(candidates, iou_threshold=TILE_NMS_IOU)
+                for result, (x1, y1, _, _) in zip(tile_results, windows, strict=True):
+                    candidates.extend(
+                        extract_candidates(
+                            result,
+                            offset_x=x1,
+                            offset_y=y1,
+                            image_width=width,
+                            image_height=height,
+                        )
+                    )
+                if not candidates and not windows:
+                    with self._inference_lock:
+                        retry_results = list(
+                            self.model.predict(
+                                source=inference_array,
+                                conf=self.confidence,
+                                device=DEVICE,
+                                imgsz=EMPTY_DETECTION_RETRY_SIZE,
+                                verbose=False,
+                            )
+                        )
+                    if len(retry_results) != 1:
+                        raise ValueError(
+                            "expected one high-resolution retry result, "
+                            f"received {len(retry_results)}"
+                        )
+                    retry_used = True
+                    candidates.extend(
+                        extract_candidates(
+                            retry_results[0],
+                            image_width=width,
+                            image_height=height,
+                        )
+                    )
+                candidates = class_aware_nms(candidates, iou_threshold=TILE_NMS_IOU)
+                reliability = _non_consensus_reliability(
+                    "spatial_ensemble" if windows else "fast_single_pass",
+                    candidates,
+                    view_count=1 + len(windows),
+                )
             prediction = serialize_detections(
                 (
                     (candidate.class_id, candidate.confidence, candidate.bbox_xyxy)
@@ -430,10 +578,13 @@ class LocalInspectionService:
                 model_path=self.checkpoint,
                 confidence=self.confidence,
             )
+            prediction["reliability"] = reliability
             prediction["inference"] = {
                 "mode": (
                     "full_and_tiled"
                     if windows
+                    else "multi_view_consensus"
+                    if self.inference_mode == "consensus"
                     else "full_image_high_resolution_retry"
                     if retry_used
                     else "full_image"
@@ -466,6 +617,8 @@ class LocalInspectionService:
             source_sha256=_sha256(prediction_bytes),
             config_sha256=self.config_sha256,
         )
+        _apply_reliability_guard(risk, reliability)
+        reliability_bytes = _json_bytes(reliability)
         risk_bytes = _json_bytes(risk)
         created_at = datetime.now(UTC).isoformat()
         manifest = {
@@ -479,11 +632,13 @@ class LocalInspectionService:
             "confidence": self.confidence,
             "checkpoint": self.checkpoint.name,
             "inference": prediction["inference"],
+            "reliability_schema_version": reliability["schema_version"],
             "risk_formula_version": risk["formula_version"],
             "risk_config_sha256": self.config_sha256,
             "source_jpg_sha256": _sha256(source_bytes),
             "annotated_jpg_sha256": _sha256(annotated_bytes),
             "prediction_json_sha256": _sha256(prediction_bytes),
+            "reliability_json_sha256": _sha256(reliability_bytes),
             "risk_json_sha256": _sha256(risk_bytes),
         }
         manifest_bytes = _json_bytes(manifest)
@@ -498,6 +653,7 @@ class LocalInspectionService:
             source_path.write_bytes(source_bytes)
             (output_dir / "annotated.jpg").write_bytes(annotated_bytes)
             (output_dir / "prediction.json").write_bytes(prediction_bytes)
+            (output_dir / "reliability.json").write_bytes(reliability_bytes)
             (output_dir / "risk.json").write_bytes(risk_bytes)
             (output_dir / "inspection-manifest.json").write_bytes(manifest_bytes)
         except OSError as error:
@@ -507,6 +663,7 @@ class LocalInspectionService:
             "image_dimensions": prediction["image_dimensions"],
             "counts": prediction["counts"],
             "detections": prediction["detections"],
+            "reliability": prediction["reliability"],
             **{key: prediction[key] for key in ("message_zh", "message_en") if key in prediction},
         }
         response_risk = {

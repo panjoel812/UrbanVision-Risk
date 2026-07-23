@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Query, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.requests import Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -40,7 +40,7 @@ def _status_code(error: ProjectError) -> int:
 def create_app(service: LocalInspectionService) -> FastAPI:
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="1.2.2",
+        version="2.0.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -88,6 +88,12 @@ def create_app(service: LocalInspectionService) -> FastAPI:
     @app.get("/api/health")
     async def health() -> dict[str, object]:
         return service.health_payload()
+
+    @app.get("/api/review-queue")
+    async def review_queue(
+        limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    ) -> dict[str, object]:
+        return service.review_queue(limit=limit)
 
     @app.post("/api/inspect")
     async def inspect(

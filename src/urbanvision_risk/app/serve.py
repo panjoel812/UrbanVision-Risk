@@ -41,6 +41,12 @@ def main() -> int:
     )
     parser.add_argument("--run-name", required=True)
     parser.add_argument("--confidence", type=float, default=0.25)
+    parser.add_argument(
+        "--inference-mode",
+        choices=("consensus", "fast"),
+        default="consensus",
+        help="Use three-view reliability consensus or the faster legacy single pass",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument(
@@ -64,6 +70,7 @@ def main() -> int:
             args.run_name,
             confidence=args.confidence,
             narrative_generator=narrative_generator,
+            inference_mode=args.inference_mode,
         )
         app = create_app(service)
     except ProjectError as error:

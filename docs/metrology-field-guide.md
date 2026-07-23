@@ -78,6 +78,38 @@ For a real image, upload it on the same page, paint the crack surface with the b
 
 对真实图片，在同一页面上传原图，用画笔覆盖裂缝、用橡皮修正、选择标定模式，再运行本地量测。网页导出的掩膜保持原图分辨率，不会使用屏幕显示尺寸代替。
 
+The circular cursor shows the exact brush diameter. Every brush move appears immediately as a green overlay; erasing removes both the mask alpha and the green overlay. The browser exports a transparent PNG, and the local service composites transparency onto black before thresholding, so unpainted pixels cannot accidentally become foreground.
+
+圆形光标就是实际笔宽；拖动时绿色轨迹会立即显示，橡皮会同时清除掩膜透明度和绿色覆盖层。浏览器导出透明 PNG，本地服务先把透明区域合成到黑色背景再二值化，因此未绘制区域不会误变成前景。
+
+## Practical maintenance workflow / 实际维护工作流
+
+### Material and cost planning / 材料与成本规划
+
+After a physically calibrated run, enter the intended routed-joint width, depth, waste percentage, and optional price per litre. The app calculates:
+
+完成真实平面标定后，填写计划开槽宽度、深度、损耗率和可选的每升单价。网页计算：
+
+```text
+base litres = calibrated length (m) × route width (mm) × route depth (mm) ÷ 1000
+procurement litres = base litres × (1 + waste % ÷ 100)
+estimated cost = procurement litres × optional unit price
+```
+
+The result is useful for a property manager, campus maintenance team, parking-facility operator, or contractor preparing a survey-based material estimate. It stores the exact assumptions and the SHA-256 digest of the source measurement in an immutable JSON record. It is **not** a construction specification, vendor quote, or safety verdict; field routing dimensions and material choice still require a qualified maintainer.
+
+它适用于物业、校园养护、停车设施运维或承包商根据巡检结果预估材料。记录会不可覆盖地保存全部假设和源量测 SHA-256。它**不是**施工规范、供应商报价或道路安全结论；开槽尺寸和材料选择仍需专业养护人员确认。
+
+### Multi-date growth comparison / 多期增长对比
+
+Measure the same crack region again with the same marker placement protocol, mask policy, and camera procedure. Choose the older run as baseline, enter elapsed days and your organization’s review thresholds, then compare. The service normalizes `m`, `cm`, and `mm` into SI units and reports network-length change, mean/P95 width change, junction change, and growth per day.
+
+对同一裂缝区域采用一致的标记布置、掩膜规则和拍摄流程再次量测。选择旧记录作为基线，填写间隔天数和组织内部复核阈值后执行对比。服务会把 `m`、`cm`、`mm` 统一到 SI 单位，输出网络长度、平均/P95 宽度、分叉数量变化和每日增长率。
+
+This turns a one-off image demo into a repeatable maintenance record. The threshold only decides whether a human should review the change; it is deliberately not called a road-safety threshold. Registration of independently framed images is not yet automated, so two runs are comparable only when the operator followed the same-region protocol.
+
+这把一次性图片 Demo 变成可重复的养护记录。阈值只决定是否触发人工复核，程序不会把它称为道路安全阈值。当前尚未自动配准独立拍摄的画面，因此只有操作者遵循同区域协议时，两次记录才有可比性。
+
 ### CLI demo / 命令行 Demo
 
 ```bash

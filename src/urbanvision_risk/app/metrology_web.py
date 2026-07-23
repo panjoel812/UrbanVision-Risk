@@ -142,6 +142,17 @@ METROLOGY_HTML = """<!doctype html>
     .evidence { margin-top: 12px; display: grid; gap: 7px; }
     .evidence-row { display: flex; justify-content: space-between; gap: 12px; padding-top: 7px; border-top: 1px solid var(--line); font-size: .72rem; }
     .evidence-row span { color: var(--muted); }
+    .practical-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+    .utility-panel { padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: color-mix(in srgb, var(--soft) 72%, var(--card)); }
+    .utility-panel h3 { font-size: .82rem; }
+    .utility-panel .subcopy { min-height: 34px; }
+    .utility-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 10px; }
+    .utility-fields .field input, .utility-fields .field select { min-height: 35px; padding: 6px 8px; font-size: .74rem; }
+    .utility-button { width: 100%; margin-top: 9px; padding: 8px 10px; border: 0; border-radius: 9px; background: var(--forest); color: #fff; cursor: pointer; font-size: .73rem; font-weight: 720; }
+    .utility-result { margin-top: 9px; padding: 9px; border-radius: 9px; background: var(--card); font-size: .71rem; }
+    .utility-result strong { display: block; margin-bottom: 3px; color: var(--forest); font-size: .86rem; }
+    .utility-result.alert strong { color: var(--orange); }
+    .download-link { display: inline-block; margin-top: 5px; color: var(--forest); font-weight: 700; }
     details { margin-top: 13px; border-top: 1px solid var(--line); padding-top: 10px; }
     summary { cursor: pointer; color: var(--muted); font-size: .72rem; }
     pre { max-height: 360px; overflow: auto; padding: 11px; border-radius: 10px; background: #111915; color: #dceae2; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
@@ -158,6 +169,7 @@ METROLOGY_HTML = """<!doctype html>
       .physical-grid { grid-template-columns: 1fr 1fr; }
       .advanced-grid { grid-template-columns: 1fr 1fr; }
       .point-list, .metric-grid { grid-template-columns: 1fr 1fr; }
+      .practical-grid { grid-template-columns: 1fr; }
       .brush-control { width: 100%; margin-left: 0; }
       .run-row { align-items: stretch; flex-direction: column; }
       .primary-button { width: 100%; }
@@ -178,7 +190,7 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v3.1 · Calibrated surface metrology</p>
+        <p class="eyebrow">v3.2 · Calibrated maintenance intelligence</p>
         <h1><span data-zh>从检测框，走到<br>可验证的真实量测。</span><span data-en class="hidden-lang">From boxes to<br>verifiable measurement.</span></h1>
         <p class="hero-copy"><span data-zh>在原图上绘制裂缝掩膜，选择像素、手动四点或 ArUco 自动标定。系统将在本机计算骨架图、长度、宽度分布、分叉、方向和敏感性区间。</span><span data-en class="hidden-lang">Draw a crack mask, then choose pixel-only, manual four-point, or automatic ArUco calibration. Skeleton graphs, length, width distributions, branching, orientation, and sensitivity intervals are computed locally.</span></p>
       </div>
@@ -209,7 +221,7 @@ METROLOGY_HTML = """<!doctype html>
 
         <div class="section">
           <div class="section-head">
-            <div><h2><span data-zh>绘制裂缝掩膜</span><span data-en class="hidden-lang">Draw crack mask</span></h2><p class="subcopy"><span data-zh>绿色区域是将被量测的裂缝；检测框不会被冒充为掩膜。</span><span data-en class="hidden-lang">Green is the surface to measure; detector boxes are never treated as masks.</span></p></div>
+            <div><h2><span data-zh>绘制裂缝掩膜</span><span data-en class="hidden-lang">Draw crack mask</span></h2><p class="subcopy"><span data-zh>笔尖圆环显示当前位置，拖动后绿色轨迹会立即保留；检测框不会被冒充为掩膜。</span><span data-en class="hidden-lang">The tip ring shows the exact brush position and the green stroke remains visible immediately; detector boxes are never treated as masks.</span></p></div>
             <span class="step">02 · MASK</span>
           </div>
           <div class="canvas-shell">
@@ -287,13 +299,39 @@ METROLOGY_HTML = """<!doctype html>
             </div>
             <p id="decision" class="decision">—</p>
             <div id="evidence" class="evidence"></div>
+            <div class="practical-grid">
+              <section class="utility-panel">
+                <h3><span data-zh>材料与成本规划</span><span data-en class="hidden-lang">Material and cost planning</span></h3>
+                <p id="plan-note" class="subcopy"><span data-zh>使用标定长度和施工假设估算密封材料。</span><span data-en class="hidden-lang">Estimate sealant from calibrated length and work assumptions.</span></p>
+                <div class="utility-fields">
+                  <div class="field"><label for="route-width"><span data-zh>开槽宽度 mm</span><span data-en class="hidden-lang">Route width mm</span></label><input id="route-width" type="number" min="0.1" max="200" step="0.1" value="10"></div>
+                  <div class="field"><label for="route-depth"><span data-zh>开槽深度 mm</span><span data-en class="hidden-lang">Route depth mm</span></label><input id="route-depth" type="number" min="0.1" max="200" step="0.1" value="10"></div>
+                  <div class="field"><label for="waste-percent"><span data-zh>损耗率 %</span><span data-en class="hidden-lang">Waste %</span></label><input id="waste-percent" type="number" min="0" max="200" step="0.1" value="10"></div>
+                  <div class="field"><label for="unit-cost"><span data-zh>每升单价（可选）</span><span data-en class="hidden-lang">Cost per litre (optional)</span></label><input id="unit-cost" type="number" min="0" step="0.01" placeholder="—"></div>
+                </div>
+                <button id="plan-button" class="utility-button" type="button" disabled><span data-zh>生成材料计划</span><span data-en class="hidden-lang">Create material plan</span></button>
+                <div id="plan-result" class="utility-result hidden"></div>
+              </section>
+              <section class="utility-panel">
+                <h3><span data-zh>多期裂缝增长对比</span><span data-en class="hidden-lang">Longitudinal crack comparison</span></h3>
+                <p class="subcopy"><span data-zh>选择同一路段的旧标定记录；阈值只是人工复核触发器。</span><span data-en class="hidden-lang">Choose an older calibrated run of the same area; thresholds only trigger review.</span></p>
+                <div class="utility-fields">
+                  <div class="field" style="grid-column: 1 / -1"><label for="baseline-run"><span data-zh>基线记录</span><span data-en class="hidden-lang">Baseline run</span></label><select id="baseline-run"><option value="">—</option></select></div>
+                  <div class="field"><label for="elapsed-days"><span data-zh>间隔天数</span><span data-en class="hidden-lang">Elapsed days</span></label><input id="elapsed-days" type="number" min="0.1" step="0.1" value="30"></div>
+                  <div class="field"><label for="length-threshold"><span data-zh>长度增长阈值 %</span><span data-en class="hidden-lang">Length threshold %</span></label><input id="length-threshold" type="number" min="0" step="0.1" value="10"></div>
+                  <div class="field"><label for="width-threshold"><span data-zh>P95 宽度阈值 %</span><span data-en class="hidden-lang">P95 width threshold %</span></label><input id="width-threshold" type="number" min="0" step="0.1" value="10"></div>
+                </div>
+                <button id="compare-button" class="utility-button" type="button" disabled><span data-zh>对比增长</span><span data-en class="hidden-lang">Compare growth</span></button>
+                <div id="comparison-result" class="utility-result hidden"></div>
+              </section>
+            </div>
             <details><summary><span data-zh>查看完整 measurement.json</span><span data-en class="hidden-lang">View complete measurement.json</span></summary><pre id="json-output"></pre></details>
           </div>
         </section>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v3.1 · Precision Lab · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v3.2 · Precision Lab · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -315,6 +353,9 @@ METROLOGY_HTML = """<!doctype html>
       let strokes = [];
       let calibrationPoints = [];
       let latestResult = null;
+      let latestPlan = null;
+      let latestComparison = null;
+      let hoverPoint = null;
 
       const text = {
         zh: {
@@ -339,7 +380,23 @@ METROLOGY_HTML = """<!doctype html>
           tortuosity: "主路径曲折度",
           fractal: "盒计数维数",
           aruco: "ArUco 最小标记周长",
-          quad: "标定区域画面占比"
+          quad: "标定区域画面占比",
+          planReady: "使用标定长度和施工假设估算密封材料。",
+          planPixel: "材料计划需要有效的真实平面标定；仅像素模式不能估算升数。",
+          planRunning: "正在生成不可覆盖的材料计划…",
+          planComplete: "材料计划已保存",
+          treatmentLength: "处理长度",
+          procurementVolume: "建议采购体积",
+          estimatedCost: "估算材料成本",
+          compareRunning: "正在对比两次标定量测…",
+          compareComplete: "增长对比已保存",
+          noBaseline: "还没有另一条可对比的标定记录。",
+          lengthChange: "网络长度变化",
+          widthChange: "P95 宽度变化",
+          dailyGrowth: "每日长度变化",
+          reviewRequired: "变化超过用户阈值，需要人工复核",
+          withinThreshold: "变化未超过用户阈值",
+          downloadJson: "下载审计 JSON"
         },
         en: {
           choose: "Click to choose a road image",
@@ -363,7 +420,23 @@ METROLOGY_HTML = """<!doctype html>
           tortuosity: "Main-path tortuosity",
           fractal: "Box-counting dimension",
           aruco: "Minimum ArUco perimeter",
-          quad: "Calibration image ratio"
+          quad: "Calibration image ratio",
+          planReady: "Estimate sealant from calibrated length and work assumptions.",
+          planPixel: "A material plan needs valid physical calibration; pixel-only mode cannot estimate litres.",
+          planRunning: "Creating an immutable material plan…",
+          planComplete: "Material plan saved",
+          treatmentLength: "Treatment length",
+          procurementVolume: "Procurement volume",
+          estimatedCost: "Estimated material cost",
+          compareRunning: "Comparing two calibrated measurements…",
+          compareComplete: "Growth comparison saved",
+          noBaseline: "No other calibrated run is available yet.",
+          lengthChange: "Network-length change",
+          widthChange: "P95-width change",
+          dailyGrowth: "Daily length change",
+          reviewRequired: "Change exceeds the user threshold; human review required",
+          withinThreshold: "Change remains within the user threshold",
+          downloadJson: "Download audit JSON"
         }
       };
       const t = (key) => text[language][key] || key;
@@ -383,6 +456,8 @@ METROLOGY_HTML = """<!doctype html>
           byId("file-meta").textContent = t("private");
         }
         if (latestResult) renderResult(latestResult);
+        if (latestPlan) renderPlan(latestPlan);
+        if (latestComparison) renderComparison(latestComparison);
       }
 
       function canvasPosition(event) {
@@ -400,9 +475,7 @@ METROLOGY_HTML = """<!doctype html>
       }
 
       function resetMask() {
-        maskContext.globalCompositeOperation = "source-over";
-        maskContext.fillStyle = "#000";
-        maskContext.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+        maskContext.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
         strokes = [];
         activeStroke = null;
       }
@@ -410,8 +483,8 @@ METROLOGY_HTML = """<!doctype html>
       function drawStroke(context, stroke) {
         if (!stroke.points.length) return;
         context.save();
-        context.globalCompositeOperation = "source-over";
-        context.strokeStyle = stroke.tool === "eraser" ? "#000" : "#fff";
+        context.globalCompositeOperation = stroke.tool === "eraser" ? "destination-out" : "source-over";
+        context.strokeStyle = "#fff";
         context.fillStyle = context.strokeStyle;
         context.lineWidth = stroke.size;
         context.lineCap = "round";
@@ -429,8 +502,7 @@ METROLOGY_HTML = """<!doctype html>
       }
 
       function rebuildMask() {
-        maskContext.fillStyle = "#000";
-        maskContext.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+        maskContext.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
         strokes.forEach((stroke) => drawStroke(maskContext, stroke));
       }
 
@@ -470,6 +542,21 @@ METROLOGY_HTML = """<!doctype html>
             editorContext.fill();
             editorContext.fillText(labels[index], point.x + scale * 3, point.y - scale * 3);
           });
+          editorContext.restore();
+        }
+        if (hoverPoint && tool !== "point") {
+          const radius = Number(byId("brush-size").value) / 2;
+          editorContext.save();
+          editorContext.beginPath();
+          editorContext.arc(hoverPoint.x, hoverPoint.y, radius, 0, Math.PI * 2);
+          editorContext.lineWidth = Math.max(2, Math.min(editor.width, editor.height) / 500);
+          editorContext.strokeStyle = "rgba(0, 0, 0, .9)";
+          editorContext.stroke();
+          editorContext.beginPath();
+          editorContext.arc(hoverPoint.x, hoverPoint.y, radius + editorContext.lineWidth * 1.4, 0, Math.PI * 2);
+          editorContext.lineWidth = Math.max(1, editorContext.lineWidth / 2);
+          editorContext.strokeStyle = tool === "eraser" ? "#ff9b62" : "#8dffd4";
+          editorContext.stroke();
           editorContext.restore();
         }
       }
@@ -555,6 +642,7 @@ METROLOGY_HTML = """<!doctype html>
         if (!sourceImage) return;
         event.preventDefault();
         const point = canvasPosition(event);
+        hoverPoint = point;
         if (tool === "point") {
           if (calibrationPoints.length < 4) {
             calibrationPoints.push(point);
@@ -573,9 +661,13 @@ METROLOGY_HTML = """<!doctype html>
       }
 
       function pointerMove(event) {
-        if (!drawing || !activeStroke) return;
-        event.preventDefault();
         const point = canvasPosition(event);
+        hoverPoint = point;
+        if (!drawing || !activeStroke) {
+          renderEditor();
+          return;
+        }
+        event.preventDefault();
         const previous = activeStroke.points[activeStroke.points.length - 1];
         if (Math.hypot(point.x - previous.x, point.y - previous.y) < 1) return;
         activeStroke.points.push(point);
@@ -588,6 +680,7 @@ METROLOGY_HTML = """<!doctype html>
         drawing = false;
         activeStroke = null;
         try { editor.releasePointerCapture(event.pointerId); } catch {}
+        renderEditor();
         updateControls();
       }
 
@@ -685,7 +778,14 @@ METROLOGY_HTML = """<!doctype html>
       }
 
       function renderResult(payload) {
+        const newRun = !latestResult || latestResult.run_id !== payload.run_id;
         latestResult = payload;
+        if (newRun) {
+          latestPlan = null;
+          latestComparison = null;
+          byId("plan-result").classList.add("hidden");
+          byId("comparison-result").classList.add("hidden");
+        }
         const measurement = payload.measurement;
         const physical = measurement.physical_geometry;
         const geometry = physical || measurement.pixel_geometry;
@@ -739,18 +839,178 @@ METROLOGY_HTML = """<!doctype html>
           addEvidence(t("aruco"), `${Number(field.minimum_marker_perimeter_pixels).toFixed(1)} px`);
           addEvidence(t("quad"), `${(Number(field.calibration_quadrilateral_image_ratio) * 100).toFixed(1)}%`);
         }
+        byId("plan-button").disabled = !physical;
+        byId("plan-note").textContent = physical ? t("planReady") : t("planPixel");
+        loadRunHistory();
+      }
+
+      function inputNumber(id) {
+        const value = byId(id).value.trim();
+        return value === "" ? null : Number(value);
+      }
+
+      function signedPercent(value) {
+        if (value === null || value === undefined) return "—";
+        const number = Number(value);
+        return `${number >= 0 ? "+" : ""}${number.toFixed(2)}%`;
+      }
+
+      function renderUtilityResult(element, title, lines, url, alert = false) {
+        element.replaceChildren();
+        element.classList.remove("hidden");
+        element.classList.toggle("alert", alert);
+        const heading = document.createElement("strong");
+        heading.textContent = title;
+        element.appendChild(heading);
+        lines.forEach((line) => {
+          const row = document.createElement("div");
+          row.textContent = line;
+          element.appendChild(row);
+        });
+        if (url) {
+          const link = document.createElement("a");
+          link.className = "download-link";
+          link.href = url;
+          link.download = "";
+          link.textContent = t("downloadJson");
+          element.appendChild(link);
+        }
+      }
+
+      async function createPlan() {
+        if (!latestResult || !latestResult.measurement.physical_geometry) return;
+        byId("plan-button").disabled = true;
+        setStatus(t("planRunning"));
+        const form = new FormData();
+        form.append("route_width_mm", String(inputNumber("route-width")));
+        form.append("route_depth_mm", String(inputNumber("route-depth")));
+        form.append("waste_percent", String(inputNumber("waste-percent")));
+        const cost = inputNumber("unit-cost");
+        if (cost !== null) form.append("unit_cost_per_liter", String(cost));
+        try {
+          const runId = encodeURIComponent(latestResult.run_id);
+          const response = await fetch(`/api/metrology/runs/${runId}/maintenance-plan`, { method: "POST", body: form });
+          const payload = await response.json();
+          if (!response.ok) throw payload.error || payload;
+          latestPlan = payload;
+          renderPlan(payload);
+          setStatus(t("planComplete"));
+        } catch (error) {
+          const message = error && (language === "zh" ? error.message_zh : error.message_en);
+          setStatus(message || t("failed"), true);
+        } finally {
+          byId("plan-button").disabled = !latestResult.measurement.physical_geometry;
+        }
+      }
+
+      function renderPlan(payload) {
+        const quantities = payload.plan.quantities;
+        const lines = [
+          `${t("treatmentLength")}: ${Number(quantities.treatment_length_m).toFixed(3)} m`,
+          `${t("procurementVolume")}: ${Number(quantities.procurement_volume_liters).toFixed(3)} L`
+        ];
+        if (quantities.estimated_material_cost !== null) {
+          lines.push(`${t("estimatedCost")}: ${Number(quantities.estimated_material_cost).toFixed(2)}`);
+        }
+        renderUtilityResult(byId("plan-result"), t("planComplete"), lines, payload.plan_url);
+      }
+
+      async function loadRunHistory() {
+        const select = byId("baseline-run");
+        select.replaceChildren();
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "—";
+        select.appendChild(empty);
+        byId("compare-button").disabled = true;
+        if (!latestResult || !latestResult.measurement.physical_geometry) return;
+        try {
+          const response = await fetch("/api/metrology/runs?limit=100");
+          const payload = await response.json();
+          if (!response.ok) throw payload.error || payload;
+          payload.items.filter((item) => item.run_id !== latestResult.run_id).forEach((item) => {
+            const option = document.createElement("option");
+            option.value = item.run_id;
+            const date = item.created_at_utc ? new Date(item.created_at_utc).toLocaleDateString(language === "zh" ? "zh-CN" : "en") : "—";
+            const source = item.source_filename || item.run_id;
+            option.textContent = `${date} · ${source} · ${Number(item.network_length).toFixed(3)} ${item.unit}`;
+            select.appendChild(option);
+          });
+          if (select.options.length > 1) {
+            select.selectedIndex = 1;
+            byId("compare-button").disabled = false;
+          } else {
+            byId("comparison-result").classList.remove("hidden");
+            byId("comparison-result").textContent = t("noBaseline");
+          }
+        } catch {
+          byId("comparison-result").classList.remove("hidden");
+          byId("comparison-result").textContent = t("noBaseline");
+        }
+      }
+
+      async function compareGrowth() {
+        if (!latestResult || !byId("baseline-run").value) return;
+        byId("compare-button").disabled = true;
+        setStatus(t("compareRunning"));
+        const form = new FormData();
+        form.append("baseline_run_id", byId("baseline-run").value);
+        form.append("current_run_id", latestResult.run_id);
+        form.append("elapsed_days", String(inputNumber("elapsed-days")));
+        form.append("length_review_threshold_percent", String(inputNumber("length-threshold")));
+        form.append("width_review_threshold_percent", String(inputNumber("width-threshold")));
+        try {
+          const response = await fetch("/api/metrology/compare", { method: "POST", body: form });
+          const payload = await response.json();
+          if (!response.ok) throw payload.error || payload;
+          latestComparison = payload;
+          renderComparison(payload);
+          setStatus(t("compareComplete"));
+        } catch (error) {
+          const message = error && (language === "zh" ? error.message_zh : error.message_en);
+          setStatus(message || t("failed"), true);
+        } finally {
+          byId("compare-button").disabled = !byId("baseline-run").value;
+        }
+      }
+
+      function renderComparison(payload) {
+        const comparison = payload.comparison;
+        const changes = comparison.changes;
+        const review = comparison.review_rule.human_review_required;
+        const lines = [
+          `${t("lengthChange")}: ${signedPercent(changes.network_length_m.percent)}`,
+          `${t("widthChange")}: ${signedPercent(changes.p95_width_mm.percent)}`,
+          `${t("dailyGrowth")}: ${Number(changes.network_length_growth_m_per_day).toFixed(6)} m/day`
+        ];
+        renderUtilityResult(
+          byId("comparison-result"),
+          review ? t("reviewRequired") : t("withinThreshold"),
+          lines,
+          payload.comparison_url,
+          review
+        );
       }
 
       editor.addEventListener("pointerdown", pointerDown);
       editor.addEventListener("pointermove", pointerMove);
       editor.addEventListener("pointerup", pointerUp);
       editor.addEventListener("pointercancel", pointerUp);
+      editor.addEventListener("pointerleave", () => {
+        if (!drawing) {
+          hoverPoint = null;
+          renderEditor();
+        }
+      });
       byId("source-input").addEventListener("change", (event) => loadSource(event.target.files[0]));
       byId("replace-button").addEventListener("click", () => byId("source-input").click());
       byId("brush-tool").addEventListener("click", () => setTool("brush"));
       byId("eraser-tool").addEventListener("click", () => setTool("eraser"));
       byId("point-tool").addEventListener("click", () => setTool("point"));
-      byId("brush-size").addEventListener("input", () => { byId("brush-value").textContent = byId("brush-size").value; });
+      byId("brush-size").addEventListener("input", () => {
+        byId("brush-value").textContent = byId("brush-size").value;
+        renderEditor();
+      });
       byId("undo-button").addEventListener("click", () => {
         strokes.pop();
         rebuildMask();
@@ -774,6 +1034,11 @@ METROLOGY_HTML = """<!doctype html>
       });
       byId("measure-button").addEventListener("click", runMeasurement);
       byId("demo-button").addEventListener("click", runDemo);
+      byId("plan-button").addEventListener("click", createPlan);
+      byId("compare-button").addEventListener("click", compareGrowth);
+      byId("baseline-run").addEventListener("change", () => {
+        byId("compare-button").disabled = !byId("baseline-run").value;
+      });
       byId("language-button").addEventListener("click", () => {
         language = language === "zh" ? "en" : "zh";
         applyLanguage();

@@ -70,6 +70,11 @@ def _new_metrology_id() -> str:
     return f"metrology-{timestamp}-{secrets.token_hex(4)}"
 
 
+def _new_record_id(prefix: str) -> str:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dt%H%M%S")
+    return f"{prefix}-{timestamp}-{secrets.token_hex(4)}"
+
+
 def _decode_source(content: bytes, content_type: str) -> tuple[np.ndarray, tuple[int, int]]:
     if content_type not in SOURCE_CONTENT_TYPES:
         raise _input_error(f"source content_type={content_type or 'missing'}")
@@ -105,7 +110,9 @@ def _decode_mask(
             if width <= 0 or height <= 0 or width * height > MAX_METROLOGY_PIXELS:
                 raise _input_error(f"mask dimensions={width}x{height}")
             opened.load()
-            grayscale = opened.convert("L")
+            rgba = opened.convert("RGBA")
+            black = Image.new("RGBA", rgba.size, (0, 0, 0, 255))
+            grayscale = Image.alpha_composite(black, rgba).convert("L")
     except ProjectError:
         raise
     except (Image.DecompressionBombError, OSError, UnidentifiedImageError) as error:
@@ -210,16 +217,89 @@ class LocalMetrologyService:
         *,
         paths: ProjectPaths | None = None,
         id_factory: Callable[[], str] | None = None,
+        record_id_factory: Callable[[str], str] | None = None,
     ) -> None:
         self.paths = paths or get_paths()
         self._id_factory = id_factory or _new_metrology_id
+        self._record_id_factory = record_id_factory or _new_record_id
         self._write_lock = threading.Lock()
+
+    def _measurement_bytes(self, run_id: str) -> tuple[bytes, dict[str, object]]:
+        safe_id = validate_run_name(run_id)
+        path = self.paths.metrology / safe_id / "measurement.json"
+        try:
+            raw = path.read_bytes()
+            payload = json.loads(raw)
+        except (OSError, json.JSONDecodeError) as error:
+            raise ProjectError(
+                "E201",
+                "量测记录不存在或损坏",
+                "The metrology record is missing or malformed",
+                "检查量测编号，或重新完成一次量测",
+                "Check the metrology run ID or complete metrology again",
+                safe_id,
+            ) from error
+        if not isinstance(payload, dict):
+            raise _input_error(f"measurement payload for {safe_id} is not an object")
+        return raw, payload
+
+    @staticmethod
+    def _physical_geometry(
+        payload: dict[str, object],
+        run_id: str,
+    ) -> dict[str, object]:
+        geometry = payload.get("physical_geometry")
+        boundary = payload.get("decision_boundary")
+        valid = isinstance(boundary, dict) and boundary.get("physical_measurement_valid")
+        if not isinstance(geometry, dict) or not valid:
+            raise _input_error(f"{run_id} has no valid calibrated physical measurement")
+        unit = geometry.get("unit")
+        if unit not in {"m", "cm", "mm"}:
+            raise _input_error(f"{run_id} physical unit={unit!r}")
+        return geometry
+
+    @staticmethod
+    def _length_m(value: object, unit: object, label: str) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise _input_error(f"{label}={value!r}")
+        factors = {"m": 1.0, "cm": 0.01, "mm": 0.001}
+        if unit not in factors:
+            raise _input_error(f"{label} unit={unit!r}")
+        result = float(value) * factors[str(unit)]
+        if not math.isfinite(result) or result < 0:
+            raise _input_error(f"{label}={value!r}")
+        return result
+
+    @staticmethod
+    def _write_json_exclusive(path: Path, payload: dict[str, object]) -> None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("x", encoding="utf-8") as stream:
+                stream.write(
+                    json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+                )
+        except FileExistsError as error:
+            raise ProjectError(
+                "E204",
+                "规划或对比记录已经存在",
+                "The planning or comparison record already exists",
+                "保留现有记录并重新运行以生成新编号",
+                "Keep the record and rerun to generate a new ID",
+                str(path),
+            ) from error
+        except OSError as error:
+            raise ProjectError(
+                "E504",
+                "规划或对比记录写入失败",
+                "Writing the planning or comparison record failed",
+                "检查本地磁盘空间和目录权限",
+                "Check local disk space and directory permissions",
+                str(path),
+            ) from error
 
     def _response(self, run_id: str, output_dir: Path) -> dict[str, object]:
         try:
-            measurement = json.loads(
-                (output_dir / "measurement.json").read_text(encoding="utf-8")
-            )
+            measurement = json.loads((output_dir / "measurement.json").read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
             raise ProjectError(
                 "E504",
@@ -263,9 +343,7 @@ class LocalMetrologyService:
         if not 0 <= uncertainty_samples <= 512:
             raise _input_error(f"uncertainty_samples={uncertainty_samples}")
         if not 0 <= segmentation_radius_pixels <= 5:
-            raise _input_error(
-                f"segmentation_radius_pixels={segmentation_radius_pixels}"
-            )
+            raise _input_error(f"segmentation_radius_pixels={segmentation_radius_pixels}")
         source_image, source_shape = _decode_source(
             source_content,
             source_content_type,
@@ -323,13 +401,273 @@ class LocalMetrologyService:
                 input_evidence={
                     "kind": "deterministic_web_demo",
                     "seed": 42,
-                    "claim_boundary": (
-                        "Algorithm demonstration only; not field-accuracy evidence"
-                    ),
+                    "claim_boundary": ("Algorithm demonstration only; not field-accuracy evidence"),
                 },
                 paths=self.paths,
             )
         return self._response(run_id, output_dir)
+
+    def list_runs(self, *, limit: int = 50) -> dict[str, object]:
+        if not 1 <= limit <= 100:
+            raise _input_error(f"run list limit={limit}")
+        items: list[dict[str, object]] = []
+        if self.paths.metrology.is_dir():
+            for path in self.paths.metrology.iterdir():
+                measurement_path = path / "measurement.json"
+                if not path.is_dir() or not measurement_path.is_file():
+                    continue
+                try:
+                    payload = json.loads(measurement_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                geometry = payload.get("physical_geometry")
+                boundary = payload.get("decision_boundary")
+                run = payload.get("run")
+                if (
+                    not isinstance(geometry, dict)
+                    or not isinstance(boundary, dict)
+                    or not boundary.get("physical_measurement_valid")
+                    or not isinstance(run, dict)
+                ):
+                    continue
+                widths = geometry.get("width_distribution")
+                if not isinstance(widths, dict):
+                    continue
+                evidence = run.get("input_evidence")
+                source_name = None
+                if isinstance(evidence, dict):
+                    source = evidence.get("source")
+                    if isinstance(source, dict):
+                        source_name = source.get("filename")
+                items.append(
+                    {
+                        "run_id": path.name,
+                        "created_at_utc": run.get("created_at_utc"),
+                        "source_filename": source_name,
+                        "unit": geometry.get("unit"),
+                        "network_length": geometry.get("centerline_network_length"),
+                        "mean_width": widths.get("mean"),
+                        "p95_width": widths.get("p95"),
+                    }
+                )
+        items.sort(
+            key=lambda item: str(item.get("created_at_utc") or ""),
+            reverse=True,
+        )
+        return {
+            "local_only": True,
+            "returned_count": min(limit, len(items)),
+            "items": items[:limit],
+        }
+
+    def create_maintenance_plan(
+        self,
+        run_id: str,
+        *,
+        route_width_mm: float,
+        route_depth_mm: float,
+        waste_percent: float,
+        unit_cost_per_liter: float | None = None,
+    ) -> dict[str, object]:
+        safe_id = validate_run_name(run_id)
+        width = _finite_positive(route_width_mm, "route_width_mm")
+        depth = _finite_positive(route_depth_mm, "route_depth_mm")
+        waste = _finite_nonnegative(waste_percent, "waste_percent")
+        if width > 200 or depth > 200 or waste > 200:
+            raise _input_error(f"width_mm={width}, depth_mm={depth}, waste_percent={waste}")
+        cost = None
+        if unit_cost_per_liter is not None:
+            cost = _finite_nonnegative(unit_cost_per_liter, "unit_cost_per_liter")
+        measurement_raw, measurement = self._measurement_bytes(safe_id)
+        geometry = self._physical_geometry(measurement, safe_id)
+        length_m = self._length_m(
+            geometry.get("centerline_network_length"),
+            geometry.get("unit"),
+            "centerline_network_length",
+        )
+        base_volume_liters = length_m * width * depth / 1000.0
+        procurement_volume_liters = base_volume_liters * (1.0 + waste / 100.0)
+        estimated_cost = procurement_volume_liters * cost if cost is not None else None
+        plan_id = validate_run_name(self._record_id_factory("maintenance"))
+        payload: dict[str, object] = {
+            "schema_version": "maintenance-plan-v3.2.0",
+            "created_at_utc": datetime.now(UTC).isoformat(),
+            "plan_id": plan_id,
+            "run_id": safe_id,
+            "measurement_sha256": _sha256(measurement_raw),
+            "assumptions": {
+                "route_width_mm": width,
+                "route_depth_mm": depth,
+                "waste_percent": waste,
+                "unit_cost_per_liter": cost,
+            },
+            "quantities": {
+                "treatment_length_m": round(length_m, 6),
+                "base_fill_volume_liters": round(base_volume_liters, 6),
+                "procurement_volume_liters": round(procurement_volume_liters, 6),
+                "estimated_material_cost": (
+                    round(estimated_cost, 2) if estimated_cost is not None else None
+                ),
+            },
+            "decision_boundary": {
+                "message_zh": (
+                    "这是基于用户输入槽宽、槽深和损耗率的材料规划估算，"
+                    "不是施工规范、报价或道路安全结论"
+                ),
+                "message_en": (
+                    "This is a material-planning estimate based on user-entered route "
+                    "width, depth, and waste; it is not a specification, quote, or "
+                    "road-safety verdict"
+                ),
+            },
+        }
+        path = self.paths.metrology / safe_id / "plans" / f"{plan_id}.json"
+        with self._write_lock:
+            self._write_json_exclusive(path, payload)
+        return {
+            "local_only": True,
+            "plan": payload,
+            "plan_url": f"/api/metrology/runs/{safe_id}/plans/{plan_id}.json",
+        }
+
+    @staticmethod
+    def _change(current: float, baseline: float) -> dict[str, float | None]:
+        delta = current - baseline
+        percent = delta / baseline * 100.0 if baseline > 0 else None
+        return {
+            "baseline": round(baseline, 6),
+            "current": round(current, 6),
+            "delta": round(delta, 6),
+            "percent": round(percent, 4) if percent is not None else None,
+        }
+
+    def compare_runs(
+        self,
+        *,
+        baseline_run_id: str,
+        current_run_id: str,
+        elapsed_days: float,
+        length_review_threshold_percent: float,
+        width_review_threshold_percent: float,
+    ) -> dict[str, object]:
+        baseline_id = validate_run_name(baseline_run_id)
+        current_id = validate_run_name(current_run_id)
+        if baseline_id == current_id:
+            raise _input_error("baseline and current run IDs must differ")
+        days = _finite_positive(elapsed_days, "elapsed_days")
+        length_threshold = _finite_nonnegative(
+            length_review_threshold_percent,
+            "length_review_threshold_percent",
+        )
+        width_threshold = _finite_nonnegative(
+            width_review_threshold_percent,
+            "width_review_threshold_percent",
+        )
+        if days > 36525 or length_threshold > 1000 or width_threshold > 1000:
+            raise _input_error(
+                f"days={days}, length_threshold={length_threshold}, "
+                f"width_threshold={width_threshold}"
+            )
+        baseline_raw, baseline = self._measurement_bytes(baseline_id)
+        current_raw, current = self._measurement_bytes(current_id)
+        baseline_geometry = self._physical_geometry(baseline, baseline_id)
+        current_geometry = self._physical_geometry(current, current_id)
+
+        def metric_m(geometry: dict[str, object], key: str) -> float:
+            return self._length_m(geometry.get(key), geometry.get("unit"), key)
+
+        def width_m(geometry: dict[str, object], key: str) -> float:
+            widths = geometry.get("width_distribution")
+            if not isinstance(widths, dict):
+                raise _input_error("width_distribution is missing")
+            return self._length_m(widths.get(key), geometry.get("unit"), key)
+
+        baseline_length_m = metric_m(baseline_geometry, "centerline_network_length")
+        current_length_m = metric_m(current_geometry, "centerline_network_length")
+        baseline_mean_width_mm = width_m(baseline_geometry, "mean") * 1000.0
+        current_mean_width_mm = width_m(current_geometry, "mean") * 1000.0
+        baseline_p95_width_mm = width_m(baseline_geometry, "p95") * 1000.0
+        current_p95_width_mm = width_m(current_geometry, "p95") * 1000.0
+
+        length_change = self._change(current_length_m, baseline_length_m)
+        mean_width_change = self._change(current_mean_width_mm, baseline_mean_width_mm)
+        p95_width_change = self._change(current_p95_width_mm, baseline_p95_width_mm)
+        length_percent = length_change["percent"]
+        width_percent = p95_width_change["percent"]
+        review_required = (
+            isinstance(length_percent, float) and length_percent >= length_threshold
+        ) or (isinstance(width_percent, float) and width_percent >= width_threshold)
+        baseline_topology = baseline.get("topology")
+        current_topology = current.get("topology")
+        baseline_junctions = (
+            int(baseline_topology.get("junction_cluster_count", 0))
+            if isinstance(baseline_topology, dict)
+            else 0
+        )
+        current_junctions = (
+            int(current_topology.get("junction_cluster_count", 0))
+            if isinstance(current_topology, dict)
+            else 0
+        )
+        comparison_id = validate_run_name(self._record_id_factory("comparison"))
+        payload: dict[str, object] = {
+            "schema_version": "metrology-comparison-v3.2.0",
+            "created_at_utc": datetime.now(UTC).isoformat(),
+            "comparison_id": comparison_id,
+            "baseline_run_id": baseline_id,
+            "current_run_id": current_id,
+            "elapsed_days": days,
+            "measurement_sha256": {
+                "baseline": _sha256(baseline_raw),
+                "current": _sha256(current_raw),
+            },
+            "changes": {
+                "network_length_m": length_change,
+                "mean_width_mm": mean_width_change,
+                "p95_width_mm": p95_width_change,
+                "junction_cluster_count": {
+                    "baseline": baseline_junctions,
+                    "current": current_junctions,
+                    "delta": current_junctions - baseline_junctions,
+                },
+                "network_length_growth_m_per_day": round(
+                    (current_length_m - baseline_length_m) / days, 8
+                ),
+                "p95_width_growth_mm_per_day": round(
+                    (current_p95_width_mm - baseline_p95_width_mm) / days,
+                    8,
+                ),
+            },
+            "review_rule": {
+                "length_growth_threshold_percent": length_threshold,
+                "p95_width_growth_threshold_percent": width_threshold,
+                "status": (
+                    "change_exceeds_user_threshold" if review_required else "within_user_threshold"
+                ),
+                "human_review_required": review_required,
+            },
+            "decision_boundary": {
+                "message_zh": (
+                    "对比要求两次巡检覆盖同一裂缝区域并采用一致标定与掩膜协议；"
+                    "阈值由用户输入，不是道路安全标准"
+                ),
+                "message_en": (
+                    "Comparison requires the same crack region and a consistent "
+                    "calibration/masking protocol; user thresholds are not road-safety "
+                    "standards"
+                ),
+            },
+        }
+        path = self.paths.metrology / "comparisons" / f"{comparison_id}.json"
+        with self._write_lock:
+            self._write_json_exclusive(path, payload)
+        return {
+            "local_only": True,
+            "comparison": payload,
+            "comparison_url": (f"/api/metrology/comparisons/{comparison_id}.json"),
+        }
 
     def artifact_path(self, run_id: str, artifact_name: str) -> Path:
         safe_id = validate_run_name(run_id)
@@ -351,5 +689,34 @@ class LocalMetrologyService:
                 "检查量测编号，或重新运行量测",
                 "Check the metrology run ID or rerun metrology",
                 f"{safe_id}/{artifact_name}",
+            )
+        return path
+
+    def plan_path(self, run_id: str, plan_id: str) -> Path:
+        safe_run_id = validate_run_name(run_id)
+        safe_plan_id = validate_run_name(plan_id)
+        path = self.paths.metrology / safe_run_id / "plans" / f"{safe_plan_id}.json"
+        if not path.is_file():
+            raise ProjectError(
+                "E201",
+                "材料规划记录不存在",
+                "The maintenance plan does not exist",
+                "检查量测编号和规划编号",
+                "Check the metrology run and plan IDs",
+                f"{safe_run_id}/{safe_plan_id}",
+            )
+        return path
+
+    def comparison_path(self, comparison_id: str) -> Path:
+        safe_id = validate_run_name(comparison_id)
+        path = self.paths.metrology / "comparisons" / f"{safe_id}.json"
+        if not path.is_file():
+            raise ProjectError(
+                "E201",
+                "增长对比记录不存在",
+                "The growth-comparison record does not exist",
+                "检查对比编号，或重新运行对比",
+                "Check the comparison ID or run the comparison again",
+                safe_id,
             )
         return path

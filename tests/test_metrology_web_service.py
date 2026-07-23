@@ -29,6 +29,15 @@ def _straight_sample() -> tuple[bytes, bytes]:
     return _encode_image(source), _encode_image(mask)
 
 
+def _transparent_straight_mask() -> bytes:
+    mask = np.zeros((221, 421, 4), dtype=np.uint8)
+    cv2.line(mask, (50, 110), (350, 110), (255, 255, 255, 255), 11)
+    image = Image.fromarray(mask, mode="RGBA")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 def _aruco_sample() -> tuple[bytes, bytes]:
     source = np.full((600, 900, 3), 230, dtype=np.uint8)
     mask = np.zeros((600, 900), dtype=np.uint8)
@@ -41,9 +50,7 @@ def _aruco_sample() -> tuple[bytes, bytes]:
     }
     for marker_id, (x, y) in placements.items():
         marker = cv2.aruco.generateImageMarker(dictionary, marker_id, 120)
-        source[y : y + 120, x : x + 120] = cv2.cvtColor(
-            marker, cv2.COLOR_GRAY2BGR
-        )
+        source[y : y + 120, x : x + 120] = cv2.cvtColor(marker, cv2.COLOR_GRAY2BGR)
     cv2.line(mask, (250, 300), (650, 300), 255, 13)
     source[mask > 0] = 25
     return _encode_image(source), _encode_image(mask)
@@ -105,9 +112,7 @@ def test_manual_web_calibration_returns_physical_geometry(tmp_path: Path) -> Non
         mask_filename="mask.png",
         mask_content_type="image/png",
         calibration_mode="manual",
-        manual_points=json.dumps(
-            [[10.0, 10.0], [410.0, 10.0], [410.0, 210.0], [10.0, 210.0]]
-        ),
+        manual_points=json.dumps([[10.0, 10.0], [410.0, 10.0], [410.0, 210.0], [10.0, 210.0]]),
         physical_width=2.0,
         physical_height=1.0,
         unit="m",
@@ -122,10 +127,31 @@ def test_manual_web_calibration_returns_physical_geometry(tmp_path: Path) -> Non
     assert measurement["physical_geometry"]["centerline_network_length"] == pytest.approx(
         1.5, abs=0.03
     )
-    assert measurement["run"]["input_evidence"]["calibration"]["mode"] == (
-        "manual_four_point"
-    )
+    assert measurement["run"]["input_evidence"]["calibration"]["mode"] == ("manual_four_point")
     assert "rectified-overlay.jpg" in result["artifacts"]
+
+
+def test_transparent_browser_mask_keeps_only_painted_pixels(tmp_path: Path) -> None:
+    source, _ = _straight_sample()
+    service = LocalMetrologyService(
+        paths=get_paths(tmp_path),
+        id_factory=lambda: "web-transparent-001",
+    )
+
+    result = service.analyze_bytes(
+        source_content=source,
+        source_filename="road.png",
+        source_content_type="image/png",
+        mask_content=_transparent_straight_mask(),
+        mask_filename="browser-mask.png",
+        mask_content_type="image/png",
+        calibration_mode="pixel",
+        uncertainty_samples=0,
+    )
+
+    foreground = result["measurement"]["run"]["input_evidence"]["mask"]["foreground_pixels"]
+    assert 3900 < foreground < 4200
+    assert result["measurement"]["topology"]["component_count"] == 1
 
 
 def test_aruco_web_calibration_preserves_detection_quality(tmp_path: Path) -> None:
@@ -167,9 +193,7 @@ def test_web_demo_exposes_all_calibrated_artifacts(tmp_path: Path) -> None:
     result = service.demo()
 
     assert result["measurement"]["measurement_space"] == "rectified_physical_plane"
-    assert result["measurement"]["run"]["input_evidence"]["kind"] == (
-        "deterministic_web_demo"
-    )
+    assert result["measurement"]["run"]["input_evidence"]["kind"] == ("deterministic_web_demo")
     assert "overlay.jpg" in result["artifacts"]
     assert "rectified-overlay.jpg" in result["artifacts"]
     assert "rectified-width-heatmap.png" in result["artifacts"]
@@ -200,3 +224,149 @@ def test_web_service_fails_closed_for_bad_masks_and_artifact_names(
 
     with pytest.raises(ProjectError, match="E201"):
         service.artifact_path("web-invalid-001", "../private.txt")
+
+
+def test_material_plan_uses_calibrated_length_and_records_assumptions(
+    tmp_path: Path,
+) -> None:
+    source, mask = _straight_sample()
+    service = LocalMetrologyService(
+        paths=get_paths(tmp_path),
+        id_factory=lambda: "web-plan-source-001",
+        record_id_factory=lambda prefix: f"{prefix}-001",
+    )
+    service.analyze_bytes(
+        source_content=source,
+        source_filename="road.png",
+        source_content_type="image/png",
+        mask_content=mask,
+        mask_filename="mask.png",
+        mask_content_type="image/png",
+        calibration_mode="manual",
+        manual_points=json.dumps([[10.0, 10.0], [410.0, 10.0], [410.0, 210.0], [10.0, 210.0]]),
+        physical_width=2.0,
+        physical_height=1.0,
+        unit="m",
+        pixels_per_unit=200.0,
+        point_sigma_pixels=1.0,
+        uncertainty_samples=0,
+    )
+
+    result = service.create_maintenance_plan(
+        "web-plan-source-001",
+        route_width_mm=10,
+        route_depth_mm=10,
+        waste_percent=10,
+        unit_cost_per_liter=20,
+    )
+
+    quantities = result["plan"]["quantities"]
+    assert quantities["treatment_length_m"] == pytest.approx(1.5, abs=0.03)
+    assert quantities["base_fill_volume_liters"] == pytest.approx(0.15, abs=0.003)
+    assert quantities["procurement_volume_liters"] == pytest.approx(0.165, abs=0.004)
+    assert quantities["estimated_material_cost"] == pytest.approx(3.3, abs=0.08)
+    assert result["plan"]["measurement_sha256"]
+    assert service.plan_path("web-plan-source-001", "maintenance-001").is_file()
+
+    with pytest.raises(ProjectError, match="E204"):
+        service.create_maintenance_plan(
+            "web-plan-source-001",
+            route_width_mm=10,
+            route_depth_mm=10,
+            waste_percent=10,
+        )
+
+
+def test_run_history_and_longitudinal_comparison_normalize_units(
+    tmp_path: Path,
+) -> None:
+    source, mask = _straight_sample()
+    run_ids = iter(["baseline-001", "current-001"])
+    record_ids = iter(["comparison-001"])
+    service = LocalMetrologyService(
+        paths=get_paths(tmp_path),
+        id_factory=lambda: next(run_ids),
+        record_id_factory=lambda _prefix: next(record_ids),
+    )
+    common = {
+        "source_content": source,
+        "source_content_type": "image/png",
+        "mask_content": mask,
+        "mask_filename": "mask.png",
+        "mask_content_type": "image/png",
+        "calibration_mode": "manual",
+        "manual_points": json.dumps([[10.0, 10.0], [410.0, 10.0], [410.0, 210.0], [10.0, 210.0]]),
+        "pixels_per_unit": 200.0,
+        "point_sigma_pixels": 1.0,
+        "uncertainty_samples": 0,
+    }
+    service.analyze_bytes(
+        **common,
+        source_filename="baseline.png",
+        physical_width=2.0,
+        physical_height=1.0,
+        unit="m",
+    )
+    service.analyze_bytes(
+        **{**common, "pixels_per_unit": 2.0},
+        source_filename="current.png",
+        physical_width=250.0,
+        physical_height=125.0,
+        unit="cm",
+    )
+
+    history = service.list_runs(limit=10)
+    assert history["returned_count"] == 2
+    assert {item["run_id"] for item in history["items"]} == {
+        "baseline-001",
+        "current-001",
+    }
+
+    result = service.compare_runs(
+        baseline_run_id="baseline-001",
+        current_run_id="current-001",
+        elapsed_days=10,
+        length_review_threshold_percent=20,
+        width_review_threshold_percent=20,
+    )
+
+    comparison = result["comparison"]
+    length = comparison["changes"]["network_length_m"]
+    assert length["baseline"] == pytest.approx(1.5, abs=0.03)
+    assert length["current"] == pytest.approx(1.875, abs=0.04)
+    assert length["percent"] == pytest.approx(25, abs=0.5)
+    assert comparison["changes"]["network_length_growth_m_per_day"] == (
+        pytest.approx(0.0375, abs=0.004)
+    )
+    assert comparison["review_rule"]["human_review_required"] is True
+    assert comparison["review_rule"]["status"] == ("change_exceeds_user_threshold")
+    assert service.comparison_path("comparison-001").is_file()
+
+
+def test_pixel_only_run_cannot_generate_material_or_growth_claims(
+    tmp_path: Path,
+) -> None:
+    source, mask = _straight_sample()
+    service = LocalMetrologyService(
+        paths=get_paths(tmp_path),
+        id_factory=lambda: "pixel-only-001",
+    )
+    service.analyze_bytes(
+        source_content=source,
+        source_filename="road.png",
+        source_content_type="image/png",
+        mask_content=mask,
+        mask_filename="mask.png",
+        mask_content_type="image/png",
+        calibration_mode="pixel",
+        uncertainty_samples=0,
+    )
+
+    assert service.list_runs()["items"] == []
+    with pytest.raises(ProjectError, match="E506"):
+        service.create_maintenance_plan(
+            "pixel-only-001",
+            route_width_mm=10,
+            route_depth_mm=10,
+            waste_percent=10,
+        )

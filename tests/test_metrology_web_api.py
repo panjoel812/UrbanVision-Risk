@@ -33,6 +33,8 @@ class MetrologyStub:
     def __init__(self, artifact: Path) -> None:
         self.artifact = artifact
         self.analyze_arguments: dict[str, Any] | None = None
+        self.plan_arguments: dict[str, Any] | None = None
+        self.compare_arguments: dict[str, Any] | None = None
         self.failure: ProjectError | None = None
 
     def demo(self) -> dict[str, object]:
@@ -57,6 +59,43 @@ class MetrologyStub:
     def artifact_path(self, run_id: str, artifact_name: str) -> Path:
         if run_id != "metrology-web-001" or artifact_name != "overlay.jpg":
             raise ProjectError("E201", "文件不存在", "Missing", "检查", "Check")
+        return self.artifact
+
+    def list_runs(self, *, limit: int = 50) -> dict[str, object]:
+        return {
+            "local_only": True,
+            "returned_count": 1,
+            "items": [{"run_id": "metrology-baseline-001"}],
+        }
+
+    def create_maintenance_plan(
+        self,
+        run_id: str,
+        **kwargs: Any,
+    ) -> dict[str, object]:
+        self.plan_arguments = {"run_id": run_id, **kwargs}
+        return {
+            "local_only": True,
+            "plan": {"plan_id": "maintenance-001"},
+            "plan_url": (f"/api/metrology/runs/{run_id}/plans/maintenance-001.json"),
+        }
+
+    def plan_path(self, run_id: str, plan_id: str) -> Path:
+        if run_id != "metrology-web-001" or plan_id != "maintenance-001":
+            raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
+        return self.artifact
+
+    def compare_runs(self, **kwargs: Any) -> dict[str, object]:
+        self.compare_arguments = kwargs
+        return {
+            "local_only": True,
+            "comparison": {"comparison_id": "comparison-001"},
+            "comparison_url": "/api/metrology/comparisons/comparison-001.json",
+        }
+
+    def comparison_path(self, comparison_id: str) -> Path:
+        if comparison_id != "comparison-001":
+            raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
         return self.artifact
 
 
@@ -88,6 +127,11 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "Auto ArUco" in response.text
     assert "/api/metrology/demo" in response.text
     assert "/api/metrology/analyze" in response.text
+    assert "destination-out" in response.text
+    assert "hoverPoint" in response.text
+    assert 'id="plan-button"' in response.text
+    assert 'id="compare-button"' in response.text
+    assert "/api/metrology/compare" in response.text
     assert "https://" not in response.text
     assert "http://" not in response.text
     assert response.headers["x-frame-options"] == "DENY"
@@ -129,9 +173,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     )
 
     assert demo.status_code == 200
-    assert demo.json()["measurement"]["measurement_space"] == (
-        "rectified_physical_plane"
-    )
+    assert demo.json()["measurement"]["measurement_space"] == ("rectified_physical_plane")
     assert analyzed.status_code == 200
     assert analyzed.json()["run_id"] == "metrology-web-001"
     assert metrology.analyze_arguments is not None
@@ -148,9 +190,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
     client, metrology = _client(tmp_path)
 
-    artifact = client.get(
-        "/api/metrology/runs/metrology-web-001/overlay.jpg"
-    )
+    artifact = client.get("/api/metrology/runs/metrology-web-001/overlay.jpg")
     missing_form = client.post("/api/metrology/analyze")
     metrology.failure = ProjectError(
         "E506",
@@ -175,3 +215,53 @@ def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
     assert missing_form.json()["error"]["code"] == "E506"
     assert invalid.status_code == 422
     assert invalid.json()["error"]["message_zh"] == "量测输入无效"
+
+
+def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
+    client, metrology = _client(tmp_path)
+
+    runs = client.get("/api/metrology/runs?limit=12")
+    plan = client.post(
+        "/api/metrology/runs/metrology-web-001/maintenance-plan",
+        data={
+            "route_width_mm": "10",
+            "route_depth_mm": "8",
+            "waste_percent": "12",
+            "unit_cost_per_liter": "25",
+        },
+    )
+    comparison = client.post(
+        "/api/metrology/compare",
+        data={
+            "baseline_run_id": "metrology-baseline-001",
+            "current_run_id": "metrology-web-001",
+            "elapsed_days": "30",
+            "length_review_threshold_percent": "8",
+            "width_review_threshold_percent": "12",
+        },
+    )
+    downloaded_plan = client.get("/api/metrology/runs/metrology-web-001/plans/maintenance-001.json")
+    downloaded_comparison = client.get("/api/metrology/comparisons/comparison-001.json")
+
+    assert runs.status_code == 200
+    assert runs.json()["returned_count"] == 1
+    assert plan.status_code == 200
+    assert metrology.plan_arguments == {
+        "run_id": "metrology-web-001",
+        "route_width_mm": 10.0,
+        "route_depth_mm": 8.0,
+        "waste_percent": 12.0,
+        "unit_cost_per_liter": 25.0,
+    }
+    assert comparison.status_code == 200
+    assert metrology.compare_arguments == {
+        "baseline_run_id": "metrology-baseline-001",
+        "current_run_id": "metrology-web-001",
+        "elapsed_days": 30.0,
+        "length_review_threshold_percent": 8.0,
+        "width_review_threshold_percent": 12.0,
+    }
+    assert downloaded_plan.status_code == 200
+    assert downloaded_plan.headers["content-type"] == "application/json"
+    assert downloaded_comparison.status_code == 200
+    assert downloaded_comparison.headers["content-type"] == "application/json"

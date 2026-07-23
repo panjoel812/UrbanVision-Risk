@@ -58,7 +58,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="3.1.0",
+        version="3.2.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -183,6 +183,62 @@ def create_app(
             point_sigma_pixels=point_sigma_pixels,
             uncertainty_samples=uncertainty_samples,
             segmentation_radius_pixels=segmentation_radius_pixels,
+        )
+
+    @app.get("/api/metrology/runs")
+    async def metrology_runs(
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    ) -> dict[str, object]:
+        return active_metrology.list_runs(limit=limit)
+
+    @app.post("/api/metrology/runs/{run_id}/maintenance-plan")
+    async def metrology_maintenance_plan(
+        run_id: str,
+        route_width_mm: Annotated[float, Form()],
+        route_depth_mm: Annotated[float, Form()],
+        waste_percent: Annotated[float, Form()],
+        unit_cost_per_liter: Annotated[float | None, Form()] = None,
+    ) -> dict[str, object]:
+        return active_metrology.create_maintenance_plan(
+            run_id,
+            route_width_mm=route_width_mm,
+            route_depth_mm=route_depth_mm,
+            waste_percent=waste_percent,
+            unit_cost_per_liter=unit_cost_per_liter,
+        )
+
+    @app.get("/api/metrology/runs/{run_id}/plans/{plan_id}.json")
+    async def metrology_plan(run_id: str, plan_id: str) -> FileResponse:
+        path = active_metrology.plan_path(run_id, plan_id)
+        return FileResponse(
+            path,
+            media_type="application/json",
+            filename=path.name,
+        )
+
+    @app.post("/api/metrology/compare")
+    async def metrology_compare(
+        baseline_run_id: Annotated[str, Form()],
+        current_run_id: Annotated[str, Form()],
+        elapsed_days: Annotated[float, Form()],
+        length_review_threshold_percent: Annotated[float, Form()] = 10.0,
+        width_review_threshold_percent: Annotated[float, Form()] = 10.0,
+    ) -> dict[str, object]:
+        return active_metrology.compare_runs(
+            baseline_run_id=baseline_run_id,
+            current_run_id=current_run_id,
+            elapsed_days=elapsed_days,
+            length_review_threshold_percent=length_review_threshold_percent,
+            width_review_threshold_percent=width_review_threshold_percent,
+        )
+
+    @app.get("/api/metrology/comparisons/{comparison_id}.json")
+    async def metrology_comparison(comparison_id: str) -> FileResponse:
+        path = active_metrology.comparison_path(comparison_id)
+        return FileResponse(
+            path,
+            media_type="application/json",
+            filename=path.name,
         )
 
     @app.get("/api/metrology/runs/{run_id}/{artifact_name}")

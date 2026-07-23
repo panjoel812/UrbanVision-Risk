@@ -8,12 +8,14 @@ import numpy as np
 
 MAX_PROPOSAL_WORK_PIXELS = 2_000_000
 MAX_PROPOSAL_COVERAGE_RATIO = 0.35
-PROPOSAL_SCHEMA_VERSION = "local-crack-proposal-v4.0.0"
+PROPOSAL_SCHEMA_VERSION = "local-crack-proposal-v4.3.0"
+REVIEW_SENSITIVITY_OFFSET = 0.15
 
 
 @dataclass(frozen=True)
 class CrackProposal:
     mask: np.ndarray
+    review_hotspots: np.ndarray
     evidence: dict[str, object]
 
 
@@ -170,9 +172,42 @@ def propose_crack_mask(
     blackhat, blackhat_diameters = _blackhat_score(normalized)
     ridge, ridge_sigmas = _dark_ridge_score(normalized)
     score = 0.64 * blackhat + 0.36 * ridge
-    work_mask, component_evidence = _hysteresis_components(
-        score,
-        sensitivity=sensitivity,
+    review_sensitivities = sorted(
+        {
+            round(max(0.0, sensitivity - REVIEW_SENSITIVITY_OFFSET), 6),
+            round(sensitivity, 6),
+            round(min(1.0, sensitivity + REVIEW_SENSITIVITY_OFFSET), 6),
+        }
+    )
+    masks_by_sensitivity: dict[float, np.ndarray] = {}
+    component_evidence: dict[str, object] | None = None
+    for review_sensitivity in review_sensitivities:
+        candidate_mask, candidate_evidence = _hysteresis_components(
+            score,
+            sensitivity=review_sensitivity,
+        )
+        masks_by_sensitivity[review_sensitivity] = candidate_mask
+        if math.isclose(review_sensitivity, sensitivity, abs_tol=1e-6):
+            component_evidence = candidate_evidence
+    work_mask = masks_by_sensitivity[round(sensitivity, 6)]
+    if component_evidence is None:
+        raise RuntimeError("nominal proposal sensitivity was not evaluated")
+    vote_count = np.sum(
+        np.stack(list(masks_by_sensitivity.values()), axis=0),
+        axis=0,
+        dtype=np.uint8,
+    )
+    sample_count = len(masks_by_sensitivity)
+    work_union = vote_count > 0
+    work_stable = vote_count == sample_count
+    work_disagreement = work_union & ~work_stable
+    work_hotspots = (
+        cv2.dilate(
+            work_disagreement.astype(np.uint8),
+            np.ones((3, 3), dtype=np.uint8),
+            iterations=1,
+        )
+        > 0
     )
     if work_mask.shape != (source_height, source_width):
         mask = (
@@ -183,8 +218,35 @@ def propose_crack_mask(
             )
             > 0
         )
+        review_hotspots = (
+            cv2.resize(
+                work_hotspots.astype(np.uint8),
+                (source_width, source_height),
+                interpolation=cv2.INTER_NEAREST,
+            )
+            > 0
+        )
+        stable = (
+            cv2.resize(
+                work_stable.astype(np.uint8),
+                (source_width, source_height),
+                interpolation=cv2.INTER_NEAREST,
+            )
+            > 0
+        )
+        union = (
+            cv2.resize(
+                work_union.astype(np.uint8),
+                (source_width, source_height),
+                interpolation=cv2.INTER_NEAREST,
+            )
+            > 0
+        )
     else:
         mask = work_mask
+        review_hotspots = work_hotspots
+        stable = work_stable
+        union = work_union
     candidate_pixels = int(np.count_nonzero(mask))
     candidate_scores = score[work_mask]
     coverage_ratio = candidate_pixels / (source_width * source_height)
@@ -196,6 +258,18 @@ def propose_crack_mask(
         if coverage_ratio > MAX_PROPOSAL_COVERAGE_RATIO
         else "empty"
     )
+    union_pixels = int(np.count_nonzero(union))
+    stable_pixels = int(np.count_nonzero(stable))
+    disagreement_pixels = max(0, union_pixels - stable_pixels)
+    hotspot_pixels = int(np.count_nonzero(review_hotspots))
+    hotspot_count = max(
+        0,
+        cv2.connectedComponents(
+            review_hotspots.astype(np.uint8),
+            connectivity=8,
+        )[0]
+        - 1,
+    )
     evidence: dict[str, object] = {
         "schema_version": PROPOSAL_SCHEMA_VERSION,
         "method": {
@@ -205,6 +279,7 @@ def propose_crack_mask(
                 "multi_scale_morphological_blackhat",
                 "multi_scale_dark_hessian_ridge",
                 "seeded_component_hysteresis",
+                "three_level_sensitivity_disagreement",
             ],
             "blackhat_kernel_diameters": blackhat_diameters,
             "ridge_sigmas": ridge_sigmas,
@@ -231,6 +306,29 @@ def propose_crack_mask(
                 round(float(np.mean(candidate_scores)), 6) if candidate_scores.size else None
             ),
         },
+        "review_guidance": {
+            "method": "three_level_sensitivity_vote_disagreement",
+            "sensitivities": review_sensitivities,
+            "sample_count": sample_count,
+            "stable_vote_requirement": sample_count,
+            "union_pixels": union_pixels,
+            "stable_pixels": stable_pixels,
+            "disagreement_pixels": disagreement_pixels,
+            "disagreement_ratio_of_union": (
+                round(disagreement_pixels / union_pixels, 8) if union_pixels else None
+            ),
+            "review_hotspot_pixels": hotspot_pixels,
+            "review_hotspot_image_ratio": round(
+                hotspot_pixels / (source_width * source_height),
+                8,
+            ),
+            "review_hotspot_component_count": hotspot_count,
+            "interpretation": (
+                "Yellow review hotspots mark pixels whose inclusion changes across "
+                "nearby sensitivity settings; this is sensitivity disagreement, "
+                "not a calibrated uncertainty probability"
+            ),
+        },
         "decision_boundary": {
             "message_zh": (
                 "候选掩膜只是本地多视图计算机视觉建议，不是人工真值或道路安全结论；"
@@ -244,4 +342,8 @@ def propose_crack_mask(
             ),
         },
     }
-    return CrackProposal(mask=mask, evidence=evidence)
+    return CrackProposal(
+        mask=mask,
+        review_hotspots=review_hotspots,
+        evidence=evidence,
+    )

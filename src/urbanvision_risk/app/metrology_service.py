@@ -32,7 +32,9 @@ SOURCE_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 MASK_CONTENT_TYPES = frozenset({"image/png", "image/webp"})
 CALIBRATION_MODES = frozenset({"pixel", "manual", "aruco"})
 COMPARISON_ARTIFACTS = frozenset({"change-map.png"})
-PROPOSAL_ARTIFACTS = frozenset({"proposal-mask.png", "evidence.json"})
+PROPOSAL_ARTIFACTS = frozenset(
+    {"proposal-mask.png", "review-hotspots.png", "evidence.json"}
+)
 MAX_FRAME_DIMENSION_MISMATCH_RATIO = 0.05
 MAX_CHANGE_MAP_PIXELS_PER_METER = 2_000.0
 METROLOGY_ARTIFACTS = frozenset(
@@ -637,6 +639,17 @@ class LocalMetrologyService:
                 "Keep the source image and inspect the OpenCV environment",
             )
         mask_bytes = encoded.tobytes()
+        hotspot_mask = proposal.review_hotspots.astype(np.uint8) * 255
+        hotspot_encoded_ok, hotspot_encoded = cv2.imencode(".png", hotspot_mask)
+        if not hotspot_encoded_ok:
+            raise ProjectError(
+                "E504",
+                "复核热点编码失败",
+                "Encoding the review hotspots failed",
+                "保留原图并检查 OpenCV 环境",
+                "Keep the source image and inspect the OpenCV environment",
+            )
+        hotspot_bytes = hotspot_encoded.tobytes()
         evidence: dict[str, object] = {
             **proposal.evidence,
             "proposal_id": proposal_id,
@@ -650,15 +663,21 @@ class LocalMetrologyService:
                 "sha256": _sha256(mask_bytes),
                 "foreground_pixels": int(np.count_nonzero(proposal.mask)),
             },
+            "review_hotspots": {
+                "filename": "review-hotspots.png",
+                "sha256": _sha256(hotspot_bytes),
+                "foreground_pixels": int(np.count_nonzero(proposal.review_hotspots)),
+            },
             "privacy": (
                 "No absolute input path or source pixels are stored; processing stays on loopback"
             ),
         }
         output_dir = self.paths.metrology / "proposals" / proposal_id
         mask_path = output_dir / "proposal-mask.png"
+        hotspot_path = output_dir / "review-hotspots.png"
         evidence_path = output_dir / "evidence.json"
         with self._write_lock:
-            if mask_path.exists() or evidence_path.exists():
+            if mask_path.exists() or hotspot_path.exists() or evidence_path.exists():
                 raise ProjectError(
                     "E204",
                     "候选掩膜记录已经存在",
@@ -668,6 +687,7 @@ class LocalMetrologyService:
                     proposal_id,
                 )
             self._write_bytes_exclusive(mask_path, mask_bytes)
+            self._write_bytes_exclusive(hotspot_path, hotspot_bytes)
             self._write_json_exclusive(evidence_path, evidence)
         return {
             "local_only": True,

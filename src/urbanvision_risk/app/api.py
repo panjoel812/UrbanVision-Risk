@@ -57,7 +57,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="4.2.0",
+        version="4.3.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,

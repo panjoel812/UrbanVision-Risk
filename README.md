@@ -1,14 +1,14 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v4.2 在统一页面中形成“自动草稿→人工复核”闭环：选择一次图片后，三视图目标检测与裂缝掩膜建议在本机并行运行，绿色候选完成后立即生成像素长度、宽度与拓扑草稿，无需再次点击。人工用画笔/橡皮修订并保存后，审计状态从 `automatic_draft` 变为 `human_reviewed`，不可覆盖证据链记录增加/删除像素、修改比例和候选—最终 IoU。自动草稿不是自动真值或安全结论；没有有效标定时只报告像素。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v4.3 在统一页面中形成“自动草稿→重点复核→人工修订”闭环：选择一次图片后，三视图目标检测与裂缝掩膜建议在本机并行运行。算法会在相邻的三个灵敏度下重复提议；绿色表示当前候选，黄色表示结果随灵敏度改变的复核热点，帮助用户优先检查不稳定边界。候选完成后立即生成像素长度、宽度与拓扑草稿。人工用画笔/橡皮修订并保存后，审计状态从 `automatic_draft` 变为 `human_reviewed`，不可覆盖证据链记录敏感度分歧、增加/删除像素、修改比例和候选—最终 IoU。黄色热点是参数敏感性分歧，不是概率；自动草稿也不是真值或安全结论。
 
-**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 4.2 completes an automatic-draft-to-human-review loop on one page. Choosing one image starts three-view detection and a crack-mask proposal in parallel; as soon as the green proposal is ready, pixel length, width, and topology appear without another click. Saving brush/eraser corrections changes the audit state from `automatic_draft` to `human_reviewed`, while the immutable evidence chain records added/removed pixels, changed-image ratio, and proposal-to-final IoU. An automatic draft is not ground truth or a safety conclusion; uncalibrated inputs stay in pixels.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 4.3 completes an automatic-draft-to-targeted-review-to-human-revision loop on one page. Choosing one image starts three-view detection and a crack-mask proposal in parallel. The proposal is repeated at three nearby sensitivities: green is the nominal candidate, while yellow marks review hotspots whose inclusion changes with sensitivity. Pixel length, width, and topology then appear automatically. Saving brush/eraser corrections changes the audit state from `automatic_draft` to `human_reviewed`; immutable evidence records sensitivity disagreement, added/removed pixels, changed-image ratio, and proposal-to-final IoU. Yellow is parameter-sensitivity disagreement—not probability—and an automatic draft is not ground truth or a safety conclusion.
 
 **v3.0 Calibrated Metrology / 标定量测：** printable field fiducials, semantic marker detection (`TL/TR/BR/BL`), homography rectification, graph-geodesic length, skeleton distance-transform width, immutable artifacts, privacy-minimized provenance, deterministic uncertainty analysis, and a first-hand field-validation protocol. / 可打印现场标记、语义标记检测、单应性矫正、图测地长度、骨架距离变换宽度、不可覆盖结果、最小化隐私来源记录、确定性不确定性分析和亲身现场验证方案。
 
 **v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v4.2 Quick Start / v4.2 快速启动
+## v4.3 Quick Start / v4.3 快速启动
 
 ```bash
 uv sync --extra dev
@@ -23,9 +23,9 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`: upload once; reliability-aware detection and the editable mask proposal run in parallel; an automatic pixel-metrology draft appears next; then the reviewed mask can be saved with manual four-point or automatic ArUco calibration, uncertainty, material planning, multi-date physical alignment, colour-coded spatial change, and audit JSON. The legacy `/metrology` URL remains only as a compatibility alias. If port 8000 is occupied, the server prints a bilingual `--port 8001` recovery command.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`: upload once; reliability-aware detection and the editable mask proposal run in parallel; green candidates, toggleable yellow review hotspots, and an automatic pixel-metrology draft appear next; then the reviewed mask can be saved with manual four-point or automatic ArUco calibration, uncertainty, material planning, multi-date physical alignment, colour-coded spatial change, and audit JSON. The legacy `/metrology` URL remains only as a compatibility alias. If port 8000 is occupied, the server prints a bilingual `--port 8001` recovery command.
 
-第一条命令在 `results/metrology/metrology-demo-001` 生成可审计量测结果；第二条生成四张精确尺寸 SVG 现场标记和清单；第三条直接在 `http://127.0.0.1:8000` 打开完整单页流程：上传一次，可靠性检测与可编辑掩膜建议并行自动运行，随后立即显示像素量测草稿；人工复核绿色掩膜后，可保存手动四点或 ArUco 自动标定结果、不确定性、材料计划、多期物理对齐、彩色空间变化图和审计 JSON。旧 `/metrology` 地址只作为书签兼容别名保留。如果 8000 被占用，程序会直接打印双语 `--port 8001` 修复命令。
+第一条命令在 `results/metrology/metrology-demo-001` 生成可审计量测结果；第二条生成四张精确尺寸 SVG 现场标记和清单；第三条直接在 `http://127.0.0.1:8000` 打开完整单页流程：上传一次，可靠性检测与可编辑掩膜建议并行自动运行，随后立即显示绿色候选、可开关的黄色复核热点和像素量测草稿；人工复核掩膜后，可保存手动四点或 ArUco 自动标定结果、不确定性、材料计划、多期物理对齐、彩色空间变化图和审计 JSON。旧 `/metrology` 地址只作为书签兼容别名保留。如果 8000 被占用，程序会直接打印双语 `--port 8001` 修复命令。
 
 The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
 
@@ -95,7 +95,7 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 - `results/reports/<run>/<prediction>/<risk>/<output>/`: offline bilingual HTML dashboard and provenance manifest / 离线双语 HTML 仪表板和来源清单。
 - `results/inspections/<run>/<inspection-id>/`: normalized source, annotation, prediction, risk record, provenance, and optional immutable `narrative.json` / 规范化原图、标注、预测、风险、来源记录和可选不可变 `narrative.json`。
 - `results/metrology/<output>/measurement.json`: calibrated topology, physical geometry, uncertainty, provenance, and decision boundaries; sibling files contain source/rectified masks, skeletons, width heatmaps, and overlays / 标定拓扑、真实几何量、不确定性、来源和使用边界；同目录还包含原始/矫正掩膜、骨架、宽度热图和叠加图。
-- `results/metrology/proposals/<proposal>/`: immutable local candidate mask and algorithm evidence; the source image itself is not retained / 不可覆盖的本地候选掩膜和算法证据；不保存原图本身。
+- `results/metrology/proposals/<proposal>/`: immutable `proposal-mask.png`, `review-hotspots.png`, and algorithm `evidence.json`; the source image itself is not retained / 不可覆盖的候选掩膜、复核热点与算法证据；不保存原图本身。
 - `results/metrology/<output>/plans/*.json`: immutable material quantity, cost assumptions, measurement digest, and decision boundary / 不可覆盖的材料数量、成本假设、量测摘要和使用边界。
 - `results/metrology/comparisons/*.json` and `*-change-map.png`: normalized two-date changes, physical alignment quality, spatial classes, daily growth, user thresholds, and source-record digests / 统一单位的两期变化、物理对齐质量、空间分类、每日增长、用户阈值和源记录摘要。
 

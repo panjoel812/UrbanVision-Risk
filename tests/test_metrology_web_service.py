@@ -182,11 +182,26 @@ def test_local_proposal_is_private_and_human_revision_is_audited(
         "proposal-001",
         "proposal-mask.png",
     )
+    hotspot_path = service.proposal_artifact_path(
+        "proposal-001",
+        "review-hotspots.png",
+    )
     evidence_path = service.proposal_artifact_path(
         "proposal-001",
         "evidence.json",
     )
     assert proposal_path.is_file()
+    assert hotspot_path.is_file()
+    hotspot = cv2.imdecode(
+        np.frombuffer(hotspot_path.read_bytes(), dtype=np.uint8),
+        cv2.IMREAD_GRAYSCALE,
+    )
+    assert hotspot is not None
+    assert hotspot.shape == (221, 421)
+    assert proposal["evidence"]["review_guidance"]["sample_count"] == 3
+    assert proposal["evidence"]["review_hotspots"]["foreground_pixels"] == int(
+        np.count_nonzero(hotspot)
+    )
     evidence_text = evidence_path.read_text(encoding="utf-8")
     assert "/Users/" not in evidence_text
     assert '"filename": "road.png"' in evidence_text

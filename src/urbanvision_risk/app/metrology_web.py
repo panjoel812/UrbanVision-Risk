@@ -82,6 +82,7 @@ METROLOGY_HTML = """<!doctype html>
     .secondary-button { padding: 9px 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
     .tool-button { padding: 8px 11px; border: 1px solid var(--line); background: var(--soft); color: var(--ink); font-size: .76rem; }
     .primary-button:not(:disabled):hover, .secondary-button:not(:disabled):hover, .tool-button:not(:disabled):hover { transform: translateY(-1px); }
+    .tool-button.hotspot.active { border-color: var(--amber); background: var(--amber); color: #fff; }
     button:disabled { cursor: not-allowed; opacity: .42; }
     main { padding-bottom: 60px; }
     .workspace { display: grid; grid-template-columns: minmax(520px, 1.08fr) minmax(380px, .92fr); gap: 18px; align-items: start; }
@@ -249,9 +250,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v4.2 · Automatic metrology draft + human review</p>
+        <p class="eyebrow">v4.3 · Sensitivity-disagreement review guidance</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>选择道路图片后，目标检测与裂缝掩膜建议会在本机并行运行，并立即生成像素量测草稿。系统先画出绿色候选和几何结果，你只需修正，再保存人工复核量测或加入真实标定。</span><span data-en class="hidden-lang">Choose one road image and detection plus the crack-mask proposal run in parallel on this Mac, followed immediately by a pixel-metrology draft. Review the green proposal and geometry, then save a human-reviewed measurement or add physical calibration.</span></p>
+        <p class="hero-copy"><span data-zh>目标检测、绿色裂缝候选和像素量测草稿会自动运行；黄色热点标出三档灵敏度结果不一致的位置，帮助你优先检查不稳定边界，再保存人工复核量测或加入真实标定。</span><span data-en class="hidden-lang">Detection, the green crack proposal, and a pixel-metrology draft run automatically. Yellow hotspots mark disagreement across three nearby sensitivity settings so review can focus on unstable boundaries before saving or adding physical calibration.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -315,7 +316,7 @@ METROLOGY_HTML = """<!doctype html>
 
         <div class="section">
           <div class="section-head">
-            <div><h2><span data-zh>复核并修正自动掩膜</span><span data-en class="hidden-lang">Review and correct the automatic mask</span></h2><p class="subcopy"><span data-zh>系统先自动绘制绿色候选；画笔补漏、橡皮删错。笔尖圆环显示当前位置，检测框不会被冒充为掩膜。</span><span data-en class="hidden-lang">The system draws the green proposal first. Add missed areas with the brush and erase mistakes; detector boxes are never treated as masks.</span></p></div>
+            <div><h2><span data-zh>复核并修正自动掩膜</span><span data-en class="hidden-lang">Review and correct the automatic mask</span></h2><p class="subcopy"><span data-zh>绿色是当前候选，黄色是三档灵敏度分歧热点；先检查黄色区域，再用画笔补漏、橡皮删错。热点不是概率，检测框也不会被冒充为掩膜。</span><span data-en class="hidden-lang">Green is the current proposal; yellow marks disagreement across three sensitivity settings. Review yellow areas first, then add misses or erase errors. Hotspots are not probabilities, and detector boxes are never treated as masks.</span></p></div>
             <span class="step">02 · AUTO MASK + REVIEW</span>
           </div>
           <div class="canvas-shell">
@@ -328,6 +329,7 @@ METROLOGY_HTML = """<!doctype html>
             <button id="point-tool" class="tool-button" type="button" disabled><span data-zh>标定点</span><span data-en class="hidden-lang">Calibration points</span></button>
             <button id="undo-button" class="tool-button" type="button" disabled><span data-zh>撤销</span><span data-en class="hidden-lang">Undo</span></button>
             <button id="clear-button" class="tool-button" type="button" disabled><span data-zh>清空</span><span data-en class="hidden-lang">Clear</span></button>
+            <button id="hotspot-toggle" class="tool-button hotspot active" type="button" disabled><span data-zh>显示黄色复核热点</span><span data-en class="hidden-lang">Show yellow review hotspots</span></button>
             <label class="brush-control"><span><span data-zh>笔宽</span><span data-en class="hidden-lang">Brush</span> <strong id="brush-value">18</strong> px</span><input id="brush-size" type="range" min="2" max="100" value="18" disabled></label>
             <label class="brush-control proposal-control"><span><span data-zh>建议灵敏度</span><span data-en class="hidden-lang">Proposal sensitivity</span> <strong id="proposal-sensitivity-value">55</strong>%</span><input id="proposal-sensitivity" type="range" min="0" max="1" step="0.05" value="0.55" disabled></label>
           </div>
@@ -437,7 +439,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v4.2 · Automatic Draft + Human Review · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v4.3 · Review Hotspots + Audited Draft · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -448,6 +450,8 @@ METROLOGY_HTML = """<!doctype html>
       const maskContext = maskCanvas.getContext("2d");
       const proposalCanvas = document.createElement("canvas");
       const proposalContext = proposalCanvas.getContext("2d");
+      const hotspotCanvas = document.createElement("canvas");
+      const hotspotContext = hotspotCanvas.getContext("2d");
       const tintCanvas = document.createElement("canvas");
       const tintContext = tintCanvas.getContext("2d");
       const labels = ["TL", "TR", "BR", "BL"];
@@ -468,6 +472,7 @@ METROLOGY_HTML = """<!doctype html>
       let latestNarrative = null;
       let activeProposalId = null;
       let proposalSuppressed = false;
+      let reviewHotspotsVisible = true;
       let hoverPoint = null;
       let sourceGeneration = 0;
       let maskDirty = false;
@@ -518,6 +523,10 @@ METROLOGY_HTML = """<!doctype html>
           humanRemoved: "人工删除像素",
           proposalIou: "候选—最终 IoU",
           changedRatio: "人工修改画面占比",
+          reviewHotspots: "黄色复核热点",
+          sensitivityDisagreement: "候选分歧",
+          showHotspots: "显示黄色复核热点",
+          hideHotspots: "隐藏黄色复核热点",
           pointsRequired: "手动标定需要依次点击 TL、TR、BR、BL 四个点。",
           measuring: "正在本机提取骨架、构建图结构并计算不确定性…",
           demoRunning: "正在生成完整标定 Demo…",
@@ -601,6 +610,10 @@ METROLOGY_HTML = """<!doctype html>
           humanRemoved: "Human-removed pixels",
           proposalIou: "Proposal–final IoU",
           changedRatio: "Changed image ratio",
+          reviewHotspots: "Yellow review hotspots",
+          sensitivityDisagreement: "proposal disagreement",
+          showHotspots: "Show yellow review hotspots",
+          hideHotspots: "Hide yellow review hotspots",
           pointsRequired: "Manual calibration needs TL, TR, BR, and BL clicks in order.",
           measuring: "Extracting the skeleton, graph, geometry, and uncertainty locally…",
           demoRunning: "Generating the full calibrated demo…",
@@ -660,10 +673,27 @@ METROLOGY_HTML = """<!doctype html>
       function renderProposalState() {
         if (activeProposalId && latestProposal) {
           const coverage = Number(latestProposal.evidence.selection.coverage_ratio) * 100;
-          byId("proposal-state").textContent = `${t("proposalReady")} ${coverage.toFixed(2)}%`;
+          const guidance = latestProposal.evidence.review_guidance;
+          if (guidance) {
+            const hotspotRatio = Number(guidance.review_hotspot_image_ratio) * 100;
+            const disagreementRatio = guidance.disagreement_ratio_of_union === null ? null : Number(guidance.disagreement_ratio_of_union) * 100;
+            const disagreement = disagreementRatio === null ? "—" : `${disagreementRatio.toFixed(2)}%`;
+            byId("proposal-state").textContent = `${t("proposalReady")} ${coverage.toFixed(2)}% · ${t("reviewHotspots")} ${hotspotRatio.toFixed(2)}% · ${t("sensitivityDisagreement")} ${disagreement}`;
+          } else {
+            byId("proposal-state").textContent = `${t("proposalReady")} ${coverage.toFixed(2)}%`;
+          }
         } else {
           byId("proposal-state").textContent = t("proposalIdle");
         }
+        updateHotspotToggle();
+      }
+
+      function updateHotspotToggle() {
+        const button = byId("hotspot-toggle");
+        const available = Boolean(latestProposal && latestProposal.artifacts && latestProposal.artifacts["review-hotspots.png"]);
+        button.disabled = !available || measurementOperationCount > 0;
+        button.classList.toggle("active", available && reviewHotspotsVisible);
+        button.textContent = available && reviewHotspotsVisible ? t("hideHotspots") : t("showHotspots");
       }
 
       function setStatus(message, error = false) {
@@ -906,11 +936,13 @@ METROLOGY_HTML = """<!doctype html>
       function resetMask() {
         maskContext.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
         proposalContext.clearRect(0, 0, proposalCanvas.width, proposalCanvas.height);
+        hotspotContext.clearRect(0, 0, hotspotCanvas.width, hotspotCanvas.height);
         strokes = [];
         activeStroke = null;
         activeProposalId = null;
         proposalSuppressed = false;
         latestProposal = null;
+        reviewHotspotsVisible = true;
         maskDirty = false;
         renderProposalState();
       }
@@ -946,6 +978,19 @@ METROLOGY_HTML = """<!doctype html>
         if (!sourceImage) return;
         editorContext.clearRect(0, 0, editor.width, editor.height);
         editorContext.drawImage(sourceImage, 0, 0, editor.width, editor.height);
+        if (reviewHotspotsVisible && latestProposal) {
+          tintContext.clearRect(0, 0, tintCanvas.width, tintCanvas.height);
+          tintContext.globalCompositeOperation = "source-over";
+          tintContext.fillStyle = "#ffd34d";
+          tintContext.fillRect(0, 0, tintCanvas.width, tintCanvas.height);
+          tintContext.globalCompositeOperation = "destination-in";
+          tintContext.drawImage(hotspotCanvas, 0, 0);
+          tintContext.globalCompositeOperation = "source-over";
+          editorContext.save();
+          editorContext.globalAlpha = .62;
+          editorContext.drawImage(tintCanvas, 0, 0);
+          editorContext.restore();
+        }
         tintContext.clearRect(0, 0, tintCanvas.width, tintCanvas.height);
         tintContext.globalCompositeOperation = "source-over";
         tintContext.fillStyle = "#2ee6a0";
@@ -1012,6 +1057,7 @@ METROLOGY_HTML = """<!doctype html>
         byId("replace-button").disabled = !ready;
         const hasMask = (activeProposalId && !proposalSuppressed) || strokes.length > 0;
         byId("measure-button").disabled = !editable || !hasMask;
+        updateHotspotToggle();
         updateReviewUI();
       }
 
@@ -1068,8 +1114,8 @@ METROLOGY_HTML = """<!doctype html>
         }
         sourceFile = file;
         sourceImage = image;
-        editor.width = maskCanvas.width = proposalCanvas.width = tintCanvas.width = image.naturalWidth;
-        editor.height = maskCanvas.height = proposalCanvas.height = tintCanvas.height = image.naturalHeight;
+        editor.width = maskCanvas.width = proposalCanvas.width = hotspotCanvas.width = tintCanvas.width = image.naturalWidth;
+        editor.height = maskCanvas.height = proposalCanvas.height = hotspotCanvas.height = tintCanvas.height = image.naturalHeight;
         initializeMask();
         renderEditor();
         byId("canvas-empty").classList.add("hidden");
@@ -1105,16 +1151,10 @@ METROLOGY_HTML = """<!doctype html>
         setStatus(inspectionSucceeded && draftSucceeded ? t("pipelineComplete") : t("pipelinePartial"), !inspectionSucceeded && !draftSucceeded);
       }
 
-      async function applyProposal(payload) {
-        const proposalImage = new Image();
-        proposalImage.src = payload.artifacts["proposal-mask.png"];
-        await proposalImage.decode();
-        if (proposalImage.naturalWidth !== maskCanvas.width || proposalImage.naturalHeight !== maskCanvas.height) {
-          throw new Error("proposal mask dimensions do not match the source");
-        }
-        proposalContext.clearRect(0, 0, proposalCanvas.width, proposalCanvas.height);
-        proposalContext.drawImage(proposalImage, 0, 0);
-        const pixels = proposalContext.getImageData(0, 0, proposalCanvas.width, proposalCanvas.height);
+      function writeBinaryImage(image, canvas, context) {
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
         for (let index = 0; index < pixels.data.length; index += 4) {
           const alpha = pixels.data[index] >= 128 ? 255 : 0;
           pixels.data[index] = 255;
@@ -1122,10 +1162,32 @@ METROLOGY_HTML = """<!doctype html>
           pixels.data[index + 2] = 255;
           pixels.data[index + 3] = alpha;
         }
-        proposalContext.clearRect(0, 0, proposalCanvas.width, proposalCanvas.height);
-        proposalContext.putImageData(pixels, 0, 0);
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.putImageData(pixels, 0, 0);
+      }
+
+      async function applyProposal(payload) {
+        const proposalImage = new Image();
+        proposalImage.src = payload.artifacts["proposal-mask.png"];
+        const hotspotImage = new Image();
+        const hotspotUrl = payload.artifacts["review-hotspots.png"];
+        if (hotspotUrl) hotspotImage.src = hotspotUrl;
+        await Promise.all([
+          proposalImage.decode(),
+          hotspotUrl ? hotspotImage.decode() : Promise.resolve()
+        ]);
+        if (proposalImage.naturalWidth !== maskCanvas.width || proposalImage.naturalHeight !== maskCanvas.height) {
+          throw new Error("proposal mask dimensions do not match the source");
+        }
+        if (hotspotUrl && (hotspotImage.naturalWidth !== maskCanvas.width || hotspotImage.naturalHeight !== maskCanvas.height)) {
+          throw new Error("review hotspot dimensions do not match the source");
+        }
+        writeBinaryImage(proposalImage, proposalCanvas, proposalContext);
+        hotspotContext.clearRect(0, 0, hotspotCanvas.width, hotspotCanvas.height);
+        if (hotspotUrl) writeBinaryImage(hotspotImage, hotspotCanvas, hotspotContext);
         activeProposalId = payload.proposal_id;
         proposalSuppressed = false;
+        reviewHotspotsVisible = Boolean(hotspotUrl);
         latestProposal = payload;
         strokes = [];
         activeStroke = null;
@@ -1616,6 +1678,11 @@ METROLOGY_HTML = """<!doctype html>
         markMaskDirty();
         renderEditor();
         updateControls();
+      });
+      byId("hotspot-toggle").addEventListener("click", () => {
+        reviewHotspotsVisible = !reviewHotspotsVisible;
+        updateHotspotToggle();
+        renderEditor();
       });
       byId("reset-points").addEventListener("click", () => {
         calibrationPoints = [];

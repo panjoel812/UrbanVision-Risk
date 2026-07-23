@@ -34,6 +34,9 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "画笔/橡皮" in readme
     assert "automatic_draft" in readme
     assert "human_reviewed" in readme
+    assert "review-hotspots.png" in readme
+    assert "three_level_sensitivity_vote_disagreement" in guide
+    assert "不是模型不确定性校准" in guide
     assert "local_proposal_automatic_draft" in guide
     assert "ArUco" in portfolio
     assert "Ground truth / 人工参考值" in template

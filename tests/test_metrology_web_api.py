@@ -68,9 +68,18 @@ class MetrologyStub:
             "local_only": True,
             "proposal_id": "proposal-001",
             "candidate_found": True,
-            "evidence": {"selection": {"coverage_ratio": 0.04}},
+            "evidence": {
+                "selection": {"coverage_ratio": 0.04},
+                "review_guidance": {
+                    "review_hotspot_image_ratio": 0.01,
+                    "disagreement_ratio_of_union": 0.25,
+                },
+            },
             "artifacts": {
                 "proposal-mask.png": ("/api/metrology/proposals/proposal-001/proposal-mask.png"),
+                "review-hotspots.png": (
+                    "/api/metrology/proposals/proposal-001/review-hotspots.png"
+                ),
                 "evidence.json": ("/api/metrology/proposals/proposal-001/evidence.json"),
             },
         }
@@ -82,6 +91,7 @@ class MetrologyStub:
     ) -> Path:
         if proposal_id != "proposal-001" or artifact_name not in {
             "proposal-mask.png",
+            "review-hotspots.png",
             "evidence.json",
         }:
             raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
@@ -173,6 +183,7 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="comparison-map"' in response.text
     assert 'id="proposal-button"' not in response.text
     assert 'id="proposal-sensitivity"' in response.text
+    assert 'id="hotspot-toggle"' in response.text
     assert 'id="inspection-section"' in response.text
     assert 'id="narrative-button"' in response.text
     assert "/api/inspect" in response.text
@@ -187,6 +198,8 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="review-state"' in response.text
     assert "/api/metrology/compare" in response.text
     assert "/api/metrology/proposals" in response.text
+    assert "review-hotspots.png" in response.text
+    assert "sensitivityDisagreement" in response.text
     assert "change-map.png" in response.text
     assert "https://" not in response.text
     assert "http://" not in response.text
@@ -345,6 +358,9 @@ def test_local_proposal_api_contract(tmp_path: Path) -> None:
         data={"sensitivity": "0.65"},
     )
     mask = client.get("/api/metrology/proposals/proposal-001/proposal-mask.png")
+    hotspots = client.get(
+        "/api/metrology/proposals/proposal-001/review-hotspots.png"
+    )
     evidence = client.get("/api/metrology/proposals/proposal-001/evidence.json")
 
     assert proposal.status_code == 200
@@ -357,5 +373,7 @@ def test_local_proposal_api_contract(tmp_path: Path) -> None:
     }
     assert mask.status_code == 200
     assert mask.headers["content-type"] == "image/png"
+    assert hotspots.status_code == 200
+    assert hotspots.headers["content-type"] == "image/png"
     assert evidence.status_code == 200
     assert evidence.headers["content-type"] == "application/json"

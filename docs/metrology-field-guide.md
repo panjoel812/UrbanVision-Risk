@@ -74,9 +74,9 @@ Open `http://127.0.0.1:8000`, then select **Run calibrated demo / 运行完整�
 
 打开 `http://127.0.0.1:8000`，点击 **Run calibrated demo / 运行完整标定 Demo**。无需上传图片，网页就会显示标定叠加图、矫正平面、宽度热图、拓扑、真实几何量、敏感性区间和完整 JSON。
 
-For a real image, upload it once. Detection and the independent mask proposal start automatically in parallel, followed by an automatic pixel-only metrology draft. Review the green proposal with the brush and eraser, choose a calibration mode, and save a reviewed measurement. The mask is exported at the source image's original resolution rather than the displayed CSS size.
+For a real image, upload it once. Detection and the independent mask proposal start automatically in parallel, followed by an automatic pixel-only metrology draft. Review the green proposal and its yellow sensitivity-disagreement hotspots with the brush and eraser, choose a calibration mode, and save a reviewed measurement. The mask is exported at the source image's original resolution rather than the displayed CSS size.
 
-对真实图片只需上传一次，检测与独立掩膜建议会并行自动启动，随后自动生成仅像素量测草稿。用画笔和橡皮复核绿色候选，选择标定模式，再保存人工复核量测。网页导出的掩膜保持原图分辨率，不会使用屏幕显示尺寸代替。
+对真实图片只需上传一次，检测与独立掩膜建议会并行自动启动，随后自动生成仅像素量测草稿。用画笔和橡皮复核绿色候选及黄色灵敏度分歧热点，选择标定模式，再保存人工复核量测。网页导出的掩膜保持原图分辨率，不会使用屏幕显示尺寸代替。
 
 The circular cursor shows the exact brush diameter. Every brush move appears immediately as a green overlay; erasing removes both the mask alpha and the green overlay. The browser exports a transparent PNG, and the local service composites transparency onto black before thresholding, so unpainted pixels cannot accidentally become foreground.
 
@@ -84,17 +84,25 @@ The circular cursor shows the exact brush diameter. Every brush move appears imm
 
 ## Human-in-the-loop mask proposal / 人机协同候选掩膜
 
-After choosing a source image, the page automatically runs three complementary, deterministic proposal views on the Mac—there is no separate proposal button:
+After choosing a source image, the page automatically runs two complementary feature responses and a deterministic component selector on the Mac—there is no separate proposal button:
 
-选择原图后，页面会自动在 Mac 上运行三个互补、确定性的建议视图，不再需要单独点击建议按钮：
+选择原图后，页面会自动在 Mac 上运行两个互补特征响应和一个确定性连通区域筛选器，不再需要单独点击建议按钮：
 
 1. multi-scale morphological blackhat for locally dark structures / 多尺度形态学黑帽提取局部暗结构；
 2. multi-scale Hessian eigenvalue response for thin dark ridges / 多尺度 Hessian 特征值响应提取细暗脊；
 3. strong-seed/weak-neighbour hysteresis with connected-component geometry filtering / 强种子—弱邻域迟滞与连通区域几何过滤。
 
+Version 4.3 evaluates the selector at the nominal sensitivity and its two neighbours (`−0.15`, `+0.15`, clamped to 0–1). Pixels selected at every sampled setting form the stable set; pixels present in the union but absent from the stable set form the disagreement set. A small display dilation makes these regions visible as yellow hotspots without adding them to the editable green mask. `evidence.json` records `review_guidance.method: three_level_sensitivity_vote_disagreement`, sampled sensitivities, stable/union/disagreement counts, disagreement ratio, hotspot area, and hotspot component count. `review-hotspots.png` preserves the exact review layer.
+
+v4.3 会在当前灵敏度及其两个邻域值（`−0.15`、`+0.15`，限制在 0–1）运行筛选器。所有设置都选中的像素构成稳定集；并集中存在但未进入稳定集的像素构成分歧集。系统只为显示而对分歧区做小范围膨胀，形成黄色热点，不会把黄色自动加入绿色可编辑掩膜。`evidence.json` 记录采样灵敏度、稳定/并集/分歧像素数、分歧比例、热点面积和热点连通区域数；`review-hotspots.png` 保存精确复核层。
+
 Images larger than two million pixels are processed on a downsampled work raster and the binary proposal is restored to the exact source resolution. This bounds memory and runtime without sending pixels to a cloud service. The sensitivity slider changes proposal recall; it is not a calibrated probability or YOLO confidence.
 
 超过 200 万像素的图片会在缩小的工作栅格上处理，再把二值候选恢复到原图精确分辨率，从而限制内存和耗时，且不发送到云端。灵敏度滑块改变候选召回范围，不是经过标定的概率或 YOLO 置信度。
+
+The yellow layer is triage guidance, not model uncertainty calibration: it only answers “where did this deterministic algorithm change under a nearby parameter perturbation?” Stable green pixels can still be wrong, and real cracks can still be missed at all three settings.
+
+黄色层是复核分流提示，不是模型不确定性校准：它只回答“确定性算法在邻近参数扰动下，哪些位置发生变化”。稳定的绿色像素仍可能是误检，三个设置都未选中的真实裂缝仍可能漏检。
 
 An empty proposal is returned as unusable, and a proposal covering more than 35% of the image is rejected as too broad instead of being painted automatically.
 

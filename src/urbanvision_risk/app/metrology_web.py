@@ -106,6 +106,7 @@ METROLOGY_HTML = """<!doctype html>
     .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 11px; }
     .tool-button.active { border-color: var(--forest-2); background: var(--forest); color: #fff; }
     .brush-control { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--muted); font-size: .72rem; }
+    .brush-control.proposal-control { margin-left: 0; }
     .brush-control input { width: 112px; accent-color: var(--forest-2); }
     .mode-grid { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(0, 1.3fr); gap: 13px; }
     .field { display: grid; gap: 5px; }
@@ -198,7 +199,7 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v3.3 · Spatial change intelligence</p>
+        <p class="eyebrow">v4.0 · Human-in-the-loop metrology</p>
         <h1><span data-zh>从检测框，走到<br>可验证的真实量测。</span><span data-en class="hidden-lang">From boxes to<br>verifiable measurement.</span></h1>
         <p class="hero-copy"><span data-zh>在原图上绘制裂缝掩膜，选择像素、手动四点或 ArUco 自动标定。系统将在本机计算骨架图、长度、宽度分布、分叉、方向和敏感性区间。</span><span data-en class="hidden-lang">Draw a crack mask, then choose pixel-only, manual four-point, or automatic ArUco calibration. Skeleton graphs, length, width distributions, branching, orientation, and sensitivity intervals are computed locally.</span></p>
       </div>
@@ -237,13 +238,16 @@ METROLOGY_HTML = """<!doctype html>
             <div id="canvas-empty" class="canvas-empty"><span><strong><span data-zh>先选择一张原图</span><span data-en class="hidden-lang">Choose an image first</span></strong><br><span data-zh>然后使用画笔覆盖裂缝表面</span><span data-en class="hidden-lang">Then paint over the crack surface</span></span></div>
           </div>
           <div class="toolbar" aria-label="Mask tools">
+            <button id="proposal-button" class="tool-button" type="button" disabled><span data-zh>本地智能建议</span><span data-en class="hidden-lang">Local smart proposal</span></button>
             <button id="brush-tool" class="tool-button active" type="button" disabled><span data-zh>画笔</span><span data-en class="hidden-lang">Brush</span></button>
             <button id="eraser-tool" class="tool-button" type="button" disabled><span data-zh>橡皮</span><span data-en class="hidden-lang">Eraser</span></button>
             <button id="point-tool" class="tool-button" type="button" disabled><span data-zh>标定点</span><span data-en class="hidden-lang">Calibration points</span></button>
             <button id="undo-button" class="tool-button" type="button" disabled><span data-zh>撤销</span><span data-en class="hidden-lang">Undo</span></button>
             <button id="clear-button" class="tool-button" type="button" disabled><span data-zh>清空</span><span data-en class="hidden-lang">Clear</span></button>
             <label class="brush-control"><span><span data-zh>笔宽</span><span data-en class="hidden-lang">Brush</span> <strong id="brush-value">18</strong> px</span><input id="brush-size" type="range" min="2" max="100" value="18" disabled></label>
+            <label class="brush-control proposal-control"><span><span data-zh>建议灵敏度</span><span data-en class="hidden-lang">Proposal sensitivity</span> <strong id="proposal-sensitivity-value">55</strong>%</span><input id="proposal-sensitivity" type="range" min="0" max="1" step="0.05" value="0.55" disabled></label>
           </div>
+          <p id="proposal-state" class="subcopy"><span data-zh>自动建议只生成可编辑底稿；提交量测前必须人工复核。</span><span data-en class="hidden-lang">Automation creates an editable starting point only; human review is required before metrology.</span></p>
         </div>
 
         <div class="section">
@@ -348,7 +352,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v3.3 · Precision Lab · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v4.0 · Precision Lab · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -357,6 +361,8 @@ METROLOGY_HTML = """<!doctype html>
       const editorContext = editor.getContext("2d");
       const maskCanvas = document.createElement("canvas");
       const maskContext = maskCanvas.getContext("2d");
+      const proposalCanvas = document.createElement("canvas");
+      const proposalContext = proposalCanvas.getContext("2d");
       const tintCanvas = document.createElement("canvas");
       const tintContext = tintCanvas.getContext("2d");
       const labels = ["TL", "TR", "BR", "BL"];
@@ -372,6 +378,8 @@ METROLOGY_HTML = """<!doctype html>
       let latestResult = null;
       let latestPlan = null;
       let latestComparison = null;
+      let latestProposal = null;
+      let activeProposalId = null;
       let hoverPoint = null;
 
       const text = {
@@ -380,6 +388,10 @@ METROLOGY_HTML = """<!doctype html>
           private: "图片不会发送到互联网",
           ready: "原图已就绪。请使用画笔覆盖裂缝表面。",
           drawingRequired: "请先选择原图并绘制裂缝掩膜。",
+          proposalIdle: "自动建议只生成可编辑底稿；提交量测前必须人工复核。",
+          proposalRunning: "正在本机运行多尺度暗脊与形态学集成…",
+          proposalReady: "候选底稿已载入；请用画笔和橡皮人工复核。",
+          proposalEmpty: "没有找到可靠候选；请手动画笔标注或提高建议灵敏度。",
           pointsRequired: "手动标定需要依次点击 TL、TR、BR、BL 四个点。",
           measuring: "正在本机提取骨架、构建图结构并计算不确定性…",
           demoRunning: "正在生成完整标定 Demo…",
@@ -425,6 +437,10 @@ METROLOGY_HTML = """<!doctype html>
           private: "The image never leaves this machine",
           ready: "Source ready. Paint over the crack surface.",
           drawingRequired: "Choose a source image and draw a crack mask first.",
+          proposalIdle: "Automation creates an editable starting point only; human review is required before metrology.",
+          proposalRunning: "Running the multi-scale dark-ridge and morphology ensemble locally…",
+          proposalReady: "The proposal is loaded; review it with the brush and eraser.",
+          proposalEmpty: "No reliable candidate was found; draw manually or increase proposal sensitivity.",
           pointsRequired: "Manual calibration needs TL, TR, BR, and BL clicks in order.",
           measuring: "Extracting the skeleton, graph, geometry, and uncertainty locally…",
           demoRunning: "Generating the full calibrated demo…",
@@ -468,6 +484,15 @@ METROLOGY_HTML = """<!doctype html>
       };
       const t = (key) => text[language][key] || key;
 
+      function renderProposalState() {
+        if (activeProposalId && latestProposal) {
+          const coverage = Number(latestProposal.evidence.selection.coverage_ratio) * 100;
+          byId("proposal-state").textContent = `${t("proposalReady")} ${coverage.toFixed(2)}%`;
+        } else {
+          byId("proposal-state").textContent = t("proposalIdle");
+        }
+      }
+
       function setStatus(message, error = false) {
         byId("status").textContent = message;
         byId("status").classList.toggle("error", error);
@@ -485,6 +510,7 @@ METROLOGY_HTML = """<!doctype html>
         if (latestResult) renderResult(latestResult);
         if (latestPlan) renderPlan(latestPlan);
         if (latestComparison) renderComparison(latestComparison);
+        renderProposalState();
       }
 
       function canvasPosition(event) {
@@ -503,8 +529,12 @@ METROLOGY_HTML = """<!doctype html>
 
       function resetMask() {
         maskContext.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+        proposalContext.clearRect(0, 0, proposalCanvas.width, proposalCanvas.height);
         strokes = [];
         activeStroke = null;
+        activeProposalId = null;
+        latestProposal = null;
+        renderProposalState();
       }
 
       function drawStroke(context, stroke) {
@@ -530,6 +560,7 @@ METROLOGY_HTML = """<!doctype html>
 
       function rebuildMask() {
         maskContext.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+        if (activeProposalId) maskContext.drawImage(proposalCanvas, 0, 0);
         strokes.forEach((stroke) => drawStroke(maskContext, stroke));
       }
 
@@ -596,11 +627,11 @@ METROLOGY_HTML = """<!doctype html>
 
       function updateControls() {
         const ready = Boolean(sourceImage);
-        ["brush-tool", "eraser-tool", "clear-button", "brush-size"].forEach((id) => { byId(id).disabled = !ready; });
+        ["proposal-button", "proposal-sensitivity", "brush-tool", "eraser-tool", "clear-button", "brush-size"].forEach((id) => { byId(id).disabled = !ready; });
         byId("point-tool").disabled = !ready || byId("calibration-mode").value !== "manual";
         byId("undo-button").disabled = !ready || strokes.length === 0;
         byId("replace-button").disabled = !ready;
-        byId("measure-button").disabled = !ready || strokes.length === 0;
+        byId("measure-button").disabled = !ready || (!activeProposalId && strokes.length === 0);
       }
 
       function updatePointList() {
@@ -653,8 +684,8 @@ METROLOGY_HTML = """<!doctype html>
         }
         sourceFile = file;
         sourceImage = image;
-        editor.width = maskCanvas.width = tintCanvas.width = image.naturalWidth;
-        editor.height = maskCanvas.height = tintCanvas.height = image.naturalHeight;
+        editor.width = maskCanvas.width = proposalCanvas.width = tintCanvas.width = image.naturalWidth;
+        editor.height = maskCanvas.height = proposalCanvas.height = tintCanvas.height = image.naturalHeight;
         initializeMask();
         renderEditor();
         byId("canvas-empty").classList.add("hidden");
@@ -663,6 +694,65 @@ METROLOGY_HTML = """<!doctype html>
         setTool("brush");
         updateControls();
         setStatus(t("ready"));
+      }
+
+      async function applyProposal(payload) {
+        const proposalImage = new Image();
+        proposalImage.src = payload.artifacts["proposal-mask.png"];
+        await proposalImage.decode();
+        if (proposalImage.naturalWidth !== maskCanvas.width || proposalImage.naturalHeight !== maskCanvas.height) {
+          throw new Error("proposal mask dimensions do not match the source");
+        }
+        proposalContext.clearRect(0, 0, proposalCanvas.width, proposalCanvas.height);
+        proposalContext.drawImage(proposalImage, 0, 0);
+        const pixels = proposalContext.getImageData(0, 0, proposalCanvas.width, proposalCanvas.height);
+        for (let index = 0; index < pixels.data.length; index += 4) {
+          const alpha = pixels.data[index] >= 128 ? 255 : 0;
+          pixels.data[index] = 255;
+          pixels.data[index + 1] = 255;
+          pixels.data[index + 2] = 255;
+          pixels.data[index + 3] = alpha;
+        }
+        proposalContext.clearRect(0, 0, proposalCanvas.width, proposalCanvas.height);
+        proposalContext.putImageData(pixels, 0, 0);
+        activeProposalId = payload.proposal_id;
+        latestProposal = payload;
+        strokes = [];
+        activeStroke = null;
+        rebuildMask();
+        renderEditor();
+        renderProposalState();
+        updateControls();
+      }
+
+      async function generateProposal() {
+        if (!sourceFile) return;
+        byId("proposal-button").disabled = true;
+        byId("proposal-sensitivity").disabled = true;
+        byId("proposal-state").textContent = t("proposalRunning");
+        setStatus(t("proposalRunning"));
+        const form = new FormData();
+        form.append("image", sourceFile, sourceFile.name);
+        form.append("sensitivity", byId("proposal-sensitivity").value);
+        try {
+          const response = await fetch("/api/metrology/proposals", { method: "POST", body: form });
+          const payload = await response.json();
+          if (!response.ok) throw payload.error || payload;
+          if (!payload.candidate_found) {
+            byId("proposal-state").textContent = t("proposalEmpty");
+            setStatus(t("proposalEmpty"), true);
+            return;
+          }
+          await applyProposal(payload);
+          setTool("brush");
+          setStatus(t("proposalReady"));
+        } catch (error) {
+          const message = error && (language === "zh" ? error.message_zh : error.message_en);
+          const recovery = error && (language === "zh" ? error.recovery_zh : error.recovery_en);
+          setStatus([message, recovery].filter(Boolean).join(" — ") || t("failed"), true);
+        } finally {
+          updateControls();
+        }
       }
 
       function pointerDown(event) {
@@ -720,7 +810,7 @@ METROLOGY_HTML = """<!doctype html>
       }
 
       async function runMeasurement() {
-        if (!sourceFile || strokes.length === 0) {
+        if (!sourceFile || (!activeProposalId && strokes.length === 0)) {
           setStatus(t("drawingRequired"), true);
           return;
         }
@@ -739,6 +829,7 @@ METROLOGY_HTML = """<!doctype html>
           form.append("calibration_mode", mode);
           form.append("uncertainty_samples", formNumber("uncertainty-samples"));
           form.append("segmentation_radius_pixels", formNumber("boundary-radius"));
+          if (activeProposalId) form.append("proposal_id", activeProposalId);
           if (mode !== "pixel") {
             form.append("physical_width", formNumber("physical-width"));
             form.append("physical_height", formNumber("physical-height"));
@@ -1044,6 +1135,10 @@ METROLOGY_HTML = """<!doctype html>
       });
       byId("source-input").addEventListener("change", (event) => loadSource(event.target.files[0]));
       byId("replace-button").addEventListener("click", () => byId("source-input").click());
+      byId("proposal-button").addEventListener("click", generateProposal);
+      byId("proposal-sensitivity").addEventListener("input", () => {
+        byId("proposal-sensitivity-value").textContent = String(Math.round(Number(byId("proposal-sensitivity").value) * 100));
+      });
       byId("brush-tool").addEventListener("click", () => setTool("brush"));
       byId("eraser-tool").addEventListener("click", () => setTool("eraser"));
       byId("point-tool").addEventListener("click", () => setTool("point"));

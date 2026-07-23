@@ -35,6 +35,7 @@ class MetrologyStub:
         self.analyze_arguments: dict[str, Any] | None = None
         self.plan_arguments: dict[str, Any] | None = None
         self.compare_arguments: dict[str, Any] | None = None
+        self.proposal_arguments: dict[str, Any] | None = None
         self.failure: ProjectError | None = None
 
     def demo(self) -> dict[str, object]:
@@ -59,6 +60,31 @@ class MetrologyStub:
     def artifact_path(self, run_id: str, artifact_name: str) -> Path:
         if run_id != "metrology-web-001" or artifact_name != "overlay.jpg":
             raise ProjectError("E201", "文件不存在", "Missing", "检查", "Check")
+        return self.artifact
+
+    def propose_mask_bytes(self, **kwargs: Any) -> dict[str, object]:
+        self.proposal_arguments = kwargs
+        return {
+            "local_only": True,
+            "proposal_id": "proposal-001",
+            "candidate_found": True,
+            "evidence": {"selection": {"coverage_ratio": 0.04}},
+            "artifacts": {
+                "proposal-mask.png": ("/api/metrology/proposals/proposal-001/proposal-mask.png"),
+                "evidence.json": ("/api/metrology/proposals/proposal-001/evidence.json"),
+            },
+        }
+
+    def proposal_artifact_path(
+        self,
+        proposal_id: str,
+        artifact_name: str,
+    ) -> Path:
+        if proposal_id != "proposal-001" or artifact_name not in {
+            "proposal-mask.png",
+            "evidence.json",
+        }:
+            raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
         return self.artifact
 
     def list_runs(self, *, limit: int = 50) -> dict[str, object]:
@@ -145,7 +171,10 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="compare-button"' in response.text
     assert 'id="match-tolerance"' in response.text
     assert 'id="comparison-map"' in response.text
+    assert 'id="proposal-button"' in response.text
+    assert 'id="proposal-sensitivity"' in response.text
     assert "/api/metrology/compare" in response.text
+    assert "/api/metrology/proposals" in response.text
     assert "change-map.png" in response.text
     assert "https://" not in response.text
     assert "http://" not in response.text
@@ -184,6 +213,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
             "point_sigma_pixels": "1.5",
             "uncertainty_samples": "32",
             "segmentation_radius_pixels": "2",
+            "proposal_id": "proposal-001",
         },
     )
 
@@ -196,6 +226,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert metrology.analyze_arguments["mask_content"] == b"mask-bytes"
     assert metrology.analyze_arguments["calibration_mode"] == "manual"
     assert metrology.analyze_arguments["uncertainty_samples"] == 32
+    assert metrology.analyze_arguments["proposal_id"] == "proposal-001"
 
     health = client.get("/api/health")
     assert health.json()["precision_metrology"] is True
@@ -285,3 +316,28 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     assert downloaded_comparison.headers["content-type"] == "application/json"
     assert downloaded_change_map.status_code == 200
     assert downloaded_change_map.headers["content-type"] == "image/png"
+
+
+def test_local_proposal_api_contract(tmp_path: Path) -> None:
+    client, metrology = _client(tmp_path)
+
+    proposal = client.post(
+        "/api/metrology/proposals",
+        files={"image": ("road.png", b"source-bytes", "image/png")},
+        data={"sensitivity": "0.65"},
+    )
+    mask = client.get("/api/metrology/proposals/proposal-001/proposal-mask.png")
+    evidence = client.get("/api/metrology/proposals/proposal-001/evidence.json")
+
+    assert proposal.status_code == 200
+    assert proposal.json()["candidate_found"] is True
+    assert metrology.proposal_arguments == {
+        "source_content": b"source-bytes",
+        "source_filename": "road.png",
+        "source_content_type": "image/png",
+        "sensitivity": 0.65,
+    }
+    assert mask.status_code == 200
+    assert mask.headers["content-type"] == "image/png"
+    assert evidence.status_code == 200
+    assert evidence.headers["content-type"] == "application/json"

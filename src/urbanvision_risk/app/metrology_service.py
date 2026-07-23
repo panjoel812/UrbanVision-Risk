@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from urbanvision_risk.app.crack_proposal import propose_crack_mask
 from urbanvision_risk.detection.config import validate_run_name
 from urbanvision_risk.errors import ProjectError
 from urbanvision_risk.metrology.calibration import (
@@ -31,6 +32,7 @@ SOURCE_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 MASK_CONTENT_TYPES = frozenset({"image/png", "image/webp"})
 CALIBRATION_MODES = frozenset({"pixel", "manual", "aruco"})
 COMPARISON_ARTIFACTS = frozenset({"change-map.png"})
+PROPOSAL_ARTIFACTS = frozenset({"proposal-mask.png", "evidence.json"})
 MAX_FRAME_DIMENSION_MISMATCH_RATIO = 0.05
 MAX_CHANGE_MAP_PIXELS_PER_METER = 2_000.0
 METROLOGY_ARTIFACTS = frozenset(
@@ -605,6 +607,130 @@ class LocalMetrologyService:
             "artifacts": artifact_urls,
         }
 
+    def propose_mask_bytes(
+        self,
+        *,
+        source_content: bytes,
+        source_filename: str | None,
+        source_content_type: str,
+        sensitivity: float = 0.55,
+    ) -> dict[str, object]:
+        if not math.isfinite(sensitivity) or not 0 <= sensitivity <= 1:
+            raise _input_error(f"proposal sensitivity={sensitivity!r}")
+        source_image, _ = _decode_source(
+            source_content,
+            source_content_type,
+        )
+        proposal = propose_crack_mask(
+            source_image,
+            sensitivity=sensitivity,
+        )
+        proposal_id = validate_run_name(self._record_id_factory("proposal"))
+        mask = proposal.mask.astype(np.uint8) * 255
+        encoded_ok, encoded = cv2.imencode(".png", mask)
+        if not encoded_ok:
+            raise ProjectError(
+                "E504",
+                "候选掩膜编码失败",
+                "Encoding the proposed mask failed",
+                "保留原图并检查 OpenCV 环境",
+                "Keep the source image and inspect the OpenCV environment",
+            )
+        mask_bytes = encoded.tobytes()
+        evidence: dict[str, object] = {
+            **proposal.evidence,
+            "proposal_id": proposal_id,
+            "created_at_utc": datetime.now(UTC).isoformat(),
+            "source": {
+                "filename": _safe_filename(source_filename, "road-image"),
+                "sha256": _sha256(source_content),
+            },
+            "proposal_mask": {
+                "filename": "proposal-mask.png",
+                "sha256": _sha256(mask_bytes),
+                "foreground_pixels": int(np.count_nonzero(proposal.mask)),
+            },
+            "privacy": (
+                "No absolute input path or source pixels are stored; processing stays on loopback"
+            ),
+        }
+        output_dir = self.paths.metrology / "proposals" / proposal_id
+        mask_path = output_dir / "proposal-mask.png"
+        evidence_path = output_dir / "evidence.json"
+        with self._write_lock:
+            if mask_path.exists() or evidence_path.exists():
+                raise ProjectError(
+                    "E204",
+                    "候选掩膜记录已经存在",
+                    "The proposed-mask record already exists",
+                    "保留现有记录并重新生成候选掩膜",
+                    "Keep the record and generate a new proposal",
+                    proposal_id,
+                )
+            self._write_bytes_exclusive(mask_path, mask_bytes)
+            self._write_json_exclusive(evidence_path, evidence)
+        return {
+            "local_only": True,
+            "proposal_id": proposal_id,
+            "candidate_found": proposal.evidence["selection"]["candidate_found"],
+            "evidence": evidence,
+            "artifacts": {
+                name: f"/api/metrology/proposals/{proposal_id}/{name}"
+                for name in sorted(PROPOSAL_ARTIFACTS)
+            },
+        }
+
+    def _proposal_revision(
+        self,
+        *,
+        proposal_id: str,
+        source_sha256: str,
+        final_mask: np.ndarray,
+    ) -> dict[str, object]:
+        safe_id = validate_run_name(proposal_id)
+        evidence_path = self.paths.metrology / "proposals" / safe_id / "evidence.json"
+        mask_path = self.paths.metrology / "proposals" / safe_id / "proposal-mask.png"
+        try:
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            proposal_bytes = mask_path.read_bytes()
+        except (OSError, json.JSONDecodeError) as error:
+            raise _input_error(f"proposal {safe_id} is missing or malformed") from error
+        if not isinstance(evidence, dict):
+            raise _input_error(f"proposal {safe_id} evidence is not an object")
+        source = evidence.get("source")
+        if not isinstance(source, dict) or source.get("sha256") != source_sha256:
+            raise _input_error(f"proposal {safe_id} belongs to a different source image")
+        proposal_image = cv2.imdecode(
+            np.frombuffer(proposal_bytes, dtype=np.uint8),
+            cv2.IMREAD_GRAYSCALE,
+        )
+        if proposal_image is None or proposal_image.shape != final_mask.shape:
+            raise _input_error(f"proposal {safe_id} mask dimensions do not match")
+        proposed = proposal_image >= 128
+        intersection = int(np.count_nonzero(proposed & final_mask))
+        union = int(np.count_nonzero(proposed | final_mask))
+        added = int(np.count_nonzero(final_mask & ~proposed))
+        removed = int(np.count_nonzero(proposed & ~final_mask))
+        changed = added + removed
+        algorithm_version = evidence.get("schema_version")
+        return {
+            "proposal_id": safe_id,
+            "proposal_schema_version": algorithm_version,
+            "proposal_mask_sha256": _sha256(proposal_bytes),
+            "final_mask_sha256": _sha256(final_mask.astype(np.uint8).tobytes()),
+            "proposal_foreground_pixels": int(np.count_nonzero(proposed)),
+            "final_foreground_pixels": int(np.count_nonzero(final_mask)),
+            "human_added_pixels": added,
+            "human_removed_pixels": removed,
+            "changed_pixels": changed,
+            "changed_image_ratio": round(changed / final_mask.size, 8),
+            "proposal_final_iou": (round(intersection / union, 8) if union else None),
+            "interpretation": (
+                "Difference between the immutable local proposal and the "
+                "mask submitted from the human-editable browser"
+            ),
+        }
+
     def analyze_bytes(
         self,
         *,
@@ -623,6 +749,7 @@ class LocalMetrologyService:
         point_sigma_pixels: float | None = None,
         uncertainty_samples: int = 64,
         segmentation_radius_pixels: int = 1,
+        proposal_id: str | None = None,
     ) -> dict[str, object]:
         if not 0 <= uncertainty_samples <= 512:
             raise _input_error(f"uncertainty_samples={uncertainty_samples}")
@@ -644,17 +771,33 @@ class LocalMetrologyService:
             point_sigma_pixels=point_sigma_pixels,
         )
         run_id = validate_run_name(self._id_factory())
+        source_digest = _sha256(source_content)
+        mask_evidence: dict[str, object] = {
+            "filename": _safe_filename(
+                mask_filename,
+                "browser-mask.png",
+            ),
+            "sha256": _sha256(mask_content),
+            "foreground_pixels": int(np.count_nonzero(mask)),
+            "origin": (
+                "local_proposal_submitted_after_human_editing"
+                if proposal_id
+                else "manual_browser_mask"
+            ),
+        }
+        if proposal_id:
+            mask_evidence["proposal_revision"] = self._proposal_revision(
+                proposal_id=proposal_id,
+                source_sha256=source_digest,
+                final_mask=mask,
+            )
         input_evidence = {
             "kind": "local_web_metrology",
             "source": {
                 "filename": _safe_filename(source_filename, "road-image"),
-                "sha256": _sha256(source_content),
+                "sha256": source_digest,
             },
-            "mask": {
-                "filename": _safe_filename(mask_filename, "browser-mask.png"),
-                "sha256": _sha256(mask_content),
-                "foreground_pixels": int(np.count_nonzero(mask)),
-            },
+            "mask": mask_evidence,
             "calibration": calibration_evidence,
             "privacy": "No absolute input path is recorded; processing stays on loopback",
         }
@@ -1017,6 +1160,33 @@ class LocalMetrologyService:
                 "检查量测编号和规划编号",
                 "Check the metrology run and plan IDs",
                 f"{safe_run_id}/{safe_plan_id}",
+            )
+        return path
+
+    def proposal_artifact_path(
+        self,
+        proposal_id: str,
+        artifact_name: str,
+    ) -> Path:
+        safe_id = validate_run_name(proposal_id)
+        if artifact_name not in PROPOSAL_ARTIFACTS:
+            raise ProjectError(
+                "E201",
+                "候选掩膜文件不存在",
+                "The proposed-mask artifact does not exist",
+                "检查候选编号和文件名",
+                "Check the proposal ID and artifact name",
+                artifact_name,
+            )
+        path = self.paths.metrology / "proposals" / safe_id / artifact_name
+        if not path.is_file():
+            raise ProjectError(
+                "E201",
+                "候选掩膜文件不存在",
+                "The proposed-mask artifact does not exist",
+                "重新为当前原图生成一次本地候选掩膜",
+                "Generate another local proposal for the current image",
+                f"{safe_id}/{artifact_name}",
             )
         return path
 

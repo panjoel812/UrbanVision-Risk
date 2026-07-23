@@ -154,6 +154,63 @@ def test_transparent_browser_mask_keeps_only_painted_pixels(tmp_path: Path) -> N
     assert result["measurement"]["topology"]["component_count"] == 1
 
 
+def test_local_proposal_is_private_and_human_revision_is_audited(
+    tmp_path: Path,
+) -> None:
+    source, _ = _straight_sample()
+    edited_mask = np.zeros((221, 421), dtype=np.uint8)
+    cv2.line(edited_mask, (50, 110), (300, 110), 255, 11)
+    service = LocalMetrologyService(
+        paths=get_paths(tmp_path),
+        id_factory=lambda: "proposal-measurement-001",
+        record_id_factory=lambda prefix: f"{prefix}-001",
+    )
+
+    proposal = service.propose_mask_bytes(
+        source_content=source,
+        source_filename="/Users/private/road.png",
+        source_content_type="image/png",
+        sensitivity=0.55,
+    )
+
+    assert proposal["proposal_id"] == "proposal-001"
+    assert proposal["candidate_found"] is True
+    assert proposal["evidence"]["selection"]["quality_status"] == "usable"
+    assert proposal["evidence"]["selection"]["candidate_pixels"] > 3000
+    proposal_path = service.proposal_artifact_path(
+        "proposal-001",
+        "proposal-mask.png",
+    )
+    evidence_path = service.proposal_artifact_path(
+        "proposal-001",
+        "evidence.json",
+    )
+    assert proposal_path.is_file()
+    evidence_text = evidence_path.read_text(encoding="utf-8")
+    assert "/Users/" not in evidence_text
+    assert '"filename": "road.png"' in evidence_text
+
+    result = service.analyze_bytes(
+        source_content=source,
+        source_filename="road.png",
+        source_content_type="image/png",
+        mask_content=_encode_image(edited_mask),
+        mask_filename="browser-mask.png",
+        mask_content_type="image/png",
+        calibration_mode="pixel",
+        uncertainty_samples=0,
+        proposal_id="proposal-001",
+    )
+
+    mask_evidence = result["measurement"]["run"]["input_evidence"]["mask"]
+    revision = mask_evidence["proposal_revision"]
+    assert mask_evidence["origin"] == ("local_proposal_submitted_after_human_editing")
+    assert revision["proposal_id"] == "proposal-001"
+    assert revision["human_removed_pixels"] > 0
+    assert revision["human_added_pixels"] == 0
+    assert 0 < revision["proposal_final_iou"] < 1
+
+
 def test_aruco_web_calibration_preserves_detection_quality(tmp_path: Path) -> None:
     source, mask = _aruco_sample()
     service = LocalMetrologyService(

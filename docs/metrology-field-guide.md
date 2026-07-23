@@ -82,6 +82,32 @@ The circular cursor shows the exact brush diameter. Every brush move appears imm
 
 圆形光标就是实际笔宽；拖动时绿色轨迹会立即显示，橡皮会同时清除掩膜透明度和绿色覆盖层。浏览器导出透明 PNG，本地服务先把透明区域合成到黑色背景再二值化，因此未绘制区域不会误变成前景。
 
+## Human-in-the-loop mask proposal / 人机协同候选掩膜
+
+After choosing a source image, **Local smart proposal / 本地智能建议** runs three complementary, deterministic views on the Mac:
+
+选择原图后，点击 **本地智能建议**。Mac 会运行三个互补、确定性的视图：
+
+1. multi-scale morphological blackhat for locally dark structures / 多尺度形态学黑帽提取局部暗结构；
+2. multi-scale Hessian eigenvalue response for thin dark ridges / 多尺度 Hessian 特征值响应提取细暗脊；
+3. strong-seed/weak-neighbour hysteresis with connected-component geometry filtering / 强种子—弱邻域迟滞与连通区域几何过滤。
+
+Images larger than two million pixels are processed on a downsampled work raster and the binary proposal is restored to the exact source resolution. This bounds memory and runtime without sending pixels to a cloud service. The sensitivity slider changes proposal recall; it is not a calibrated probability or YOLO confidence.
+
+超过 200 万像素的图片会在缩小的工作栅格上处理，再把二值候选恢复到原图精确分辨率，从而限制内存和耗时，且不发送到云端。灵敏度滑块改变候选召回范围，不是经过标定的概率或 YOLO 置信度。
+
+An empty proposal is returned as unusable, and a proposal covering more than 35% of the image is rejected as too broad instead of being painted automatically.
+
+空候选会标为不可用；候选覆盖超过整图 35% 时会以“范围过宽”拒绝自动载入，而不是把大面积噪声涂到画布上。
+
+The proposal becomes the editable green base layer. Every later brush or eraser stroke is replayed above that immutable base. When metrology is submitted, `measurement.json` records the proposal ID and schema, proposal/final mask hashes, human-added pixels, human-removed pixels, changed-image ratio, and proposal-to-final IoU.
+
+候选会成为可编辑的绿色底稿，后续画笔或橡皮笔迹都在不可变底稿之上重放。提交量测时，`measurement.json` 会记录候选编号与版本、候选/最终掩膜摘要、人工增加像素、人工删除像素、整图改动比例和候选—最终 IoU。
+
+This is intentionally called a **proposal**, not automatic segmentation truth. Shadows, expansion joints, road markings, stains, patched seams, and low contrast can produce false positives or false negatives. A person must inspect the entire mask before using physical measurements.
+
+它被明确称为**建议**，不是自动分割真值。阴影、伸缩缝、道路标线、污渍、修补接缝和低对比度都可能产生误检或漏检；使用真实尺寸前，必须由人工检查完整掩膜。
+
 ## Practical maintenance workflow / 实际维护工作流
 
 ### Material and cost planning / 材料与成本规划

@@ -58,7 +58,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="3.3.0",
+        version="4.0.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -149,6 +149,36 @@ def create_app(
     async def metrology_demo() -> dict[str, object]:
         return active_metrology.demo()
 
+    @app.post("/api/metrology/proposals")
+    async def metrology_proposal(
+        image: Annotated[UploadFile, File(description="One local road image")],
+        sensitivity: Annotated[float, Form()] = 0.55,
+    ) -> dict[str, object]:
+        source_content = await image.read(MAX_METROLOGY_UPLOAD_BYTES + 1)
+        await image.close()
+        return active_metrology.propose_mask_bytes(
+            source_content=source_content,
+            source_filename=image.filename,
+            source_content_type=image.content_type or "",
+            sensitivity=sensitivity,
+        )
+
+    @app.get("/api/metrology/proposals/{proposal_id}/{artifact_name}")
+    async def metrology_proposal_artifact(
+        proposal_id: str,
+        artifact_name: str,
+    ) -> FileResponse:
+        path = active_metrology.proposal_artifact_path(
+            proposal_id,
+            artifact_name,
+        )
+        media_type = "application/json" if artifact_name == "evidence.json" else "image/png"
+        return FileResponse(
+            path,
+            media_type=media_type,
+            filename=path.name,
+        )
+
     @app.post("/api/metrology/analyze")
     async def metrology_analyze(
         image: Annotated[UploadFile, File(description="One local road image")],
@@ -162,6 +192,7 @@ def create_app(
         point_sigma_pixels: Annotated[float | None, Form()] = None,
         uncertainty_samples: Annotated[int, Form()] = 64,
         segmentation_radius_pixels: Annotated[int, Form()] = 1,
+        proposal_id: Annotated[str | None, Form()] = None,
     ) -> dict[str, object]:
         source_content = await image.read(MAX_METROLOGY_UPLOAD_BYTES + 1)
         mask_content = await mask.read(MAX_METROLOGY_UPLOAD_BYTES + 1)
@@ -183,6 +214,7 @@ def create_app(
             point_sigma_pixels=point_sigma_pixels,
             uncertainty_samples=uncertainty_samples,
             segmentation_radius_pixels=segmentation_radius_pixels,
+            proposal_id=proposal_id,
         )
 
     @app.get("/api/metrology/runs")

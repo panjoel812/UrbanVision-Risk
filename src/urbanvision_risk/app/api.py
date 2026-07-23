@@ -34,13 +34,14 @@ def _status_code(error: ProjectError) -> int:
         "E302": 422,
         "E601": 400,
         "E602": 500,
+        "E603": 409,
     }.get(error.code, 500)
 
 
 def create_app(service: LocalInspectionService) -> FastAPI:
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="2.0.0",
+        version="3.0.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,

@@ -121,6 +121,7 @@ Existing directories are never silently overwritten.
 | `E204` | An inspection ID already exists. Keep it and upload again for a new ID. | 巡检编号已存在。保留结果并重新上传生成新编号。 |
 | `E301` | The model failed to load or infer. Check MPS, `best.pt`, and the image. | 模型加载或推理失败。检查 MPS、`best.pt` 和图片。 |
 | `E302` | Run name, confidence, host, or port is invalid. Use the documented defaults. | 运行名称、置信度、地址或端口非法。使用文档默认值。 |
+| `E603` | The selected port is already in use. Stop the old service or append `--port 8001`. | 端口已被占用。停止旧服务，或在命令末尾添加 `--port 8001`。 |
 | `E601` | File type, byte size, pixels, or decoding is invalid. Use a supported smaller image. | 文件类型、大小、像素或解码非法。使用受支持的小型图片。 |
 | `E602` | Local writing failed. Preserve partial output, check disk/permissions, and upload again. | 本地写入失败。保留半成品，检查磁盘/权限后重新上传。 |
 

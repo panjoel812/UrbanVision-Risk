@@ -1,10 +1,11 @@
+import socket
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from urbanvision_risk.app.api import create_app
-from urbanvision_risk.app.serve import validate_bind
+from urbanvision_risk.app.serve import ensure_port_available, validate_bind
 from urbanvision_risk.errors import ProjectError
 
 
@@ -195,3 +196,17 @@ def test_server_rejects_nonlocal_or_invalid_bindings(host: str, port: int) -> No
 
 def test_server_accepts_loopback_binding() -> None:
     assert validate_bind("127.0.0.1", 8000) == ("127.0.0.1", 8000)
+
+
+def test_server_reports_a_bilingual_error_before_loading_model_when_port_is_busy() -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = int(listener.getsockname()[1])
+
+        with pytest.raises(ProjectError, match="E603") as captured:
+            ensure_port_available("127.0.0.1", port)
+
+    rendered = str(captured.value)
+    assert "端口已被" in rendered
+    assert f"--port {port + 1}" in rendered

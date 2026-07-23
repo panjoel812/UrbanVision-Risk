@@ -6,6 +6,7 @@
 - `risks/`: explainable per-image maintenance priorities, deterministic ranking CSV, batch summary, and resolved configuration / 可解释单图维护优先级、确定性排序 CSV、批次摘要和实际配置。
 - `reports/`: fully offline bilingual HTML dashboards and provenance manifests / 完全离线的双语 HTML 仪表板和来源清单。
 - `inspections/`: immutable v2.0 source, transform-consensus reliability evidence, annotation, prediction, risk, provenance, and optional local narrative / 不可覆盖的 v2.0 原图、变换共识可靠性证据、标注、预测、风险、来源和可选本地说明。
+- `metrology/`: immutable v3.0 masks, skeleton graphs, width maps, overlays, rectified physical measurements, field-marker kits, and sensitivity evidence / 不可覆盖的 v3.0 掩膜、骨架图、宽度图、叠加图、真实平面量测、现场标记套件和敏感性证据。
 
 Every run name is unique. Existing results are never silently overwritten.
 

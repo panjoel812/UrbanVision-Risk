@@ -18,5 +18,6 @@ results/predictions/
 results/risks/
 results/reports/
 results/inspections/
+results/metrology/
 *.pt
 *.part

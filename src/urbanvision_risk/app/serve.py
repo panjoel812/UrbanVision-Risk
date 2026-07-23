@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import socket
 
 from urbanvision_risk.app.api import create_app
 from urbanvision_risk.app.service import LocalInspectionService
@@ -35,6 +36,22 @@ def validate_bind(host: str, port: int) -> tuple[str, int]:
     return host, port
 
 
+def ensure_port_available(host: str, port: int) -> None:
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    try:
+        with socket.socket(family, socket.SOCK_STREAM) as probe:
+            probe.bind((host, port))
+    except OSError as error:
+        raise ProjectError(
+            "E603",
+            "本地端口已被其他程序占用",
+            "The local port is already in use",
+            f"先停止旧服务，或在命令末尾添加 --port {port + 1}",
+            f"Stop the old service, or append --port {port + 1} to the command",
+            f"{host}:{port}",
+        ) from error
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run the fully local inspection app / 运行完全本地巡检应用"
@@ -61,6 +78,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         host, port = validate_bind(args.host, args.port)
+        ensure_port_available(host, port)
         narrative_generator = LocalNarrativeGenerator(
             model=args.ollama_model,
             timeout_seconds=args.ollama_timeout,

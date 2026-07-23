@@ -1,21 +1,35 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检与风险评估的可靠性端侧 AI 系统。v2.0 不再把单次 YOLO 输出当作事实：它在 Apple MPS 上运行 640、1280 与水平镜像三视图推理，通过跨视图关联、加权框融合、稳定性与不确定性量化生成可审计证据，并自动构建主动学习复核队列。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v3.0 不再停在检测框：它把裂缝掩膜细化为单像素中心线，构建拓扑图，计算长度、宽度分布、端点、分叉、方向与曲折度；通过四张 ArUco 现场标记自动建立真实平面标定，并用 Monte Carlo 标定扰动和掩膜边界扰动报告敏感性区间。没有标定时只报告像素，绝不把像素伪装成毫米。
 
-**English:** A reliability-aware on-device AI system for urban-infrastructure inspection and risk assessment. Version 2.0 replaces single-pass YOLO claims with 640, 1280, and horizontally mirrored inference views on Apple MPS, then performs cross-view association, weighted box fusion, stability and uncertainty measurement, and active-learning review prioritization.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 3.0 moves beyond boxes: it skeletonizes crack masks, builds topology graphs, measures length and width distributions, detects endpoints and junctions, and estimates orientation and tortuosity. Four field ArUco markers automate planar calibration, while Monte Carlo corner perturbation and mask-boundary perturbation expose sensitivity. Without calibration, the software reports pixels only and never disguises pixels as millimetres.
+
+**v3.0 Calibrated Metrology / 标定量测：** printable field fiducials, semantic marker detection (`TL/TR/BR/BL`), homography rectification, graph-geodesic length, skeleton distance-transform width, immutable artifacts, privacy-minimized provenance, deterministic uncertainty analysis, and a first-hand field-validation protocol. / 可打印现场标记、语义标记检测、单应性矫正、图测地长度、骨架距离变换宽度、不可覆盖结果、最小化隐私来源记录、确定性不确定性分析和亲身现场验证方案。
 
 **v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v2.0 Quick Start / v2.0 快速启动
+## v3.0 Quick Start / v3.0 快速启动
 
 ```bash
 uv sync --extra dev
+
+# Verify the calibrated graph-metrology pipeline with a deterministic fixture
+uv run python -m urbanvision_risk.metrology.demo --output-name metrology-demo-001
+
+# Generate four printable field fiducials
+uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit-001
+
+# Start the existing reliability-aware inspection console
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-Open `http://127.0.0.1:8000` and upload one JPEG, PNG, or WebP road image. Press `Control+C` in the terminal to stop. The app binds only to the local loopback interface and makes no cloud or paid-API call.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the reliability console at `http://127.0.0.1:8000`. If port 8000 is occupied, the server now fails before loading the model and prints a bilingual `--port 8001` recovery command.
 
-打开 `http://127.0.0.1:8000`，上传一张 JPEG、PNG 或 WebP 道路图片。回到终端按 `Control+C` 停止。应用只监听本机回环地址，不调用云服务或付费 API。
+第一条命令在 `results/metrology/metrology-demo-001` 生成可审计量测结果；第二条生成四张精确尺寸 SVG 现场标记和清单；第三条在 `http://127.0.0.1:8000` 启动可靠性巡检界面。如果 8000 被占用，服务器会在加载模型前失败，并直接打印双语 `--port 8001` 修复命令。
+
+The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
+
+应用与量测管线都只在本机运行。回到终端按 `Control+C` 停止服务器；二者都不调用付费 API 或云端运行环境。
 
 After inspection, select **Generate locally / 生成本地说明**. If Ollama with `qwen3:4b` is available on `127.0.0.1:11434`, the app uses it. Otherwise it immediately returns an audited bilingual template. The image, original filename, and local paths are never sent to the narrative generator.
 
@@ -64,6 +78,10 @@ uv run python -m urbanvision_risk.reporting.build --run-name china-baseline-001 
 
 # v2.0: multi-view consensus, reliability evidence, active learning, and local narrative
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
+
+# v3.0: calibrated crack topology and physical metrology
+uv run python -m urbanvision_risk.metrology.demo --output-name metrology-demo-001
+uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit-001
 ```
 
 ## Generated Artifacts / 生成物
@@ -76,6 +94,7 @@ uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 - `results/risks/<run>/<prediction>/<output>/`: per-image risk JSON, deterministic ranking, summary, and resolved config / 单图风险 JSON、确定性排序、摘要和实际配置。
 - `results/reports/<run>/<prediction>/<risk>/<output>/`: offline bilingual HTML dashboard and provenance manifest / 离线双语 HTML 仪表板和来源清单。
 - `results/inspections/<run>/<inspection-id>/`: normalized source, annotation, prediction, risk record, provenance, and optional immutable `narrative.json` / 规范化原图、标注、预测、风险、来源记录和可选不可变 `narrative.json`。
+- `results/metrology/<output>/measurement.json`: calibrated topology, physical geometry, uncertainty, provenance, and decision boundaries; sibling files contain source/rectified masks, skeletons, width heatmaps, and overlays / 标定拓扑、真实几何量、不确定性、来源和使用边界；同目录还包含原始/矫正掩膜、骨架、宽度热图和叠加图。
 
 ## Learning Guide / 学习指南
 
@@ -94,6 +113,10 @@ v0.3 离线仪表板流程见 [`docs/local-report-guide.md`](docs/local-report-g
 The v2.0 local app is explained in [`docs/local-app-guide.md`](docs/local-app-guide.md). Its algorithms and interview-ready engineering decisions are documented in [`docs/reliability-engineering-guide.md`](docs/reliability-engineering-guide.md) and [`docs/portfolio-guide.md`](docs/portfolio-guide.md). The optional Ollama/template layer remains documented in [`docs/local-ai-narrative-guide.md`](docs/local-ai-narrative-guide.md).
 
 完整的 v2.0 本地应用见 [`docs/local-app-guide.md`](docs/local-app-guide.md)。算法、工程取舍与简历/面试表达见 [`docs/reliability-engineering-guide.md`](docs/reliability-engineering-guide.md) 和 [`docs/portfolio-guide.md`](docs/portfolio-guide.md)；本地 Ollama/模板层仍见 [`docs/local-ai-narrative-guide.md`](docs/local-ai-narrative-guide.md)。
+
+The complete v3.0 algorithms, print workflow, automatic ArUco calibration, mask contract, commands, limitations, and first-hand validation protocol are in [`docs/metrology-field-guide.md`](docs/metrology-field-guide.md). Record each experiment with [`docs/field-experiment-template.md`](docs/field-experiment-template.md).
+
+v3.0 的算法、打印流程、ArUco 自动标定、掩膜契约、命令、限制与亲身验证方案见 [`docs/metrology-field-guide.md`](docs/metrology-field-guide.md)；每次实验使用 [`docs/field-experiment-template.md`](docs/field-experiment-template.md) 记录。
 
 ## Data and Citation / 数据与引用
 

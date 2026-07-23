@@ -54,3 +54,7 @@ def test_get_paths_exposes_risk_results(tmp_path: Path) -> None:
 
 def test_get_paths_exposes_v1_inspection_results(tmp_path: Path) -> None:
     assert get_paths(tmp_path).inspections == tmp_path / "results" / "inspections"
+
+
+def test_get_paths_exposes_v3_metrology_results(tmp_path: Path) -> None:
+    assert get_paths(tmp_path).metrology == tmp_path / "results" / "metrology"

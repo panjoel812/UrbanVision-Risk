@@ -21,6 +21,7 @@ class ProjectPaths:
     risks: Path
     reports: Path
     inspections: Path
+    metrology: Path
 
 
 def get_paths(root: Path | None = None) -> ProjectPaths:
@@ -42,4 +43,5 @@ def get_paths(root: Path | None = None) -> ProjectPaths:
         risks=results / "risks",
         reports=results / "reports",
         inspections=results / "inspections",
+        metrology=results / "metrology",
     )

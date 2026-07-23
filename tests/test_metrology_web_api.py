@@ -178,6 +178,13 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "/api/inspect" in response.text
     assert "Promise.allSettled" in response.text
     assert "runAutomaticInspection" in response.text
+    assert "generateProposalAndDraft" in response.text
+    assert "proposalSuppressed" in response.text
+    review_state_submission = (
+        'form.append("review_state", automatic ? "automatic_draft" : "human_reviewed")'
+    )
+    assert review_state_submission in response.text
+    assert 'id="review-state"' in response.text
     assert "/api/metrology/compare" in response.text
     assert "/api/metrology/proposals" in response.text
     assert "change-map.png" in response.text
@@ -236,10 +243,12 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert metrology.analyze_arguments["calibration_mode"] == "manual"
     assert metrology.analyze_arguments["uncertainty_samples"] == 32
     assert metrology.analyze_arguments["proposal_id"] == "proposal-001"
+    assert metrology.analyze_arguments["review_state"] == "human_reviewed"
 
     health = client.get("/api/health")
     assert health.json()["precision_metrology"] is True
     assert health.json()["metrology_modes"] == ["pixel", "manual", "aruco"]
+    assert health.json()["automatic_pixel_draft"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:

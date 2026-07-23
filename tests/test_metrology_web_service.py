@@ -160,9 +160,10 @@ def test_local_proposal_is_private_and_human_revision_is_audited(
     source, _ = _straight_sample()
     edited_mask = np.zeros((221, 421), dtype=np.uint8)
     cv2.line(edited_mask, (50, 110), (300, 110), 255, 11)
+    run_ids = iter(["proposal-draft-001", "proposal-measurement-001"])
     service = LocalMetrologyService(
         paths=get_paths(tmp_path),
-        id_factory=lambda: "proposal-measurement-001",
+        id_factory=lambda: next(run_ids),
         record_id_factory=lambda prefix: f"{prefix}-001",
     )
 
@@ -190,6 +191,26 @@ def test_local_proposal_is_private_and_human_revision_is_audited(
     assert "/Users/" not in evidence_text
     assert '"filename": "road.png"' in evidence_text
 
+    draft = service.analyze_bytes(
+        source_content=source,
+        source_filename="road.png",
+        source_content_type="image/png",
+        mask_content=proposal_path.read_bytes(),
+        mask_filename="browser-mask.png",
+        mask_content_type="image/png",
+        calibration_mode="pixel",
+        uncertainty_samples=0,
+        proposal_id="proposal-001",
+        review_state="automatic_draft",
+    )
+    draft_evidence = draft["measurement"]["run"]["input_evidence"]
+    draft_revision = draft_evidence["mask"]["proposal_revision"]
+    assert draft_evidence["review_state"] == "automatic_draft"
+    assert draft_evidence["mask"]["origin"] == "local_proposal_automatic_draft"
+    assert draft_revision["human_added_pixels"] == 0
+    assert draft_revision["human_removed_pixels"] == 0
+    assert draft_revision["proposal_final_iou"] == 1
+
     result = service.analyze_bytes(
         source_content=source,
         source_filename="road.png",
@@ -204,6 +225,7 @@ def test_local_proposal_is_private_and_human_revision_is_audited(
 
     mask_evidence = result["measurement"]["run"]["input_evidence"]["mask"]
     revision = mask_evidence["proposal_revision"]
+    assert result["measurement"]["run"]["input_evidence"]["review_state"] == "human_reviewed"
     assert mask_evidence["origin"] == ("local_proposal_submitted_after_human_editing")
     assert revision["proposal_id"] == "proposal-001"
     assert revision["human_removed_pixels"] > 0
@@ -278,6 +300,19 @@ def test_web_service_fails_closed_for_bad_masks_and_artifact_names(
                 mask_content_type="image/png",
                 calibration_mode="pixel",
             )
+
+    _, valid_mask = _straight_sample()
+    with pytest.raises(ProjectError, match="E506"):
+        service.analyze_bytes(
+            source_content=source,
+            source_filename="road.png",
+            source_content_type="image/png",
+            mask_content=valid_mask,
+            mask_filename="mask.png",
+            mask_content_type="image/png",
+            calibration_mode="pixel",
+            review_state="self_certified",
+        )
 
     with pytest.raises(ProjectError, match="E201"):
         service.artifact_path("web-invalid-001", "../private.txt")

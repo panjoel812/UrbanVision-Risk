@@ -74,9 +74,9 @@ Open `http://127.0.0.1:8000`, then select **Run calibrated demo / 运行完整�
 
 打开 `http://127.0.0.1:8000`，点击 **Run calibrated demo / 运行完整标定 Demo**。无需上传图片，网页就会显示标定叠加图、矫正平面、宽度热图、拓扑、真实几何量、敏感性区间和完整 JSON。
 
-For a real image, upload it once. Detection and the independent mask proposal start automatically in parallel. Review the green proposal with the brush and eraser, choose a calibration mode, and run local metrology. The mask is exported at the source image's original resolution rather than the displayed CSS size.
+For a real image, upload it once. Detection and the independent mask proposal start automatically in parallel, followed by an automatic pixel-only metrology draft. Review the green proposal with the brush and eraser, choose a calibration mode, and save a reviewed measurement. The mask is exported at the source image's original resolution rather than the displayed CSS size.
 
-对真实图片只需上传一次，检测与独立掩膜建议会并行自动启动。用画笔和橡皮复核绿色候选，选择标定模式，再运行本地量测。网页导出的掩膜保持原图分辨率，不会使用屏幕显示尺寸代替。
+对真实图片只需上传一次，检测与独立掩膜建议会并行自动启动，随后自动生成仅像素量测草稿。用画笔和橡皮复核绿色候选，选择标定模式，再保存人工复核量测。网页导出的掩膜保持原图分辨率，不会使用屏幕显示尺寸代替。
 
 The circular cursor shows the exact brush diameter. Every brush move appears immediately as a green overlay; erasing removes both the mask alpha and the green overlay. The browser exports a transparent PNG, and the local service composites transparency onto black before thresholding, so unpainted pixels cannot accidentally become foreground.
 
@@ -103,6 +103,10 @@ An empty proposal is returned as unusable, and a proposal covering more than 35%
 The proposal becomes the editable green base layer. Every later brush or eraser stroke is replayed above that immutable base. When metrology is submitted, `measurement.json` records the proposal ID and schema, proposal/final mask hashes, human-added pixels, human-removed pixels, changed-image ratio, and proposal-to-final IoU.
 
 候选会成为可编辑的绿色底稿，后续画笔或橡皮笔迹都在不可变底稿之上重放。提交量测时，`measurement.json` 会记录候选编号与版本、候选/最终掩膜摘要、人工增加像素、人工删除像素、整图改动比例和候选—最终 IoU。
+
+The first automatic pixel run records `review_state: automatic_draft` and `mask.origin: local_proposal_automatic_draft`. Saving after review records `review_state: human_reviewed`. This distinction is a workflow audit label, not a claim that the mask is objectively correct.
+
+第一次自动像素量测会记录 `review_state: automatic_draft` 与 `mask.origin: local_proposal_automatic_draft`；人工复核后保存则记录 `review_state: human_reviewed`。这个字段是流程审计标签，不等于系统宣称掩膜客观正确。
 
 This is intentionally called a **proposal**, not automatic segmentation truth. Shadows, expansion joints, road markings, stains, patched seams, and low contrast can produce false positives or false negatives. A person must inspect the entire mask before using physical measurements.
 

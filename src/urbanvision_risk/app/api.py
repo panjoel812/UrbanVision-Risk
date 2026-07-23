@@ -57,7 +57,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="4.1.0",
+        version="4.2.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -125,6 +125,7 @@ def create_app(
         payload = service.health_payload()
         payload["precision_metrology"] = True
         payload["metrology_modes"] = ["pixel", "manual", "aruco"]
+        payload["automatic_pixel_draft"] = True
         return payload
 
     @app.get("/api/review-queue")
@@ -193,6 +194,7 @@ def create_app(
         uncertainty_samples: Annotated[int, Form()] = 64,
         segmentation_radius_pixels: Annotated[int, Form()] = 1,
         proposal_id: Annotated[str | None, Form()] = None,
+        review_state: Annotated[str, Form()] = "human_reviewed",
     ) -> dict[str, object]:
         source_content = await image.read(MAX_METROLOGY_UPLOAD_BYTES + 1)
         mask_content = await mask.read(MAX_METROLOGY_UPLOAD_BYTES + 1)
@@ -215,6 +217,7 @@ def create_app(
             uncertainty_samples=uncertainty_samples,
             segmentation_radius_pixels=segmentation_radius_pixels,
             proposal_id=proposal_id,
+            review_state=review_state,
         )
 
     @app.get("/api/metrology/runs")

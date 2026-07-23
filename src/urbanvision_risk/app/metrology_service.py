@@ -750,11 +750,14 @@ class LocalMetrologyService:
         uncertainty_samples: int = 64,
         segmentation_radius_pixels: int = 1,
         proposal_id: str | None = None,
+        review_state: str = "human_reviewed",
     ) -> dict[str, object]:
         if not 0 <= uncertainty_samples <= 512:
             raise _input_error(f"uncertainty_samples={uncertainty_samples}")
         if not 0 <= segmentation_radius_pixels <= 5:
             raise _input_error(f"segmentation_radius_pixels={segmentation_radius_pixels}")
+        if review_state not in {"automatic_draft", "human_reviewed"}:
+            raise _input_error(f"review_state={review_state!r}")
         source_image, source_shape = _decode_source(
             source_content,
             source_content_type,
@@ -772,6 +775,12 @@ class LocalMetrologyService:
         )
         run_id = validate_run_name(self._id_factory())
         source_digest = _sha256(source_content)
+        if proposal_id and review_state == "automatic_draft":
+            mask_origin = "local_proposal_automatic_draft"
+        elif proposal_id:
+            mask_origin = "local_proposal_submitted_after_human_editing"
+        else:
+            mask_origin = "manual_browser_mask"
         mask_evidence: dict[str, object] = {
             "filename": _safe_filename(
                 mask_filename,
@@ -779,11 +788,7 @@ class LocalMetrologyService:
             ),
             "sha256": _sha256(mask_content),
             "foreground_pixels": int(np.count_nonzero(mask)),
-            "origin": (
-                "local_proposal_submitted_after_human_editing"
-                if proposal_id
-                else "manual_browser_mask"
-            ),
+            "origin": mask_origin,
         }
         if proposal_id:
             mask_evidence["proposal_revision"] = self._proposal_revision(
@@ -793,6 +798,7 @@ class LocalMetrologyService:
             )
         input_evidence = {
             "kind": "local_web_metrology",
+            "review_state": review_state,
             "source": {
                 "filename": _safe_filename(source_filename, "road-image"),
                 "sha256": source_digest,

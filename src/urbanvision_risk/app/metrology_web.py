@@ -100,6 +100,13 @@ METROLOGY_HTML = """<!doctype html>
     .file-label input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
     .file-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; font-size: .82rem; }
     .file-meta { display: block; margin-top: 2px; color: var(--muted); font-size: .7rem; }
+    .pipeline-rail { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+    .pipeline-stage { position: relative; padding: 8px 9px 8px 25px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--muted); font-size: .66rem; }
+    .pipeline-stage::before { content: ""; position: absolute; left: 9px; top: 50%; width: 8px; height: 8px; border-radius: 50%; background: var(--line); transform: translateY(-50%); }
+    .pipeline-stage.active { border-color: color-mix(in srgb, var(--forest-2) 55%, var(--line)); color: var(--forest); font-weight: 720; }
+    .pipeline-stage.active::before { background: var(--amber); box-shadow: 0 0 0 4px color-mix(in srgb, var(--amber) 15%, transparent); }
+    .pipeline-stage.complete { border-color: color-mix(in srgb, var(--forest-2) 35%, var(--line)); background: var(--mint); color: var(--forest); }
+    .pipeline-stage.complete::before { background: var(--forest-2); }
     .inspection-loading { display: flex; align-items: center; gap: 9px; padding: 12px; border-radius: 12px; background: var(--soft); color: var(--muted); font-size: .76rem; }
     .spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--line); border-top-color: var(--forest-2); border-radius: 50%; animation: spin 800ms linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -177,6 +184,9 @@ METROLOGY_HTML = """<!doctype html>
     .metric-label { display: block; overflow: hidden; color: var(--muted); font-size: .65rem; white-space: nowrap; text-overflow: ellipsis; }
     .metric-value { display: block; margin-top: 3px; font-size: 1.28rem; font-weight: 790; letter-spacing: -.04em; }
     .decision { margin: 13px 0 0; padding: 11px 12px; border-left: 4px solid var(--amber); border-radius: 0 10px 10px 0; background: color-mix(in srgb, var(--amber) 8%, var(--card)); color: var(--muted); font-size: .72rem; }
+    .review-state { margin: 12px 0 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); font-size: .71rem; }
+    .review-state.draft { border-color: color-mix(in srgb, var(--amber) 45%, var(--line)); background: color-mix(in srgb, var(--amber) 8%, var(--card)); }
+    .review-state.reviewed { border-color: color-mix(in srgb, var(--forest-2) 45%, var(--line)); background: var(--mint); color: var(--forest); }
     .evidence { margin-top: 12px; display: grid; gap: 7px; }
     .evidence-row { display: flex; justify-content: space-between; gap: 12px; padding-top: 7px; border-top: 1px solid var(--line); font-size: .72rem; }
     .evidence-row span { color: var(--muted); }
@@ -217,6 +227,7 @@ METROLOGY_HTML = """<!doctype html>
       .point-list, .metric-grid { grid-template-columns: 1fr 1fr; }
       .inspection-overview, .inspection-evidence-grid { grid-template-columns: 1fr; }
       .inspection-grid { grid-template-columns: 1fr 1fr; }
+      .pipeline-rail { grid-template-columns: 1fr 1fr; }
       .practical-grid { grid-template-columns: 1fr; }
       .brush-control { width: 100%; margin-left: 0; }
       .run-row { align-items: stretch; flex-direction: column; }
@@ -238,9 +249,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v4.1 · Unified auto-to-human workflow</p>
+        <p class="eyebrow">v4.2 · Automatic metrology draft + human review</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>选择道路图片后，目标检测与裂缝掩膜建议会在本机并行自动运行。系统先画出绿色候选，你只需修正，再完成标定、量测、材料计划和多期变化分析。</span><span data-en class="hidden-lang">Choose one road image and the detector plus crack-mask proposal run automatically in parallel on this Mac. Review the green proposal, then continue to calibration, metrology, material planning, and longitudinal change analysis.</span></p>
+        <p class="hero-copy"><span data-zh>选择道路图片后，目标检测与裂缝掩膜建议会在本机并行运行，并立即生成像素量测草稿。系统先画出绿色候选和几何结果，你只需修正，再保存人工复核量测或加入真实标定。</span><span data-en class="hidden-lang">Choose one road image and detection plus the crack-mask proposal run in parallel on this Mac, followed immediately by a pixel-metrology draft. Review the green proposal and geometry, then save a human-reviewed measurement or add physical calibration.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -264,6 +275,12 @@ METROLOGY_HTML = """<!doctype html>
               <span id="file-meta" class="file-meta"><span data-zh>图片不会发送到互联网</span><span data-en class="hidden-lang">The image never leaves this machine</span></span>
             </label>
             <button id="replace-button" class="secondary-button" type="button" disabled><span data-zh>重新选择</span><span data-en class="hidden-lang">Replace</span></button>
+          </div>
+          <div class="pipeline-rail" aria-label="Automatic workflow status">
+            <span id="stage-upload" class="pipeline-stage"><span data-zh>读取图片</span><span data-en class="hidden-lang">Load image</span></span>
+            <span id="stage-detect" class="pipeline-stage"><span data-zh>检测 + 掩膜</span><span data-en class="hidden-lang">Detect + mask</span></span>
+            <span id="stage-draft" class="pipeline-stage"><span data-zh>像素量测草稿</span><span data-en class="hidden-lang">Pixel draft</span></span>
+            <span id="stage-review" class="pipeline-stage"><span data-zh>人工复核保存</span><span data-en class="hidden-lang">Review + save</span></span>
           </div>
         </div>
 
@@ -353,7 +370,7 @@ METROLOGY_HTML = """<!doctype html>
         <div class="section">
           <div class="run-row">
             <p class="privacy"><span data-zh>原图与掩膜只提交到本机回环地址；结果保存在本地且不会覆盖。真实尺寸只适用于标定平面，不是道路安全认证。</span><span data-en class="hidden-lang">Source and mask go only to loopback. Results are local and immutable. Physical dimensions apply only to the calibrated plane and are not a road-safety certification.</span></p>
-            <button id="measure-button" class="primary-button" type="button" disabled><span data-zh>运行本地精密量测</span><span data-en class="hidden-lang">Run local metrology</span></button>
+            <button id="measure-button" class="primary-button" type="button" disabled><span data-zh>保存人工复核量测</span><span data-en class="hidden-lang">Save reviewed measurement</span></button>
           </div>
           <p id="status" class="status" aria-live="polite"></p>
         </div>
@@ -368,6 +385,7 @@ METROLOGY_HTML = """<!doctype html>
           <div id="artifact-tabs" class="artifact-tabs"></div>
           <div class="result-summary">
             <div class="result-heading"><div><h2><span data-zh>裂缝几何与拓扑</span><span data-en class="hidden-lang">Crack geometry and topology</span></h2><p id="run-id" class="subcopy">—</p></div><span id="mode-badge" class="mode-badge">—</span></div>
+            <p id="review-state" class="review-state draft">—</p>
             <div class="metric-grid">
               <div class="metric"><span class="metric-label"><span data-zh>网络长度</span><span data-en class="hidden-lang">Network length</span></span><strong id="metric-length" class="metric-value">—</strong></div>
               <div class="metric"><span class="metric-label"><span data-zh>平均宽度</span><span data-en class="hidden-lang">Mean width</span></span><strong id="metric-width" class="metric-value">—</strong></div>
@@ -419,7 +437,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v4.1 · Unified Reliability + Metrology · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v4.2 · Automatic Draft + Human Review · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -449,15 +467,19 @@ METROLOGY_HTML = """<!doctype html>
       let latestInspection = null;
       let latestNarrative = null;
       let activeProposalId = null;
+      let proposalSuppressed = false;
       let hoverPoint = null;
       let sourceGeneration = 0;
+      let maskDirty = false;
+      let measurementOperationCount = 0;
+      let pipelineStage = "idle";
 
       const text = {
         zh: {
           choose: "点击选择道路图片",
           private: "图片不会发送到互联网",
           ready: "原图已就绪，自动检测与自动掩膜正在并行运行。",
-          pipelineComplete: "自动检测与绿色掩膜底稿已完成；请人工复核后运行量测。",
+          pipelineComplete: "自动检测、绿色掩膜和像素量测草稿已完成；请人工复核后保存。",
           pipelinePartial: "自动流水线部分完成；请检查上方结果并人工补充掩膜。",
           inspectionRunning: "正在通过 MPS 运行三视图检测与可靠性分析…",
           inspectionComplete: "自动检测与可靠性分析完成。",
@@ -481,6 +503,21 @@ METROLOGY_HTML = """<!doctype html>
           proposalRunning: "正在本机运行多尺度暗脊与形态学集成…",
           proposalReady: "候选底稿已载入；请用画笔和橡皮人工复核。",
           proposalEmpty: "没有找到可靠候选；请手动画笔标注或提高建议灵敏度。",
+          autoDrafting: "自动掩膜已完成，正在生成像素量测草稿…",
+          autoDraftComplete: "像素量测草稿已生成；它还没有经过人工复核。",
+          autoDraftFailed: "自动量测草稿生成失败；可以人工修正后再保存。",
+          draftBadge: "自动草稿 · 仅像素",
+          draftState: "这是自动候选生成的像素量测草稿，尚未经过人工复核，不能作为真实尺寸或安全结论。",
+          editedState: "绿色掩膜已有尚未保存的人工修改；右侧仍显示上一次自动草稿。",
+          reviewedState: "这是已保存的人工复核版本；真实尺寸仍只在有效标定后成立。",
+          demoState: "这是确定性算法演示，不代表人工复核或现场精度验证。",
+          confirmReviewed: "确认并保存复核量测",
+          saveEdited: "保存修正后的量测",
+          saveAgain: "重新保存量测",
+          humanAdded: "人工增加像素",
+          humanRemoved: "人工删除像素",
+          proposalIou: "候选—最终 IoU",
+          changedRatio: "人工修改画面占比",
           pointsRequired: "手动标定需要依次点击 TL、TR、BR、BL 四个点。",
           measuring: "正在本机提取骨架、构建图结构并计算不确定性…",
           demoRunning: "正在生成完整标定 Demo…",
@@ -525,7 +562,7 @@ METROLOGY_HTML = """<!doctype html>
           choose: "Click to choose a road image",
           private: "The image never leaves this machine",
           ready: "Source ready; automatic detection and mask proposal are running in parallel.",
-          pipelineComplete: "Detection and the green mask proposal are ready; review them before metrology.",
+          pipelineComplete: "Detection, the green mask, and a pixel-metrology draft are ready; review and save.",
           pipelinePartial: "The automatic pipeline partially completed; inspect the result and correct the mask.",
           inspectionRunning: "Running three-view detection and reliability analysis on MPS…",
           inspectionComplete: "Automatic detection and reliability analysis complete.",
@@ -549,6 +586,21 @@ METROLOGY_HTML = """<!doctype html>
           proposalRunning: "Running the multi-scale dark-ridge and morphology ensemble locally…",
           proposalReady: "The proposal is loaded; review it with the brush and eraser.",
           proposalEmpty: "No reliable candidate was found; draw manually or increase proposal sensitivity.",
+          autoDrafting: "The automatic mask is ready; creating a pixel-metrology draft…",
+          autoDraftComplete: "The pixel-metrology draft is ready; it has not been human-reviewed.",
+          autoDraftFailed: "The automatic measurement draft failed; correct the mask and save manually.",
+          draftBadge: "Auto draft · pixel only",
+          draftState: "This pixel measurement comes from the automatic proposal and has not been human-reviewed. It is not a physical-size or safety conclusion.",
+          editedState: "The green mask has unsaved human changes; the right side still shows the previous automatic draft.",
+          reviewedState: "This is a saved human-reviewed version. Physical dimensions still require valid calibration.",
+          demoState: "This is a deterministic algorithm demo, not human review or field-accuracy validation.",
+          confirmReviewed: "Confirm and save review",
+          saveEdited: "Save corrected measurement",
+          saveAgain: "Save another measurement",
+          humanAdded: "Human-added pixels",
+          humanRemoved: "Human-removed pixels",
+          proposalIou: "Proposal–final IoU",
+          changedRatio: "Changed image ratio",
           pointsRequired: "Manual calibration needs TL, TR, BR, and BL clicks in order.",
           measuring: "Extracting the skeleton, graph, geometry, and uncertainty locally…",
           demoRunning: "Generating the full calibrated demo…",
@@ -617,6 +669,45 @@ METROLOGY_HTML = """<!doctype html>
       function setStatus(message, error = false) {
         byId("status").textContent = message;
         byId("status").classList.toggle("error", error);
+      }
+
+      function setPipeline(stage) {
+        pipelineStage = stage;
+        const order = ["upload", "detect", "draft", "review"];
+        const activeIndex = { idle: -1, upload: 0, detect: 1, draft: 2, review: 3, saved: 4 }[stage] ?? -1;
+        order.forEach((name, index) => {
+          const item = byId(`stage-${name}`);
+          item.classList.toggle("complete", index < activeIndex || stage === "saved");
+          item.classList.toggle("active", index === activeIndex && stage !== "saved");
+        });
+      }
+
+      function resultReviewState() {
+        const inputEvidence = latestResult && latestResult.measurement && latestResult.measurement.run && latestResult.measurement.run.input_evidence;
+        if (inputEvidence && inputEvidence.kind === "deterministic_web_demo") return "demo";
+        return inputEvidence && inputEvidence.review_state ? inputEvidence.review_state : "human_reviewed";
+      }
+
+      function updateReviewUI() {
+        const button = byId("measure-button");
+        if (!latestResult) {
+          button.textContent = t("confirmReviewed");
+          return;
+        }
+        if (maskDirty) button.textContent = t("saveEdited");
+        else if (latestResult && resultReviewState() === "automatic_draft") button.textContent = t("confirmReviewed");
+        else button.textContent = t("saveAgain");
+        const state = byId("review-state");
+        const resultState = resultReviewState();
+        const reviewed = resultState === "human_reviewed";
+        state.className = `review-state ${reviewed && !maskDirty ? "reviewed" : "draft"}`;
+        state.textContent = maskDirty ? t("editedState") : (resultState === "demo" ? t("demoState") : (reviewed ? t("reviewedState") : t("draftState")));
+      }
+
+      function markMaskDirty() {
+        maskDirty = true;
+        setPipeline("review");
+        updateReviewUI();
       }
 
       function addInspectionRow(container, label, value) {
@@ -794,6 +885,8 @@ METROLOGY_HTML = """<!doctype html>
         if (latestInspection) renderInspection(latestInspection);
         if (latestNarrative) renderNarrative(latestNarrative);
         renderProposalState();
+        setPipeline(pipelineStage);
+        updateReviewUI();
       }
 
       function canvasPosition(event) {
@@ -816,7 +909,9 @@ METROLOGY_HTML = """<!doctype html>
         strokes = [];
         activeStroke = null;
         activeProposalId = null;
+        proposalSuppressed = false;
         latestProposal = null;
+        maskDirty = false;
         renderProposalState();
       }
 
@@ -843,7 +938,7 @@ METROLOGY_HTML = """<!doctype html>
 
       function rebuildMask() {
         maskContext.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
-        if (activeProposalId) maskContext.drawImage(proposalCanvas, 0, 0);
+        if (activeProposalId && !proposalSuppressed) maskContext.drawImage(proposalCanvas, 0, 0);
         strokes.forEach((stroke) => drawStroke(maskContext, stroke));
       }
 
@@ -910,11 +1005,14 @@ METROLOGY_HTML = """<!doctype html>
 
       function updateControls() {
         const ready = Boolean(sourceImage);
-        ["proposal-sensitivity", "brush-tool", "eraser-tool", "clear-button", "brush-size"].forEach((id) => { byId(id).disabled = !ready; });
-        byId("point-tool").disabled = !ready || byId("calibration-mode").value !== "manual";
-        byId("undo-button").disabled = !ready || strokes.length === 0;
+        const editable = ready && measurementOperationCount === 0;
+        ["proposal-sensitivity", "brush-tool", "eraser-tool", "clear-button", "brush-size"].forEach((id) => { byId(id).disabled = !editable; });
+        byId("point-tool").disabled = !editable || byId("calibration-mode").value !== "manual";
+        byId("undo-button").disabled = !editable || strokes.length === 0;
         byId("replace-button").disabled = !ready;
-        byId("measure-button").disabled = !ready || (!activeProposalId && strokes.length === 0);
+        const hasMask = (activeProposalId && !proposalSuppressed) || strokes.length > 0;
+        byId("measure-button").disabled = !editable || !hasMask;
+        updateReviewUI();
       }
 
       function updatePointList() {
@@ -948,6 +1046,7 @@ METROLOGY_HTML = """<!doctype html>
       async function loadSource(file) {
         if (!file) return;
         const generation = ++sourceGeneration;
+        setPipeline("upload");
         if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 15 * 1024 * 1024) {
           setStatus(language === "zh" ? "请选择不超过 15 MiB 的 JPEG、PNG 或 WebP。" : "Choose a JPEG, PNG, or WebP no larger than 15 MiB.", true);
           return;
@@ -978,24 +1077,32 @@ METROLOGY_HTML = """<!doctype html>
         byId("file-meta").textContent = `${image.naturalWidth} × ${image.naturalHeight} px · ${(file.size / 1024 / 1024).toFixed(2)} MiB`;
         latestInspection = null;
         latestNarrative = null;
+        latestResult = null;
+        latestPlan = null;
+        latestComparison = null;
+        maskDirty = false;
+        byId("result").classList.add("hidden");
+        byId("placeholder").classList.remove("hidden");
         byId("inspection-section").classList.remove("hidden");
         byId("inspection-result").classList.add("hidden");
         byId("inspection-loading").classList.remove("hidden");
         setTool("brush");
         updateControls();
+        setPipeline("detect");
         setStatus(t("ready"));
         const tasks = await Promise.allSettled([
           runAutomaticInspection(file, generation),
-          generateProposal(file, generation)
+          generateProposalAndDraft(file, generation)
         ]);
         if (generation !== sourceGeneration) return;
         const inspectionSucceeded = tasks[0].status === "fulfilled" && tasks[0].value === true;
-        const proposalSucceeded = tasks[1].status === "fulfilled" && tasks[1].value === true;
+        const draftSucceeded = tasks[1].status === "fulfilled" && tasks[1].value === true;
         if (!inspectionSucceeded) {
           byId("inspection-loading").classList.remove("hidden");
           byId("inspection-loading-text").textContent = t("inspectionFailed");
         }
-        setStatus(inspectionSucceeded && proposalSucceeded ? t("pipelineComplete") : t("pipelinePartial"), !inspectionSucceeded && !proposalSucceeded);
+        setPipeline(draftSucceeded ? "review" : "draft");
+        setStatus(inspectionSucceeded && draftSucceeded ? t("pipelineComplete") : t("pipelinePartial"), !inspectionSucceeded && !draftSucceeded);
       }
 
       async function applyProposal(payload) {
@@ -1018,9 +1125,11 @@ METROLOGY_HTML = """<!doctype html>
         proposalContext.clearRect(0, 0, proposalCanvas.width, proposalCanvas.height);
         proposalContext.putImageData(pixels, 0, 0);
         activeProposalId = payload.proposal_id;
+        proposalSuppressed = false;
         latestProposal = payload;
         strokes = [];
         activeStroke = null;
+        maskDirty = false;
         rebuildMask();
         renderEditor();
         renderProposalState();
@@ -1056,8 +1165,18 @@ METROLOGY_HTML = """<!doctype html>
         }
       }
 
+      async function generateProposalAndDraft(file, generation) {
+        const found = await generateProposal(file, generation);
+        if (!found || generation !== sourceGeneration) return false;
+        setPipeline("draft");
+        setStatus(t("autoDrafting"));
+        const drafted = await runMeasurement({ automatic: true, generation });
+        if (drafted && generation === sourceGeneration) setPipeline("review");
+        return drafted;
+      }
+
       function pointerDown(event) {
-        if (!sourceImage) return;
+        if (!sourceImage || measurementOperationCount > 0) return;
         event.preventDefault();
         const point = canvasPosition(event);
         hoverPoint = point;
@@ -1074,6 +1193,7 @@ METROLOGY_HTML = """<!doctype html>
         activeStroke = { tool, size: Number(byId("brush-size").value), points: [point] };
         strokes.push(activeStroke);
         drawStroke(maskContext, activeStroke);
+        markMaskDirty();
         renderEditor();
         updateControls();
       }
@@ -1110,26 +1230,29 @@ METROLOGY_HTML = """<!doctype html>
         return String(Number(byId(id).value));
       }
 
-      async function runMeasurement() {
+      async function runMeasurement({ automatic = false, generation = sourceGeneration } = {}) {
         if (!sourceFile || (!activeProposalId && strokes.length === 0)) {
           setStatus(t("drawingRequired"), true);
-          return;
+          return false;
         }
-        const mode = byId("calibration-mode").value;
+        const mode = automatic ? "pixel" : byId("calibration-mode").value;
         if (mode === "manual" && calibrationPoints.length !== 4) {
           setStatus(t("pointsRequired"), true);
-          return;
+          return false;
         }
-        byId("measure-button").disabled = true;
-        setStatus(t("measuring"));
+        measurementOperationCount += 1;
+        updateControls();
+        setStatus(automatic ? t("autoDrafting") : t("measuring"));
         try {
           const mask = await maskBlob();
+          if (generation !== sourceGeneration) return false;
           const form = new FormData();
           form.append("image", sourceFile, sourceFile.name);
           form.append("mask", mask, "browser-mask.png");
           form.append("calibration_mode", mode);
-          form.append("uncertainty_samples", formNumber("uncertainty-samples"));
+          form.append("uncertainty_samples", automatic ? "0" : formNumber("uncertainty-samples"));
           form.append("segmentation_radius_pixels", formNumber("boundary-radius"));
+          form.append("review_state", automatic ? "automatic_draft" : "human_reviewed");
           if (activeProposalId) form.append("proposal_id", activeProposalId);
           if (mode !== "pixel") {
             form.append("physical_width", formNumber("physical-width"));
@@ -1144,14 +1267,22 @@ METROLOGY_HTML = """<!doctype html>
           const response = await fetch("/api/metrology/analyze", { method: "POST", body: form });
           const payload = await response.json();
           if (!response.ok) throw payload.error || payload;
+          if (generation !== sourceGeneration) return false;
+          if (!automatic) maskDirty = false;
           renderResult(payload);
-          setStatus(t("complete"));
-          byId("result").scrollIntoView({ behavior: "smooth", block: "start" });
+          setStatus(automatic ? t("autoDraftComplete") : t("complete"));
+          if (!automatic) {
+            setPipeline("saved");
+            byId("result").scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+          return true;
         } catch (error) {
           const message = error && (language === "zh" ? error.message_zh : error.message_en);
           const recovery = error && (language === "zh" ? error.recovery_zh : error.recovery_en);
-          setStatus([message, recovery].filter(Boolean).join(" — ") || t("failed"), true);
+          setStatus([message, recovery].filter(Boolean).join(" — ") || (automatic ? t("autoDraftFailed") : t("failed")), true);
+          return false;
         } finally {
+          measurementOperationCount = Math.max(0, measurementOperationCount - 1);
           updateControls();
         }
       }
@@ -1213,10 +1344,12 @@ METROLOGY_HTML = """<!doctype html>
         const unit = geometry.unit === "pixel" ? "px" : geometry.unit;
         const topology = measurement.topology;
         const widths = geometry.width_distribution;
+        const inputEvidence = measurement.run && measurement.run.input_evidence;
+        const reviewState = inputEvidence && inputEvidence.review_state ? inputEvidence.review_state : "human_reviewed";
         byId("placeholder").classList.add("hidden");
         byId("result").classList.remove("hidden");
         byId("run-id").textContent = payload.run_id;
-        byId("mode-badge").textContent = physical ? t("physical") : t("pixel");
+        byId("mode-badge").textContent = reviewState === "automatic_draft" ? t("draftBadge") : (physical ? t("physical") : t("pixel"));
         byId("metric-length").textContent = formatValue(geometry.centerline_network_length, unit);
         byId("metric-width").textContent = formatValue(widths.mean, unit);
         byId("metric-p95").textContent = formatValue(widths.p95, unit);
@@ -1254,6 +1387,14 @@ METROLOGY_HTML = """<!doctype html>
         }
         addEvidence(t("tortuosity"), topology.main_path_tortuosity);
         addEvidence(t("fractal"), topology.box_counting_dimension);
+        const maskEvidence = inputEvidence && inputEvidence.mask;
+        const revision = maskEvidence && maskEvidence.proposal_revision;
+        if (revision) {
+          addEvidence(t("humanAdded"), revision.human_added_pixels);
+          addEvidence(t("humanRemoved"), revision.human_removed_pixels);
+          addEvidence(t("proposalIou"), number(revision.proposal_final_iou, 4));
+          addEvidence(t("changedRatio"), `${(Number(revision.changed_image_ratio) * 100).toFixed(4)}%`);
+        }
         const calibration = measurement.run && measurement.run.input_evidence && measurement.run.input_evidence.calibration;
         const field = calibration && calibration.field_detection;
         if (field) {
@@ -1262,6 +1403,7 @@ METROLOGY_HTML = """<!doctype html>
         }
         byId("plan-button").disabled = !physical;
         byId("plan-note").textContent = physical ? t("planReady") : t("planPixel");
+        updateReviewUI();
         loadRunHistory();
       }
 
@@ -1443,8 +1585,9 @@ METROLOGY_HTML = """<!doctype html>
         if (!sourceFile) return;
         setStatus(t("proposalRunning"));
         try {
-          const found = await generateProposal(sourceFile, sourceGeneration);
-          setStatus(found ? t("proposalReady") : t("proposalEmpty"), !found);
+          const drafted = await generateProposalAndDraft(sourceFile, sourceGeneration);
+          setPipeline(drafted ? "review" : "draft");
+          setStatus(drafted ? t("autoDraftComplete") : t("proposalEmpty"), !drafted);
         } catch {
           setStatus(t("pipelinePartial"), true);
         }
@@ -1459,11 +1602,18 @@ METROLOGY_HTML = """<!doctype html>
       byId("undo-button").addEventListener("click", () => {
         strokes.pop();
         rebuildMask();
+        maskDirty = strokes.length > 0;
+        setPipeline("review");
+        updateReviewUI();
         renderEditor();
         updateControls();
       });
       byId("clear-button").addEventListener("click", () => {
-        resetMask();
+        maskContext.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+        strokes = [];
+        activeStroke = null;
+        proposalSuppressed = Boolean(activeProposalId);
+        markMaskDirty();
         renderEditor();
         updateControls();
       });
@@ -1477,7 +1627,7 @@ METROLOGY_HTML = """<!doctype html>
         const defaults = { m: 400, cm: 4, mm: .4 };
         byId("pixels-per-unit").value = String(defaults[byId("physical-unit").value]);
       });
-      byId("measure-button").addEventListener("click", runMeasurement);
+      byId("measure-button").addEventListener("click", () => runMeasurement());
       byId("demo-button").addEventListener("click", runDemo);
       byId("narrative-button").addEventListener("click", generateNarrative);
       byId("plan-button").addEventListener("click", createPlan);

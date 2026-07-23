@@ -30,8 +30,11 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "complete workflow directly at `http://127.0.0.1:8000`" in readme
     assert "完整单页流程" in readme
     assert "Run calibrated demo / 运行完整标定 Demo" in guide
-    assert "automatically starts three-view detection" in readme
+    assert "Choosing one image starts three-view detection" in readme
     assert "画笔/橡皮" in readme
+    assert "automatic_draft" in readme
+    assert "human_reviewed" in readme
+    assert "local_proposal_automatic_draft" in guide
     assert "ArUco" in portfolio
     assert "Ground truth / 人工参考值" in template
     assert "Absolute length error" in template

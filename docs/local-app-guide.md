@@ -44,9 +44,9 @@ The browser workflow includes:
 - overlay, rectified overlay, width heatmap, skeleton, topology, physical geometry, interval evidence, and complete `measurement.json` / 叠加图、矫正图、宽度热图、骨架、拓扑、真实几何量、区间证据和完整 JSON；
 - immutable local output under `results/metrology/<run-id>/` / 保存到不可覆盖的本地量测目录。
 
-One upload automatically starts transform-consensus detection and the independent local crack proposal in parallel. The proposal is painted green before editing; sensitivity changes rerun it automatically after the slider is released. The browser never turns detector boxes into a mask. A human-reviewed mask or a separately validated segmentation model remains required for defensible width measurement.
+One upload automatically starts transform-consensus detection and the independent local crack proposal in parallel. The proposal is painted green and immediately produces a pixel-only geometry draft. Sensitivity changes rerun both the proposal and draft after the slider is released. The draft is labelled `automatic_draft`; saving the reviewed mask creates a separate immutable `human_reviewed` run. The browser never turns detector boxes into a mask. A human-reviewed mask or a separately validated segmentation model remains required for defensible width measurement.
 
-上传一次会并行自动启动变换共识检测和独立的本地裂缝建议算法；绿色底稿会先自动画出，松开灵敏度滑块后也会自动重算。网页不会把检测框直接转换成掩膜。可信宽度量测仍然需要人工复核掩膜，或经过独立验证的分割模型。
+上传一次会并行自动启动变换共识检测和独立的本地裂缝建议算法；绿色底稿画出后立即生成仅像素几何草稿，松开灵敏度滑块后会自动重算建议与草稿。草稿标记为 `automatic_draft`，保存人工复核掩膜会另建不可覆盖的 `human_reviewed` 记录。网页不会把检测框直接转换成掩膜。可信宽度量测仍然需要人工复核掩膜，或经过独立验证的分割模型。
 
 ## What happens after upload / 上传后发生什么
 

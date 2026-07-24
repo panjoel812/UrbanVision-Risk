@@ -1,14 +1,14 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v4.5 在“自动草稿→排序复核→人工修订→证据保存”闭环中加入同步 ROI 放大编辑：三视图检测与掩膜建议在本机并行运行，黄色灵敏度分歧区被排序为最多 24 项复核队列。每个目标自动生成保持原图坐标的放大窗；用户可直接用画笔/橡皮修订细裂缝，所有笔迹精确映射回原分辨率掩膜，并自动把当前目标记为已检查。保存后审计状态从 `automatic_draft` 变为 `human_reviewed`，不可覆盖证据记录热点编号、覆盖率、人工像素差和候选—最终 IoU。放大窗改善操作精度，但不把模型建议变成真值或道路安全结论。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v4.6 把排序热点从“看过”升级为可审计处置：每个黄色灵敏度分歧目标进入保持原图坐标的同步放大窗，操作员可记录“接受候选、误检已删除、漏检已补画或暂缓跟进”及可选备注。在放大窗使用画笔或橡皮时，系统会自动生成对应处置，仍允许人工改写。保存人工版本会把 `review_state` 从 `automatic_draft` 更新为 `human_reviewed`；`measurement.json` 还记录处置明细、分类计数、决策完成率、优先级加权覆盖率、像素差和 IoU。处置是操作员工作记录，不是真值或道路安全结论。
 
-**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 4.5 adds synchronized ROI editing to the automatic-draft-to-ranked-review-to-human-revision-to-evidence loop. Choosing one image starts three-view detection and a crack proposal locally in parallel; yellow sensitivity-disagreement regions become a queue of up to 24 targets. Each target opens in a magnified view that preserves original-image coordinates. Brush/eraser strokes drawn inside the loupe map exactly back to the source-resolution mask and automatically mark the target inspected. Saving changes `automatic_draft` to `human_reviewed`; immutable evidence records hotspot IDs, coverage, human pixel deltas, and proposal-to-final IoU. Magnification improves operator precision but does not turn a proposal into ground truth or a safety conclusion.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 4.6 upgrades ranked hotspots from “seen” to auditable dispositions. Choosing one image starts three-view detection and a local crack proposal; every yellow sensitivity-disagreement target opens in a source-coordinate-preserving loupe. The operator can record accepted proposal, removed false positive, added missed crack, or deferred follow-up with an optional note. Brush and eraser actions automatically create the corresponding disposition and remain overridable. Saving a human version changes `review_state` from `automatic_draft` to `human_reviewed`; `measurement.json` stores decision details, category counts, completion, priority-weighted coverage, pixel deltas, and IoU. A disposition is an operator workflow record, not ground truth or a road-safety conclusion.
 
 **v3.0 Calibrated Metrology / 标定量测：** printable field fiducials, semantic marker detection (`TL/TR/BR/BL`), homography rectification, graph-geodesic length, skeleton distance-transform width, immutable artifacts, privacy-minimized provenance, deterministic uncertainty analysis, and a first-hand field-validation protocol. / 可打印现场标记、语义标记检测、单应性矫正、图测地长度、骨架距离变换宽度、不可覆盖结果、最小化隐私来源记录、确定性不确定性分析和亲身现场验证方案。
 
 **v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v4.5 Quick Start / v4.5 快速启动
+## v4.6 Quick Start / v4.6 快速启动
 
 ```bash
 uv sync --extra dev
@@ -23,9 +23,9 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`: upload once; reliability-aware detection and the editable mask proposal run in parallel; green candidates, yellow review hotspots, a ranked queue, synchronized magnified editing, and an automatic pixel-metrology draft appear next. Brush/eraser edits made in either canvas update the same original-resolution mask. The reviewed mask and hotspot progress can then be saved with calibration, uncertainty, material planning, multi-date physical alignment, spatial change, and audit JSON.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`: upload once; reliability-aware detection and the editable mask proposal run in parallel; green candidates, yellow review hotspots, a ranked queue, synchronized magnified editing, and an automatic pixel-metrology draft appear next. Loupe brush/eraser edits update the original-resolution mask and automatically record added-miss/removed-false-positive dispositions. Accept and defer decisions can be recorded explicitly. The reviewed mask, decision taxonomy, notes, and coverage can then be saved with calibration, uncertainty, material planning, multi-date physical alignment, spatial change, and audit JSON.
 
-第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程：上传一次后自动显示绿色候选、黄色热点、排序队列、同步放大编辑窗和像素量测草稿。主图与放大窗使用同一原分辨率掩膜，任一处的画笔/橡皮修订都会同步。人工复核后，可把检查进度、标定、不确定性、材料计划、多期变化和审计 JSON 一起保存。端口被占用时使用 `--port 8001`。
+第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程：上传一次后自动显示绿色候选、黄色热点、排序队列、同步放大编辑窗和像素量测草稿。放大窗画笔/橡皮会同步修改原分辨率掩膜，并自动记录“漏检已补画/误检已删除”；“接受候选/暂缓跟进”可直接选择。人工复核后，可把处置分类、备注、覆盖率、标定、不确定性、材料计划、多期变化和审计 JSON 一起保存。端口被占用时使用 `--port 8001`。
 
 The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
 

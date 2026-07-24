@@ -1,4 +1,4 @@
-# UrbanVision-Risk v4.5 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v4.6 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -138,6 +138,20 @@ The main canvas and loupe therefore share one original-resolution mask, stroke h
 Magnification improves review ergonomics but does not create new image information or guarantee that a subtle crack is detected. The audit record stores the resulting proposal-to-final pixel difference and reviewed hotspot ID; it does not treat the loupe as additional model evidence.
 
 放大只改善复核操作，不会创造新的图像信息，也不保证发现细微裂缝。审计记录保存候选到最终掩膜的像素差异和已检查热点编号，不会把放大窗当作额外模型证据。
+
+### Structured hotspot dispositions / 结构化热点处置
+
+Version 4.6 gives every ranked target one bounded operator disposition: `accepted_as_proposed`, `false_positive_removed`, `missed_crack_added`, or `deferred_for_follow_up`. A loupe brush stroke selects the added-miss disposition automatically; an eraser stroke selects removed-false-positive. The operator can override either and attach an optional note of at most 160 characters.
+
+v4.6 为每个排序目标提供一个受限的操作员处置：接受候选、误检已删除、漏检已补画或暂缓跟进。放大窗画笔会自动选择“漏检已补画”，橡皮会选择“误检已删除”；操作员可以改写，并附加最多 160 字的可选备注。
+
+The browser submits decisions in queue order. The service independently validates the JSON shape, category allow-list, unique hotspot IDs, membership in the current proposal, note bound, and the invariant that every decisioned target is also inspected. `measurement.json` stores rank-ordered decisions, per-category counts, `ranked_decision_completion_ratio`, and `ranked_decision_priority_coverage_ratio` under `mask.proposal_revision.hotspot_review`.
+
+浏览器按队列顺序提交处置。服务端独立验证 JSON 结构、类别白名单、热点编号唯一性、编号是否属于当前候选、备注长度，以及“有处置的目标必须同时已检查”这一约束。`measurement.json` 在 `mask.proposal_revision.hotspot_review` 下保存按排名排列的处置、分类计数、数量完成率和优先级加权决策覆盖率。
+
+The disposition describes what the operator did or concluded during this review. It is not an automatic truth label, engineering diagnosis, repair order, or proof that deferred targets are safe.
+
+处置只描述操作员在本次复核中的操作或结论，不是自动真值标签、工程诊断、维修工单，也不能证明暂缓目标是安全的。
 
 Images larger than two million pixels are processed on a downsampled work raster and the binary proposal is restored to the exact source resolution. This bounds memory and runtime without sending pixels to a cloud service. The sensitivity slider changes proposal recall; it is not a calibrated probability or YOLO confidence.
 

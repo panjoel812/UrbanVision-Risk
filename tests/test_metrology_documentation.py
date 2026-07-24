@@ -41,6 +41,9 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "640 \u00d7 360" in guide
     assert "source_x = viewport_x" in guide
     assert "同步复核放大窗" in guide
+    assert "Structured hotspot dispositions" in guide
+    assert "accepted_as_proposed" in guide
+    assert "ranked_decision_priority_coverage_ratio" in guide
     assert "不是模型不确定性校准" in guide
     assert "local_proposal_automatic_draft" in guide
     assert "ArUco" in portfolio

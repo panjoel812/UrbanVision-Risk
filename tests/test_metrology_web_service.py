@@ -276,6 +276,17 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
     proposal_id = proposal["proposal_id"]
     ranked = proposal["evidence"]["review_guidance"]["ranking"]["ranked_hotspots"]
     reviewed_ids = [ranked[0]["hotspot_id"], ranked[1]["hotspot_id"]]
+    decisions = [
+        {
+            "hotspot_id": reviewed_ids[0],
+            "disposition": "accepted_as_proposed",
+            "note": "No correction required",
+        },
+        {
+            "hotspot_id": reviewed_ids[1],
+            "disposition": "deferred_for_follow_up",
+        },
+    ]
     mask_path = service.proposal_artifact_path(
         proposal_id,
         "proposal-mask.png",
@@ -295,6 +306,43 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
             reviewed_hotspots='["hotspot-999"]',
         )
 
+    with pytest.raises(ProjectError, match="invalid disposition"):
+        service.analyze_bytes(
+            source_content=source,
+            source_filename="textured-road.png",
+            source_content_type="image/png",
+            mask_content=mask_path.read_bytes(),
+            mask_filename="proposal-mask.png",
+            mask_content_type="image/png",
+            calibration_mode="pixel",
+            uncertainty_samples=0,
+            proposal_id=proposal_id,
+            reviewed_hotspots=json.dumps([reviewed_ids[0]]),
+            hotspot_decisions=json.dumps(
+                [
+                    {
+                        "hotspot_id": reviewed_ids[0],
+                        "disposition": "model_was_definitely_correct",
+                    }
+                ]
+            ),
+        )
+
+    with pytest.raises(ProjectError, match="same IDs in reviewed_hotspots"):
+        service.analyze_bytes(
+            source_content=source,
+            source_filename="textured-road.png",
+            source_content_type="image/png",
+            mask_content=mask_path.read_bytes(),
+            mask_filename="proposal-mask.png",
+            mask_content_type="image/png",
+            calibration_mode="pixel",
+            uncertainty_samples=0,
+            proposal_id=proposal_id,
+            reviewed_hotspots=json.dumps([reviewed_ids[0]]),
+            hotspot_decisions=json.dumps(decisions),
+        )
+
     result = service.analyze_bytes(
         source_content=source,
         source_filename="textured-road.png",
@@ -306,6 +354,7 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
         uncertainty_samples=0,
         proposal_id=proposal_id,
         reviewed_hotspots=json.dumps(reviewed_ids),
+        hotspot_decisions=json.dumps(decisions),
     )
 
     revision = result["measurement"]["run"]["input_evidence"]["mask"][
@@ -315,6 +364,12 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
     assert review["status"] == "partial"
     assert review["reviewed_hotspot_ids"] == reviewed_ids
     assert review["reviewed_hotspot_count"] == 2
+    assert review["decision_status"] == "partial"
+    assert review["decisions"] == decisions
+    assert review["decided_hotspot_count"] == 2
+    assert review["disposition_counts"]["accepted_as_proposed"] == 1
+    assert review["disposition_counts"]["deferred_for_follow_up"] == 1
+    assert review["disposition_counts"]["false_positive_removed"] == 0
     assert review["ranked_hotspot_count"] == len(ranked)
     assert 0 < review["ranked_disagreement_pixel_coverage_ratio"] <= 1
     assert 0 < review["ranked_priority_mass_ratio"] <= 1
@@ -323,6 +378,11 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
         abs=1e-8,
     )
     assert 0 < review["ranked_priority_coverage_ratio"] <= 1
+    assert review["ranked_decision_completion_ratio"] == pytest.approx(
+        2 / len(ranked),
+        abs=1e-8,
+    )
+    assert 0 < review["ranked_decision_priority_coverage_ratio"] <= 1
 
 
 def test_aruco_web_calibration_preserves_detection_quality(tmp_path: Path) -> None:

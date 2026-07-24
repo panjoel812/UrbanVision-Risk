@@ -34,6 +34,15 @@ MAX_METROLOGY_PIXELS = 20_000_000
 SOURCE_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 MASK_CONTENT_TYPES = frozenset({"image/png", "image/webp"})
 CALIBRATION_MODES = frozenset({"pixel", "manual", "aruco"})
+HOTSPOT_DISPOSITIONS = frozenset(
+    {
+        "accepted_as_proposed",
+        "false_positive_removed",
+        "missed_crack_added",
+        "deferred_for_follow_up",
+    }
+)
+MAX_HOTSPOT_NOTE_CHARS = 160
 COMPARISON_ARTIFACTS = frozenset({"change-map.png"})
 PROPOSAL_ARTIFACTS = frozenset(
     {"proposal-mask.png", "review-hotspots.png", "evidence.json"}
@@ -177,6 +186,64 @@ def _reviewed_hotspot_ids(value: str | None) -> list[str]:
         if hotspot_id in result:
             raise _input_error(f"reviewed_hotspots contains duplicate ID {hotspot_id}")
         result.append(hotspot_id)
+    return result
+
+
+def _hotspot_decisions(value: str | None) -> list[dict[str, str]]:
+    if value is None or not value.strip():
+        return []
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise _input_error("hotspot_decisions is not valid JSON") from error
+    if not isinstance(payload, list):
+        raise _input_error("hotspot_decisions must be a JSON array")
+    if len(payload) > MAX_RANKED_REVIEW_HOTSPOTS:
+        raise _input_error(
+            f"hotspot_decisions count={len(payload)} exceeds "
+            f"{MAX_RANKED_REVIEW_HOTSPOTS}"
+        )
+    result: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            raise _input_error("hotspot_decisions contains a non-object entry")
+        unknown_fields = set(item) - {"hotspot_id", "disposition", "note"}
+        if unknown_fields:
+            raise _input_error(
+                "hotspot_decisions contains unsupported fields: "
+                + ", ".join(sorted(unknown_fields))
+            )
+        hotspot_id = item.get("hotspot_id")
+        disposition = item.get("disposition")
+        note = item.get("note", "")
+        if not isinstance(hotspot_id, str) or not hotspot_id:
+            raise _input_error("hotspot_decisions contains an invalid hotspot_id")
+        if hotspot_id in seen_ids:
+            raise _input_error(
+                f"hotspot_decisions contains duplicate ID {hotspot_id}"
+            )
+        if not isinstance(disposition, str) or disposition not in HOTSPOT_DISPOSITIONS:
+            raise _input_error(
+                f"hotspot_decisions contains invalid disposition {disposition!r}"
+            )
+        if not isinstance(note, str):
+            raise _input_error("hotspot_decisions note must be a string")
+        note = note.strip()
+        if len(note) > MAX_HOTSPOT_NOTE_CHARS:
+            raise _input_error(
+                f"hotspot_decisions note exceeds {MAX_HOTSPOT_NOTE_CHARS} characters"
+            )
+        if any(ord(character) < 32 for character in note):
+            raise _input_error("hotspot_decisions note contains control characters")
+        decision = {
+            "hotspot_id": hotspot_id,
+            "disposition": str(disposition),
+        }
+        if note:
+            decision["note"] = note
+        result.append(decision)
+        seen_ids.add(hotspot_id)
     return result
 
 
@@ -734,6 +801,7 @@ class LocalMetrologyService:
         source_sha256: str,
         final_mask: np.ndarray,
         reviewed_hotspot_ids: list[str],
+        hotspot_decisions: list[dict[str, str]],
     ) -> dict[str, object]:
         safe_id = validate_run_name(proposal_id)
         evidence_path = self.paths.metrology / "proposals" / safe_id / "evidence.json"
@@ -791,6 +859,21 @@ class LocalMetrologyService:
                 "reviewed_hotspots contains IDs outside the current proposal: "
                 + ", ".join(unknown_ids)
             )
+        decision_ids = [decision["hotspot_id"] for decision in hotspot_decisions]
+        unknown_decision_ids = sorted(set(decision_ids) - set(available_ids))
+        if unknown_decision_ids:
+            raise _input_error(
+                "hotspot_decisions contains IDs outside the current proposal: "
+                + ", ".join(unknown_decision_ids)
+            )
+        unreviewed_decision_ids = sorted(
+            set(decision_ids) - set(reviewed_hotspot_ids)
+        )
+        if unreviewed_decision_ids:
+            raise _input_error(
+                "hotspot_decisions require the same IDs in reviewed_hotspots: "
+                + ", ".join(unreviewed_decision_ids)
+            )
         reviewed_set = set(reviewed_hotspot_ids)
         reviewed_in_rank_order = [
             hotspot_id for hotspot_id in available_ids if hotspot_id in reviewed_set
@@ -806,6 +889,27 @@ class LocalMetrologyService:
         )
         ranked_count = len(available_ids)
         reviewed_count = len(reviewed_in_rank_order)
+        decisions_by_id = {
+            decision["hotspot_id"]: decision for decision in hotspot_decisions
+        }
+        decisions_in_rank_order = [
+            decisions_by_id[hotspot_id]
+            for hotspot_id in available_ids
+            if hotspot_id in decisions_by_id
+        ]
+        decided_priority = sum(
+            float(hotspot.get("priority_score", 0.0))
+            for hotspot in available_hotspots
+            if hotspot["hotspot_id"] in decisions_by_id
+        )
+        disposition_counts = {
+            disposition: sum(
+                decision["disposition"] == disposition
+                for decision in decisions_in_rank_order
+            )
+            for disposition in sorted(HOTSPOT_DISPOSITIONS)
+        }
+        decided_count = len(decisions_in_rank_order)
         review_status = (
             "not_available"
             if ranked_count == 0
@@ -815,8 +919,18 @@ class LocalMetrologyService:
             if reviewed_count
             else "not_started"
         )
+        decision_status = (
+            "not_available"
+            if ranked_count == 0
+            else "complete"
+            if decided_count == ranked_count
+            else "partial"
+            if decided_count
+            else "not_started"
+        )
         hotspot_review = {
             "status": review_status,
+            "decision_status": decision_status,
             "ranked_hotspot_count": ranked_count,
             "total_detected_component_count": (
                 review_guidance.get("review_zone_component_count")
@@ -840,6 +954,9 @@ class LocalMetrologyService:
             ),
             "reviewed_hotspot_ids": reviewed_in_rank_order,
             "reviewed_hotspot_count": reviewed_count,
+            "decisions": decisions_in_rank_order,
+            "decided_hotspot_count": decided_count,
+            "disposition_counts": disposition_counts,
             "ranked_review_completion_ratio": (
                 round(reviewed_count / ranked_count, 8) if ranked_count else None
             ),
@@ -848,9 +965,18 @@ class LocalMetrologyService:
                 if total_priority > 0
                 else None
             ),
+            "ranked_decision_completion_ratio": (
+                round(decided_count / ranked_count, 8) if ranked_count else None
+            ),
+            "ranked_decision_priority_coverage_ratio": (
+                round(decided_priority / total_priority, 8)
+                if total_priority > 0
+                else None
+            ),
             "interpretation": (
                 "This records which ranked sensitivity-disagreement regions the "
-                "operator marked as inspected; it does not prove mask correctness"
+                "operator inspected and how the operator dispositioned them; "
+                "it does not prove mask correctness or field conditions"
             ),
         }
         return {
@@ -893,6 +1019,7 @@ class LocalMetrologyService:
         proposal_id: str | None = None,
         review_state: str = "human_reviewed",
         reviewed_hotspots: str | None = None,
+        hotspot_decisions: str | None = None,
     ) -> dict[str, object]:
         if not 0 <= uncertainty_samples <= 512:
             raise _input_error(f"uncertainty_samples={uncertainty_samples}")
@@ -901,14 +1028,21 @@ class LocalMetrologyService:
         if review_state not in {"automatic_draft", "human_reviewed"}:
             raise _input_error(f"review_state={review_state!r}")
         reviewed_hotspot_ids = _reviewed_hotspot_ids(reviewed_hotspots)
+        parsed_hotspot_decisions = _hotspot_decisions(hotspot_decisions)
         if reviewed_hotspot_ids and review_state != "human_reviewed":
             raise _input_error(
                 "automatic_draft cannot contain reviewed hotspot IDs"
+            )
+        if parsed_hotspot_decisions and review_state != "human_reviewed":
+            raise _input_error(
+                "automatic_draft cannot contain hotspot decisions"
             )
         if reviewed_hotspot_ids and not proposal_id:
             raise _input_error(
                 "reviewed hotspot IDs require a proposal_id"
             )
+        if parsed_hotspot_decisions and not proposal_id:
+            raise _input_error("hotspot decisions require a proposal_id")
         source_image, source_shape = _decode_source(
             source_content,
             source_content_type,
@@ -947,6 +1081,7 @@ class LocalMetrologyService:
                 source_sha256=source_digest,
                 final_mask=mask,
                 reviewed_hotspot_ids=reviewed_hotspot_ids,
+                hotspot_decisions=parsed_hotspot_decisions,
             )
         input_evidence = {
             "kind": "local_web_metrology",

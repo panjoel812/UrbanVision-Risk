@@ -167,6 +167,15 @@ METROLOGY_HTML = """<!doctype html>
     #hotspot-loupe { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; touch-action: none; cursor: crosshair; }
     .hotspot-loupe-scale { position: absolute; top: 7px; right: 7px; padding: 3px 7px; border-radius: 999px; background: rgba(0, 0, 0, .76); color: #ffd34d; font-size: .64rem; font-weight: 760; pointer-events: none; }
     .hotspot-loupe-help { margin: 7px 0 0; color: var(--muted); font-size: .66rem; }
+    .hotspot-decision { margin-top: 10px; padding-top: 9px; border-top: 1px solid color-mix(in srgb, var(--amber) 30%, var(--line)); }
+    .hotspot-decision-title { margin: 0 0 6px; color: var(--ink); font-size: .68rem; font-weight: 760; }
+    .hotspot-decision-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .hotspot-decision-button { min-height: 35px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--soft); color: var(--ink); font-size: .64rem; font-weight: 700; cursor: pointer; }
+    .hotspot-decision-button.selected { border-color: var(--forest-2); background: var(--forest); color: #fff; }
+    .hotspot-decision-button.defer.selected { border-color: #9b6a00; background: #9b6a00; }
+    .hotspot-note { display: grid; gap: 4px; margin-top: 7px; color: var(--muted); font-size: .64rem; }
+    .hotspot-note input { width: 100%; min-height: 34px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--ink); }
+    .hotspot-decision-state { min-height: 18px; margin: 6px 0 0; color: var(--muted); font-size: .64rem; }
     .mode-grid { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(0, 1.3fr); gap: 13px; }
     .field { display: grid; gap: 5px; }
     .field label { color: var(--muted); font-size: .7rem; font-weight: 680; }
@@ -265,9 +274,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v4.5 · Synchronized ROI review loupe</p>
+        <p class="eyebrow">v4.6 · Auditable hotspot dispositions</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>黄色分歧区域会被排序成复核队列；每个目标自动进入同步放大窗，可直接画笔补漏或橡皮删错，笔迹映射回原图并进入审计证据。</span><span data-en class="hidden-lang">Yellow disagreement regions become a ranked queue. Each target opens in a synchronized loupe where brush and eraser strokes map back to the original-resolution mask and audit evidence.</span></p>
+        <p class="hero-copy"><span data-zh>每个黄色分歧目标都进入同步放大窗；修订后可记录“接受候选、误检已删除、漏检已补画或暂缓跟进”，把操作员判断、备注和优先级覆盖率保存为可审计证据。</span><span data-en class="hidden-lang">Each yellow disagreement target opens in a synchronized loupe. After review, record accepted proposal, removed false positive, added missed crack, or deferred follow-up, preserving the operator decision, note, and priority coverage as audit evidence.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -362,7 +371,18 @@ METROLOGY_HTML = """<!doctype html>
                 </div>
                 <p id="hotspot-detail" class="hotspot-review-detail">—</p>
                 <div class="hotspot-review-track" aria-hidden="true"><span id="hotspot-progress-bar" class="hotspot-review-bar"></span></div>
-                <p class="hotspot-loupe-help"><span data-zh>放大窗与原图使用同一像素坐标；选择画笔或橡皮后可直接在右侧修订。</span><span data-en class="hidden-lang">The loupe shares original-image pixel coordinates; choose Brush or Eraser and edit directly on the right.</span></p>
+                <p class="hotspot-loupe-help"><span data-zh>放大窗与原图使用同一像素坐标；画笔会自动记录“漏检已补画”，橡皮记录“误检已删除”，你仍可手动改结论。</span><span data-en class="hidden-lang">The loupe shares original-image coordinates. Brush records “missed crack added” and Eraser records “false positive removed” automatically; you can still override the decision.</span></p>
+                <div class="hotspot-decision">
+                  <p class="hotspot-decision-title"><span data-zh>记录复核处置</span><span data-en class="hidden-lang">Record review disposition</span></p>
+                  <div class="hotspot-decision-grid">
+                    <button id="decision-accept" class="hotspot-decision-button" type="button" data-disposition="accepted_as_proposed"><span data-zh>接受当前候选</span><span data-en class="hidden-lang">Accept proposal</span></button>
+                    <button id="decision-remove" class="hotspot-decision-button" type="button" data-disposition="false_positive_removed"><span data-zh>误检已删除</span><span data-en class="hidden-lang">False positive removed</span></button>
+                    <button id="decision-add" class="hotspot-decision-button" type="button" data-disposition="missed_crack_added"><span data-zh>漏检已补画</span><span data-en class="hidden-lang">Missed crack added</span></button>
+                    <button id="decision-defer" class="hotspot-decision-button defer" type="button" data-disposition="deferred_for_follow_up"><span data-zh>暂缓，等待跟进</span><span data-en class="hidden-lang">Defer follow-up</span></button>
+                  </div>
+                  <label class="hotspot-note" for="hotspot-note"><span data-zh>可选备注（最多 160 字）</span><span data-en class="hidden-lang">Optional note (160 characters maximum)</span><input id="hotspot-note" type="text" maxlength="160" autocomplete="off"></label>
+                  <p id="hotspot-decision-state" class="hotspot-decision-state">—</p>
+                </div>
               </div>
               <div class="hotspot-loupe-shell">
                 <canvas id="hotspot-loupe" width="640" height="360" tabindex="0" aria-label="Magnified hotspot mask editor"></canvas>
@@ -476,7 +496,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v4.5 · Synchronized Loupe + Ranked Review · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v4.6 · Auditable Dispositions + Synchronized Review · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -514,6 +534,8 @@ METROLOGY_HTML = """<!doctype html>
       let reviewHotspotsVisible = true;
       let hotspotComponents = [];
       let reviewedHotspotIds = new Set();
+      let hotspotDecisions = new Map();
+      let hotspotDraftNotes = new Map();
       let activeHotspotIndex = -1;
       let hotspotLoupeViewport = null;
       let loupeDrawing = false;
@@ -574,12 +596,16 @@ METROLOGY_HTML = """<!doctype html>
           showHotspots: "显示黄色复核热点",
           hideHotspots: "隐藏黄色复核热点",
           inspectedHotspots: "已检查热点",
+          decidedHotspots: "已记录处置",
           rankedQueue: "优先队列",
           priorityCoverage: "优先影响覆盖",
           markInspected: "标记已检查",
           markedInspected: "取消已检查",
           saveReviewProgress: "保存复核进度",
           reviewProgressState: "热点检查进度尚未保存；保存后会进入不可覆盖的量测证据。",
+          awaitingDecision: "尚未记录处置结论。",
+          decisionRecorded: "已记录",
+          decisionCoverage: "处置优先级覆盖",
           loupeToolRequired: "放大窗只用于画笔或橡皮；请先切换工具。",
           pointsRequired: "手动标定需要依次点击 TL、TR、BR、BL 四个点。",
           measuring: "正在本机提取骨架、构建图结构并计算不确定性…",
@@ -669,12 +695,16 @@ METROLOGY_HTML = """<!doctype html>
           showHotspots: "Show yellow review hotspots",
           hideHotspots: "Hide yellow review hotspots",
           inspectedHotspots: "Inspected hotspots",
+          decidedHotspots: "Dispositioned",
           rankedQueue: "Priority queue",
           priorityCoverage: "Priority-impact coverage",
           markInspected: "Mark inspected",
           markedInspected: "Undo inspected",
           saveReviewProgress: "Save review progress",
           reviewProgressState: "Hotspot-review progress is not saved yet; saving records it in immutable measurement evidence.",
+          awaitingDecision: "No disposition has been recorded yet.",
+          decisionRecorded: "Recorded",
+          decisionCoverage: "Disposition priority coverage",
           loupeToolRequired: "The loupe accepts Brush or Eraser; switch tools first.",
           pointsRequired: "Manual calibration needs TL, TR, BR, and BL clicks in order.",
           measuring: "Extracting the skeleton, graph, geometry, and uncertainty locally…",
@@ -726,6 +756,20 @@ METROLOGY_HTML = """<!doctype html>
         zh: { not_applicable: "不适用", low: "低", moderate: "中等", high: "高" },
         en: { not_applicable: "N/A", low: "Low", moderate: "Moderate", high: "High" }
       };
+      const dispositionLabels = {
+        zh: {
+          accepted_as_proposed: "接受当前候选",
+          false_positive_removed: "误检已删除",
+          missed_crack_added: "漏检已补画",
+          deferred_for_follow_up: "暂缓，等待跟进"
+        },
+        en: {
+          accepted_as_proposed: "Accept proposal",
+          false_positive_removed: "False positive removed",
+          missed_crack_added: "Missed crack added",
+          deferred_for_follow_up: "Defer follow-up"
+        }
+      };
       const tierLabels = {
         zh: { low: "低", medium: "中", high: "高", not_applicable: "不适用" },
         en: { low: "Low", medium: "Medium", high: "High", not_applicable: "N/A" }
@@ -766,13 +810,14 @@ METROLOGY_HTML = """<!doctype html>
         activeHotspotIndex = Math.max(0, Math.min(activeHotspotIndex, hotspotComponents.length - 1));
         const current = hotspotComponents[activeHotspotIndex];
         const reviewedCount = hotspotComponents.filter((hotspot) => reviewedHotspotIds.has(hotspot.hotspot_id)).length;
+        const decidedCount = hotspotComponents.filter((hotspot) => hotspotDecisions.has(hotspot.hotspot_id)).length;
         const totalPriority = hotspotComponents.reduce((sum, hotspot) => sum + Number(hotspot.priority_score || 0), 0);
         const reviewedPriority = hotspotComponents.reduce((sum, hotspot) => reviewedHotspotIds.has(hotspot.hotspot_id) ? sum + Number(hotspot.priority_score || 0) : sum, 0);
         const priorityCoverage = totalPriority > 0 ? reviewedPriority / totalPriority * 100 : 0;
         const guidance = latestProposal && latestProposal.evidence && latestProposal.evidence.review_guidance;
         const totalComponents = guidance && Number(guidance.review_zone_component_count);
         const queueScope = totalComponents ? `${t("rankedQueue")} ${hotspotComponents.length}/${totalComponents} · ` : "";
-        byId("hotspot-progress").textContent = `${queueScope}${t("inspectedHotspots")} ${reviewedCount}/${hotspotComponents.length} · ${t("priorityCoverage")} ${priorityCoverage.toFixed(1)}%`;
+        byId("hotspot-progress").textContent = `${queueScope}${t("inspectedHotspots")} ${reviewedCount}/${hotspotComponents.length} · ${t("decidedHotspots")} ${decidedCount}/${hotspotComponents.length} · ${t("priorityCoverage")} ${priorityCoverage.toFixed(1)}%`;
         byId("hotspot-progress-bar").style.width = `${priorityCoverage}%`;
         const box = current.bounding_box;
         const overlap = Number(current.candidate_overlap_ratio || 0) * 100;
@@ -787,6 +832,20 @@ METROLOGY_HTML = """<!doctype html>
         reviewButton.disabled = busy;
         reviewButton.classList.toggle("reviewed", inspected);
         reviewButton.textContent = inspected ? t("markedInspected") : t("markInspected");
+        const decision = hotspotDecisions.get(current.hotspot_id);
+        document.querySelectorAll(".hotspot-decision-button").forEach((button) => {
+          button.disabled = busy;
+          button.classList.toggle(
+            "selected",
+            Boolean(decision && decision.disposition === button.dataset.disposition)
+          );
+        });
+        const noteInput = byId("hotspot-note");
+        noteInput.disabled = busy;
+        noteInput.value = hotspotDraftNotes.get(current.hotspot_id) || "";
+        byId("hotspot-decision-state").textContent = decision
+          ? `${t("decisionRecorded")}: ${dispositionLabels[language][decision.disposition]}`
+          : t("awaitingDecision");
       }
 
       function focusHotspot(index) {
@@ -861,13 +920,20 @@ METROLOGY_HTML = """<!doctype html>
         };
       }
 
-      function inspectActiveHotspot() {
+      function recordHotspotDecision(disposition) {
         const hotspot = hotspotComponents[activeHotspotIndex];
-        if (!hotspot || reviewedHotspotIds.has(hotspot.hotspot_id)) return;
+        if (!hotspot) return;
+        const note = (hotspotDraftNotes.get(hotspot.hotspot_id) || "").trim();
+        hotspotDecisions.set(hotspot.hotspot_id, {
+          hotspot_id: hotspot.hotspot_id,
+          disposition,
+          ...(note ? { note } : {})
+        });
         reviewedHotspotIds.add(hotspot.hotspot_id);
         reviewProgressDirty = true;
         setPipeline("review");
         renderHotspotReview();
+        updateReviewUI();
       }
 
       function setStatus(message, error = false) {
@@ -1122,6 +1188,8 @@ METROLOGY_HTML = """<!doctype html>
         reviewHotspotsVisible = true;
         hotspotComponents = [];
         reviewedHotspotIds = new Set();
+        hotspotDecisions = new Map();
+        hotspotDraftNotes = new Map();
         activeHotspotIndex = -1;
         hotspotLoupeViewport = null;
         loupeDrawing = false;
@@ -1414,6 +1482,8 @@ METROLOGY_HTML = """<!doctype html>
         const ranking = guidance && guidance.ranking;
         hotspotComponents = ranking && Array.isArray(ranking.ranked_hotspots) ? ranking.ranked_hotspots : [];
         reviewedHotspotIds = new Set();
+        hotspotDecisions = new Map();
+        hotspotDraftNotes = new Map();
         activeHotspotIndex = hotspotComponents.length ? 0 : -1;
         reviewProgressDirty = false;
         strokes = [];
@@ -1521,6 +1591,8 @@ METROLOGY_HTML = """<!doctype html>
         event.preventDefault();
         const point = loupeCanvasPosition(event);
         if (!point) return;
+        const hotspot = hotspotComponents[activeHotspotIndex];
+        if (!hotspot) return;
         hoverPoint = point;
         loupeDrawing = true;
         hotspotLoupe.setPointerCapture(event.pointerId);
@@ -1528,11 +1600,18 @@ METROLOGY_HTML = """<!doctype html>
           tool,
           size: Number(byId("brush-size").value),
           points: [point],
-          input_surface: "synchronized_hotspot_loupe"
+          input_surface: "synchronized_hotspot_loupe",
+          hotspot_id: hotspot.hotspot_id,
+          previous_hotspot_reviewed: reviewedHotspotIds.has(hotspot.hotspot_id),
+          previous_hotspot_decision: hotspotDecisions.has(hotspot.hotspot_id)
+            ? { ...hotspotDecisions.get(hotspot.hotspot_id) }
+            : null
         };
         strokes.push(loupeActiveStroke);
         drawStroke(maskContext, loupeActiveStroke);
-        inspectActiveHotspot();
+        recordHotspotDecision(
+          tool === "eraser" ? "false_positive_removed" : "missed_crack_added"
+        );
         markMaskDirty();
         renderEditor();
         updateControls();
@@ -1597,6 +1676,10 @@ METROLOGY_HTML = """<!doctype html>
           if (activeProposalId) form.append("proposal_id", activeProposalId);
           if (!automatic && activeProposalId) {
             form.append("reviewed_hotspots", JSON.stringify(Array.from(reviewedHotspotIds)));
+            const decisions = hotspotComponents
+              .map((hotspot) => hotspotDecisions.get(hotspot.hotspot_id))
+              .filter(Boolean);
+            form.append("hotspot_decisions", JSON.stringify(decisions));
           }
           if (mode !== "pixel") {
             form.append("physical_width", formNumber("physical-width"));
@@ -1745,6 +1828,8 @@ METROLOGY_HTML = """<!doctype html>
           if (hotspotReview && hotspotReview.ranked_hotspot_count) {
             addEvidence(t("inspectedHotspots"), `${hotspotReview.reviewed_hotspot_count}/${hotspotReview.ranked_hotspot_count}`);
             addEvidence(t("priorityCoverage"), `${(Number(hotspotReview.ranked_priority_coverage_ratio || 0) * 100).toFixed(1)}%`);
+            addEvidence(t("decidedHotspots"), `${hotspotReview.decided_hotspot_count}/${hotspotReview.ranked_hotspot_count}`);
+            addEvidence(t("decisionCoverage"), `${(Number(hotspotReview.ranked_decision_priority_coverage_ratio || 0) * 100).toFixed(1)}%`);
           }
         }
         const calibration = measurement.run && measurement.run.input_evidence && measurement.run.input_evidence.calibration;
@@ -1962,7 +2047,23 @@ METROLOGY_HTML = """<!doctype html>
         renderEditor();
       });
       byId("undo-button").addEventListener("click", () => {
-        strokes.pop();
+        const removedStroke = strokes.pop();
+        if (removedStroke && removedStroke.input_surface === "synchronized_hotspot_loupe" && removedStroke.hotspot_id) {
+          if (removedStroke.previous_hotspot_decision) {
+            hotspotDecisions.set(
+              removedStroke.hotspot_id,
+              removedStroke.previous_hotspot_decision
+            );
+          } else {
+            hotspotDecisions.delete(removedStroke.hotspot_id);
+          }
+          if (removedStroke.previous_hotspot_reviewed) {
+            reviewedHotspotIds.add(removedStroke.hotspot_id);
+          } else {
+            reviewedHotspotIds.delete(removedStroke.hotspot_id);
+          }
+          reviewProgressDirty = true;
+        }
         rebuildMask();
         maskDirty = strokes.length > 0;
         setPipeline("review");
@@ -1993,12 +2094,36 @@ METROLOGY_HTML = """<!doctype html>
       byId("hotspot-reviewed").addEventListener("click", () => {
         const hotspot = hotspotComponents[activeHotspotIndex];
         if (!hotspot) return;
-        if (reviewedHotspotIds.has(hotspot.hotspot_id)) reviewedHotspotIds.delete(hotspot.hotspot_id);
-        else reviewedHotspotIds.add(hotspot.hotspot_id);
+        if (reviewedHotspotIds.has(hotspot.hotspot_id)) {
+          reviewedHotspotIds.delete(hotspot.hotspot_id);
+          hotspotDecisions.delete(hotspot.hotspot_id);
+        } else {
+          reviewedHotspotIds.add(hotspot.hotspot_id);
+        }
         reviewProgressDirty = true;
         setPipeline("review");
         renderHotspotReview();
         updateReviewUI();
+      });
+      document.querySelectorAll(".hotspot-decision-button").forEach((button) => {
+        button.addEventListener("click", () => recordHotspotDecision(button.dataset.disposition));
+      });
+      byId("hotspot-note").addEventListener("input", (event) => {
+        const hotspot = hotspotComponents[activeHotspotIndex];
+        if (!hotspot) return;
+        const note = event.target.value.slice(0, 160);
+        hotspotDraftNotes.set(hotspot.hotspot_id, note);
+        const decision = hotspotDecisions.get(hotspot.hotspot_id);
+        if (decision) {
+          hotspotDecisions.set(hotspot.hotspot_id, {
+            hotspot_id: hotspot.hotspot_id,
+            disposition: decision.disposition,
+            ...(note.trim() ? { note: note.trim() } : {})
+          });
+          reviewProgressDirty = true;
+          setPipeline("review");
+          updateReviewUI();
+        }
       });
       byId("reset-points").addEventListener("click", () => {
         calibrationPoints = [];

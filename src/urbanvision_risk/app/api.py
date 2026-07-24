@@ -57,7 +57,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="4.5.0",
+        version="4.6.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -128,6 +128,7 @@ def create_app(
         payload["automatic_pixel_draft"] = True
         payload["ranked_hotspot_review"] = True
         payload["synchronized_review_loupe"] = True
+        payload["auditable_hotspot_dispositions"] = True
         return payload
 
     @app.get("/api/review-queue")
@@ -198,6 +199,7 @@ def create_app(
         proposal_id: Annotated[str | None, Form()] = None,
         review_state: Annotated[str, Form()] = "human_reviewed",
         reviewed_hotspots: Annotated[str | None, Form()] = None,
+        hotspot_decisions: Annotated[str | None, Form()] = None,
     ) -> dict[str, object]:
         source_content = await image.read(MAX_METROLOGY_UPLOAD_BYTES + 1)
         mask_content = await mask.read(MAX_METROLOGY_UPLOAD_BYTES + 1)
@@ -222,6 +224,7 @@ def create_app(
             proposal_id=proposal_id,
             review_state=review_state,
             reviewed_hotspots=reviewed_hotspots,
+            hotspot_decisions=hotspot_decisions,
         )
 
     @app.get("/api/metrology/runs")

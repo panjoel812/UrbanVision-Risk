@@ -1,10 +1,10 @@
 # Portfolio and Interview Guide / 简历与面试表达
 
-## What makes v4.5 different / v4.5 的差异化
+## What makes v4.6 different / v4.6 的差异化
 
-Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v4.5 links detection, reliability, metrology, and operator review. Its review layer deterministically ranks parameter disagreement, tracks review coverage, and adds a bidirectionally synchronized ROI editor: pointer coordinates from a magnified viewport are transformed into original-image pixels and committed to the same immutable mask-difference audit.
+Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v4.6 links detection, reliability, metrology, operator review, and structured dispositions. Its review layer ranks parameter disagreement, transforms loupe pointers into original-image pixels, and records why each target was accepted, corrected, or deferred. The service validates decision IDs and taxonomy before storing completion and priority-weighted coverage in immutable evidence.
 
-许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v4.5 把检测、可靠性、量测和操作员复核连接起来：复核层确定性排序参数分歧、记录覆盖率，并加入双向同步 ROI 编辑器，把放大视口中的指针坐标转换为原图像素，再提交到同一套不可变掩膜差异审计。
+许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v4.6 把检测、可靠性、量测、操作员复核和结构化处置连接起来：系统排序参数分歧，把放大视口指针变换为原图像素，并记录每个目标为何被接受、修正或暂缓。服务端会校验热点编号和处置分类，再把完成率与优先级加权覆盖率写入不可变证据。
 
 ## Resume bullets / 简历要点
 
@@ -16,6 +16,7 @@ Use only metrics you can reproduce. A concise English version:
 - Built an ArUco-based field calibration workflow with exact-size printable SVG fiducials, semantic four-marker detection, homography rectification, privacy-minimized provenance, and deterministic Monte Carlo/boundary-perturbation sensitivity intervals.
 - Engineered a human-in-the-loop review layer that perturbs proposal sensitivity at three levels, ranks connected disagreement regions into a bounded operator worklist, and audits inspected IDs, priority-weighted coverage, immutable hashes, pixel deltas, and IoU.
 - Implemented a synchronized ROI loupe with aspect-preserving viewport math, CSS-to-canvas-to-source coordinate transforms, direct high-magnification brush/eraser editing, shared undo history, and original-resolution evidence output.
+- Added a server-validated operator-disposition workflow that automatically attributes loupe edits, captures bounded notes, rejects unknown hotspot IDs or decision categories, and audits decision completion and priority-weighted coverage.
 - Shipped the model as a loopback-only FastAPI product with bilingual UI, MPS inference, optional local Ollama narratives, privacy headers, structured failure recovery, and a comprehensive automated test suite.
 
 中文版本：
@@ -26,6 +27,7 @@ Use only metrics you can reproduce. A concise English version:
 - 构建 ArUco 现场标定流程，支持精确尺寸可打印 SVG、四标记语义检测、单应性矫正、隐私最小化来源记录，以及确定性 Monte Carlo/边界扰动敏感性区间。
 - 设计人机协同复核层，在三个灵敏度下扰动候选算法，把连通分歧区域排序为有上限的操作员工作清单，并审计检查编号、优先影响覆盖率、不可变摘要、像素增删量与 IoU。
 - 实现同步 ROI 放大编辑器，包括保持宽高比的视口计算、CSS—Canvas—原图坐标变换、高倍率画笔/橡皮修订、共享撤销历史与原分辨率证据输出。
+- 加入服务端严格校验的操作员处置工作流，自动归因放大窗修订、保存限长备注、拒绝未知热点编号或处置类别，并审计决策完成率与优先级加权覆盖率。
 - 使用 FastAPI 交付仅监听本机回环地址的双语产品，支持 Apple MPS、本地 Ollama 可选说明、隐私响应头、结构化故障恢复与完整自动化测试。
 
 ## Interview deep-dive / 面试追问

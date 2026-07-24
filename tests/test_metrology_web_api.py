@@ -206,9 +206,17 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="hotspot-next"' in response.text
     assert 'id="hotspot-reviewed"' in response.text
     assert 'id="hotspot-loupe"' in response.text
+    assert 'id="decision-accept"' in response.text
+    assert 'id="decision-remove"' in response.text
+    assert 'id="decision-add"' in response.text
+    assert 'id="decision-defer"' in response.text
+    assert 'id="hotspot-note"' in response.text
     assert "calculateLoupeViewport" in response.text
     assert "loupeCanvasPosition" in response.text
     assert "synchronized_hotspot_loupe" in response.text
+    assert "recordHotspotDecision" in response.text
+    assert "false_positive_removed" in response.text
+    assert "missed_crack_added" in response.text
     assert 'hotspotLoupe.addEventListener("pointerdown"' in response.text
     assert 'id="inspection-section"' in response.text
     assert 'id="narrative-button"' in response.text
@@ -227,6 +235,7 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "review-hotspots.png" in response.text
     assert "sensitivityDisagreement" in response.text
     assert 'form.append("reviewed_hotspots"' in response.text
+    assert 'form.append("hotspot_decisions"' in response.text
     assert "change-map.png" in response.text
     assert "https://" not in response.text
     assert "http://" not in response.text
@@ -271,6 +280,10 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
             "segmentation_radius_pixels": "2",
             "proposal_id": "proposal-001",
             "reviewed_hotspots": '["hotspot-001"]',
+            "hotspot_decisions": (
+                '[{"hotspot_id":"hotspot-001",'
+                '"disposition":"accepted_as_proposed"}]'
+            ),
         },
     )
 
@@ -286,6 +299,9 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert metrology.analyze_arguments["proposal_id"] == "proposal-001"
     assert metrology.analyze_arguments["review_state"] == "human_reviewed"
     assert metrology.analyze_arguments["reviewed_hotspots"] == '["hotspot-001"]'
+    assert metrology.analyze_arguments["hotspot_decisions"] == (
+        '[{"hotspot_id":"hotspot-001","disposition":"accepted_as_proposed"}]'
+    )
 
     health = client.get("/api/health")
     assert health.json()["precision_metrology"] is True
@@ -293,6 +309,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["automatic_pixel_draft"] is True
     assert health.json()["ranked_hotspot_review"] is True
     assert health.json()["synchronized_review_loupe"] is True
+    assert health.json()["auditable_hotspot_dispositions"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:

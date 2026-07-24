@@ -1025,7 +1025,7 @@ wheels = [
 
 [[package]]
 name = "urbanvision-risk"
-version = "4.9.0"
+version = "5.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

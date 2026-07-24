@@ -57,7 +57,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="4.9.0",
+        version="5.0.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -132,6 +132,7 @@ def create_app(
         payload["active_learning_feedback_export"] = True
         payload["feedback_quality_registry"] = True
         payload["leakage_safe_feedback_curation"] = True
+        payload["visual_near_duplicate_split_firewall"] = True
         return payload
 
     @app.get("/api/review-queue")
@@ -249,6 +250,7 @@ def create_app(
         val_ratio: Annotated[float, Form()] = 0.1,
         test_ratio: Annotated[float, Form()] = 0.1,
         minimum_unique_sources: Annotated[int, Form()] = 10,
+        max_scene_hamming_distance: Annotated[int, Form()] = 4,
         privacy_review_confirmed: Annotated[bool, Form()] = False,
         label_qa_confirmed: Annotated[bool, Form()] = False,
     ) -> dict[str, object]:
@@ -258,6 +260,7 @@ def create_app(
             val_ratio=val_ratio,
             test_ratio=test_ratio,
             minimum_unique_sources=minimum_unique_sources,
+            max_scene_hamming_distance=max_scene_hamming_distance,
             privacy_review_confirmed=privacy_review_confirmed,
             label_qa_confirmed=label_qa_confirmed,
         )

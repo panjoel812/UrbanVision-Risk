@@ -58,7 +58,12 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "`training_authorized` remains `false`" in guide
     assert "防泄漏候选数据策划" in guide
     assert "Build leakage-safe candidate plan" in readme
-    assert "source-grouped 80/10/10 allocation" in portfolio
+    assert "Visual-scene leakage firewall" in guide
+    assert "single-linkage union-find" in guide
+    assert "max_scene_hamming_distance" in guide
+    assert "visual_scene_group_id" in guide
+    assert "pairwise minimum Hamming distance" in portfolio
+    assert "视觉场景泄漏防火墙" in portfolio
     assert "不是模型不确定性校准" in guide
     assert "local_proposal_automatic_draft" in guide
     assert "ArUco" in portfolio

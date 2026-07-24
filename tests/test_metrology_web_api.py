@@ -263,6 +263,7 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="curation-button"' in response.text
     assert 'id="curation-privacy"' in response.text
     assert 'id="curation-label-qa"' in response.text
+    assert 'id="curation-scene-distance"' in response.text
     assert 'id="curation-result"' in response.text
     assert "calculateLoupeViewport" in response.text
     assert "loupeCanvasPosition" in response.text
@@ -275,6 +276,7 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "/api/metrology/feedback-curations" in response.text
     assert "loadFeedbackCatalog" in response.text
     assert "createFeedbackCuration" in response.text
+    assert 'form.append("max_scene_hamming_distance"' in response.text
     assert 'hotspotLoupe.addEventListener("pointerdown"' in response.text
     assert 'id="inspection-section"' in response.text
     assert 'id="narrative-button"' in response.text
@@ -371,6 +373,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["active_learning_feedback_export"] is True
     assert health.json()["feedback_quality_registry"] is True
     assert health.json()["leakage_safe_feedback_curation"] is True
+    assert health.json()["visual_near_duplicate_split_firewall"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
@@ -422,6 +425,7 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
             "val_ratio": "0.2",
             "test_ratio": "0.1",
             "minimum_unique_sources": "12",
+            "max_scene_hamming_distance": "5",
             "privacy_review_confirmed": "true",
             "label_qa_confirmed": "false",
         },
@@ -466,6 +470,7 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
         "val_ratio": 0.2,
         "test_ratio": 0.1,
         "minimum_unique_sources": 12,
+        "max_scene_hamming_distance": 5,
         "privacy_review_confirmed": True,
         "label_qa_confirmed": False,
     }

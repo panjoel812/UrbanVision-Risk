@@ -48,6 +48,7 @@ ACTIVE_LEARNING_FEEDBACK_ARTIFACT = "active-learning-feedback.zip"
 MAX_FEEDBACK_CROP_PIXELS = 512_000
 MAX_FEEDBACK_CATALOG_PACKAGES = 100
 MAX_FEEDBACK_MANIFEST_BYTES = 2 * 1024 * 1024
+MAX_SCENE_FINGERPRINTS_PER_SOURCE = 128
 CURATION_SPLITS = ("train", "val", "test")
 FEEDBACK_FILE_ROLES = (
     "source_roi",
@@ -482,12 +483,114 @@ def _curation_file_evidence(
     return result
 
 
+def _fingerprint_hamming_distance(left: str, right: str) -> int:
+    if not _is_hex_digest(left, 16) or not _is_hex_digest(right, 16):
+        raise _input_error(
+            f"invalid 64-bit fingerprints left={left!r}, right={right!r}"
+        )
+    return (int(left, 16) ^ int(right, 16)).bit_count()
+
+
+def _near_duplicate_scene_groups(
+    source_fingerprints: dict[str, set[str]],
+    max_hamming_distance: int,
+) -> dict[str, object]:
+    """Create deterministic single-linkage groups over source ROI fingerprints."""
+    if (
+        isinstance(max_hamming_distance, bool)
+        or not isinstance(max_hamming_distance, int)
+        or not 0 <= max_hamming_distance <= 16
+    ):
+        raise _input_error(
+            f"max_scene_hamming_distance={max_hamming_distance!r}"
+        )
+    for source, fingerprints in source_fingerprints.items():
+        if not _is_hex_digest(source, 64) or not fingerprints:
+            raise _input_error(
+                f"source scene fingerprints are missing for {source!r}"
+            )
+        if any(not _is_hex_digest(fingerprint, 16) for fingerprint in fingerprints):
+            raise _input_error(
+                f"source scene fingerprints are invalid for {source!r}"
+            )
+    sources = sorted(source_fingerprints)
+    parent = {source: source for source in sources}
+
+    def find(source: str) -> str:
+        root = source
+        while parent[root] != root:
+            root = parent[root]
+        while parent[source] != source:
+            next_source = parent[source]
+            parent[source] = root
+            source = next_source
+        return root
+
+    def union(left: str, right: str) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return
+        first, second = sorted((left_root, right_root))
+        parent[second] = first
+
+    links: list[dict[str, object]] = []
+    for left_index, left_source in enumerate(sources):
+        left_fingerprints = sorted(source_fingerprints[left_source])
+        for right_source in sources[left_index + 1 :]:
+            right_fingerprints = sorted(source_fingerprints[right_source])
+            closest = min(
+                (
+                    _fingerprint_hamming_distance(left, right),
+                    left,
+                    right,
+                )
+                for left in left_fingerprints
+                for right in right_fingerprints
+            )
+            if closest[0] > max_hamming_distance:
+                continue
+            union(left_source, right_source)
+            links.append(
+                {
+                    "left_source_sha256": left_source,
+                    "right_source_sha256": right_source,
+                    "hamming_distance": closest[0],
+                    "left_difference_hash64": closest[1],
+                    "right_difference_hash64": closest[2],
+                }
+            )
+    components: dict[str, list[str]] = {}
+    for source in sources:
+        components.setdefault(find(source), []).append(source)
+    groups: list[dict[str, object]] = []
+    source_to_group: dict[str, str] = {}
+    for members in sorted(components.values(), key=lambda values: tuple(values)):
+        scene_group_id = "visual-scene-" + hashlib.sha256(
+            ",".join(members).encode()
+        ).hexdigest()[:24]
+        for source in members:
+            source_to_group[source] = scene_group_id
+        groups.append(
+            {
+                "scene_group_id": scene_group_id,
+                "source_count": len(members),
+                "source_sha256s": members,
+            }
+        )
+    return {
+        "source_to_scene_group": source_to_group,
+        "groups": groups,
+        "links": links,
+    }
+
+
 def _assign_curation_groups(
     groups: dict[str, list[dict[str, object]]],
     ratios: dict[str, float],
     seed: int,
 ) -> dict[str, list[dict[str, object]]]:
-    """Assign whole source groups while approximating requested item ratios."""
+    """Assign whole governance groups while approximating requested item ratios."""
     total_items = sum(len(items) for items in groups.values())
     targets = {
         split: total_items * ratios[split]
@@ -1809,6 +1912,7 @@ class LocalMetrologyService:
         val_ratio: float = 0.1,
         test_ratio: float = 0.1,
         minimum_unique_sources: int = 10,
+        max_scene_hamming_distance: int = 4,
         privacy_review_confirmed: bool = False,
         label_qa_confirmed: bool = False,
     ) -> dict[str, object]:
@@ -1832,6 +1936,14 @@ class LocalMetrologyService:
             )
         if not isinstance(label_qa_confirmed, bool):
             raise _input_error(f"label_qa_confirmed={label_qa_confirmed!r}")
+        if (
+            isinstance(max_scene_hamming_distance, bool)
+            or not isinstance(max_scene_hamming_distance, int)
+            or not 0 <= max_scene_hamming_distance <= 16
+        ):
+            raise _input_error(
+                f"max_scene_hamming_distance={max_scene_hamming_distance!r}"
+            )
         ratios = _curation_ratios(train_ratio, val_ratio, test_ratio)
         packages, invalid_package_count = self._feedback_packages()
         inventory_truncated = len(packages) > MAX_FEEDBACK_CATALOG_PACKAGES
@@ -2000,16 +2112,75 @@ class LocalMetrologyService:
                 continue
             seen_fingerprints.add(fingerprint)
             deduplicated.append(candidate)
-        groups: dict[str, list[dict[str, object]]] = {}
+        source_groups: dict[str, list[dict[str, object]]] = {}
         for candidate in deduplicated:
-            groups.setdefault(str(candidate["source_sha256"]), []).append(candidate)
-        assigned = _assign_curation_groups(groups, ratios, seed)
+            source_groups.setdefault(
+                str(candidate["source_sha256"]),
+                [],
+            ).append(candidate)
+        raw_source_fingerprints = {
+            source: {
+                str(item["source_roi_difference_hash64"])
+                for item in items
+            }
+            for source, items in source_groups.items()
+        }
+        truncated_scene_fingerprint_count = sum(
+            max(0, len(fingerprints) - MAX_SCENE_FINGERPRINTS_PER_SOURCE)
+            for fingerprints in raw_source_fingerprints.values()
+        )
+        truncated_scene_source_count = sum(
+            len(fingerprints) > MAX_SCENE_FINGERPRINTS_PER_SOURCE
+            for fingerprints in raw_source_fingerprints.values()
+        )
+        source_fingerprints = {
+            source: set(
+                sorted(fingerprints)[:MAX_SCENE_FINGERPRINTS_PER_SOURCE]
+            )
+            for source, fingerprints in raw_source_fingerprints.items()
+        }
+        scene_clustering = _near_duplicate_scene_groups(
+            source_fingerprints,
+            max_scene_hamming_distance,
+        )
+        source_to_scene_group = scene_clustering["source_to_scene_group"]
+        if not isinstance(source_to_scene_group, dict):
+            raise RuntimeError("scene clustering did not return a source map")
+        scene_candidate_groups: dict[str, list[dict[str, object]]] = {}
+        for candidate in deduplicated:
+            source_sha256 = str(candidate["source_sha256"])
+            scene_group_id = str(source_to_scene_group[source_sha256])
+            candidate["visual_scene_group_id"] = scene_group_id
+            scene_candidate_groups.setdefault(scene_group_id, []).append(candidate)
+        raw_scene_groups = scene_clustering["groups"]
+        if not isinstance(raw_scene_groups, list):
+            raise RuntimeError("scene clustering did not return groups")
+        scene_groups: list[dict[str, object]] = []
+        for group in raw_scene_groups:
+            if not isinstance(group, dict):
+                continue
+            scene_group_id = str(group["scene_group_id"])
+            scene_groups.append(
+                {
+                    **group,
+                    "item_count": len(
+                        scene_candidate_groups.get(scene_group_id, [])
+                    ),
+                }
+            )
+        assigned = _assign_curation_groups(
+            scene_candidate_groups,
+            ratios,
+            seed,
+        )
         split_payloads: dict[str, dict[str, object]] = {}
         source_sets: dict[str, set[str]] = {}
+        scene_sets: dict[str, set[str]] = {}
         for split in CURATION_SPLITS:
             items = sorted(
                 assigned[split],
                 key=lambda item: (
+                    str(item["visual_scene_group_id"]),
                     str(item["source_sha256"]),
                     str(item["run_id"]),
                     int(item["rank"]),
@@ -2017,11 +2188,15 @@ class LocalMetrologyService:
                 ),
             )
             sources = {str(item["source_sha256"]) for item in items}
+            scenes = {str(item["visual_scene_group_id"]) for item in items}
             source_sets[split] = sources
+            scene_sets[split] = scenes
             split_payloads[split] = {
                 "item_count": len(items),
                 "unique_source_count": len(sources),
+                "visual_scene_group_count": len(scenes),
                 "source_sha256s": sorted(sources),
+                "visual_scene_group_ids": sorted(scenes),
                 "disposition_counts": {
                     disposition: sum(
                         item["disposition"] == disposition for item in items
@@ -2030,17 +2205,27 @@ class LocalMetrologyService:
                 },
                 "items": items,
             }
-        overlaps = {
+        source_overlaps = {
             "train_val": sorted(source_sets["train"] & source_sets["val"]),
             "train_test": sorted(source_sets["train"] & source_sets["test"]),
             "val_test": sorted(source_sets["val"] & source_sets["test"]),
         }
-        leakage_passed = not any(overlaps.values())
+        scene_overlaps = {
+            "train_val": sorted(scene_sets["train"] & scene_sets["val"]),
+            "train_test": sorted(scene_sets["train"] & scene_sets["test"]),
+            "val_test": sorted(scene_sets["val"] & scene_sets["test"]),
+        }
+        leakage_passed = (
+            not any(source_overlaps.values())
+            and not any(scene_overlaps.values())
+        )
         blockers: list[str] = []
         if not deduplicated:
             blockers.append("no_quality_passing_candidates")
-        if len(groups) < minimum_unique_sources:
+        if len(source_groups) < minimum_unique_sources:
             blockers.append("insufficient_unique_sources")
+        elif len(scene_groups) < minimum_unique_sources:
+            blockers.append("insufficient_independent_visual_scene_groups")
         for split in CURATION_SPLITS:
             if not assigned[split]:
                 blockers.append(f"empty_{split}_split")
@@ -2052,13 +2237,23 @@ class LocalMetrologyService:
             blockers.append("invalid_feedback_packages_present")
         if inventory_truncated:
             blockers.append("feedback_inventory_truncated")
-        if not leakage_passed:
+        if truncated_scene_fingerprint_count:
+            blockers.append("scene_fingerprint_inventory_truncated")
+        if any(source_overlaps.values()):
             blockers.append("source_group_leakage_detected")
+        if any(scene_overlaps.values()):
+            blockers.append("visual_scene_group_leakage_detected")
+        raw_scene_links = scene_clustering["links"]
+        if not isinstance(raw_scene_links, list):
+            raise RuntimeError("scene clustering did not return links")
+        multi_source_scene_group_count = sum(
+            int(group["source_count"]) > 1 for group in scene_groups
+        )
         curation_id = validate_run_name(
             self._record_id_factory("feedback-curation")
         )
         payload: dict[str, object] = {
-            "schema_version": "urbanvision-feedback-curation-v1.0.0",
+            "schema_version": "urbanvision-feedback-curation-v2.0.0",
             "curation_id": curation_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "local_only": True,
@@ -2072,6 +2267,7 @@ class LocalMetrologyService:
                 "seed": seed,
                 "ratios": ratios,
                 "minimum_unique_sources": minimum_unique_sources,
+                "max_scene_hamming_distance": max_scene_hamming_distance,
                 "privacy_review_confirmed": privacy_review_confirmed,
                 "label_qa_confirmed": label_qa_confirmed,
             },
@@ -2086,7 +2282,8 @@ class LocalMetrologyService:
             "selection": {
                 "candidate_count_before_deduplication": len(candidates),
                 "selected_item_count": len(deduplicated),
-                "unique_source_count": len(groups),
+                "unique_source_count": len(source_groups),
+                "visual_scene_group_count": len(scene_groups),
                 "exclusion_counts": exclusion_counts,
                 "duplicate_policy": (
                     "Retain the highest-priority deterministic representative "
@@ -2094,15 +2291,46 @@ class LocalMetrologyService:
                     "packages remain unchanged"
                 ),
             },
+            "visual_scene_clustering": {
+                "algorithm": (
+                    "deterministic single-linkage union-find over 64-bit "
+                    "source-ROI difference hashes"
+                ),
+                "max_hamming_distance": max_scene_hamming_distance,
+                "fingerprints_per_source_limit": (
+                    MAX_SCENE_FINGERPRINTS_PER_SOURCE
+                ),
+                "truncated_fingerprint_count": (
+                    truncated_scene_fingerprint_count
+                ),
+                "truncated_source_count": truncated_scene_source_count,
+                "scene_group_count": len(scene_groups),
+                "multi_source_scene_group_count": (
+                    multi_source_scene_group_count
+                ),
+                "near_duplicate_link_count": len(raw_scene_links),
+                "near_duplicate_links": raw_scene_links,
+                "groups": scene_groups,
+                "interpretation": (
+                    "A conservative visual-similarity firewall. A link keeps "
+                    "sources in one split but is not proof that files are "
+                    "identical or depict the same physical location"
+                ),
+            },
             "splits": split_payloads,
             "leakage_audit": {
-                "group_key": "source_sha256",
+                "group_keys": [
+                    "source_sha256",
+                    "visual_scene_group_id",
+                ],
                 "passed": leakage_passed,
-                "source_overlaps": overlaps,
+                "source_overlaps": source_overlaps,
+                "visual_scene_group_overlaps": scene_overlaps,
                 "interpretation": (
-                    "Every ROI from one source image is assigned to exactly one "
-                    "split; this prevents same-source leakage but cannot detect "
-                    "different files depicting the same location"
+                    "Every exact source and every conservatively linked visual "
+                    "scene group is assigned to exactly one split. Perceptual "
+                    "similarity reduces near-duplicate leakage but cannot prove "
+                    "physical-location identity"
                 ),
             },
             "readiness": {

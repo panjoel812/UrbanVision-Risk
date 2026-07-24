@@ -1,4 +1,4 @@
-# UrbanVision-Risk v4.9 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v5.0 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -194,6 +194,20 @@ The assignment unit is the complete `source_sha256` group, never an individual R
 The plan stays `not_training_ready` when it has too few independent sources, an empty split, pending privacy or label review, malformed packages, a truncated inventory, or a failed overlap audit. Even with no blocker, its status is `candidate_plan_requires_training_approval` and `training_authorized` remains `false`. A separate accountable decision is required before materialization or training.
 
 当独立原图不足、任一切分为空、隐私或标签复核待完成、存在损坏反馈包、清单被截断或交集审计失败时，策划保持 `not_training_ready`。即使没有阻断项，其状态也只是 `candidate_plan_requires_training_approval`，且 `training_authorized` 始终为 `false`；真正落盘为数据集或训练前仍需单独的责任审批。
+
+### Visual-scene leakage firewall / 视觉场景泄漏防火墙
+
+Version 5.0 addresses a harder failure mode: two different files can show nearly the same texture, crop, or physical scene while having different SHA-256 values. For each selected source, the curator retains at most 128 bounded source-ROI difference hashes. It compares every source pair by the minimum Hamming distance between their fingerprints and records a link when that distance is at or below `max_scene_hamming_distance` (default 4, allowed 0–16).
+
+v5.0 处理更难的失败模式：两个不同文件可能呈现几乎相同的纹理、裁剪或实际场景，但 SHA-256 完全不同。策划器为每个入选来源最多保留 128 个有界原图 ROI 差分指纹，在所有来源对之间计算指纹集合的最小汉明距离；当距离不大于 `max_scene_hamming_distance`（默认 4，允许 0–16）时记录一条连接。
+
+The links enter deterministic single-linkage union-find. Therefore A≈B and B≈C place A, B, and C in one transitive visual group even when A and C do not directly meet the threshold. The allocation algorithm receives complete visual groups instead of individual sources. Each item records `visual_scene_group_id`; every split lists its scene-group IDs; and `leakage_audit` verifies that neither exact sources nor visual groups overlap.
+
+连接进入确定性单链并查集。因此即使 A 与 C 没有直接达到阈值，只要 A≈B 且 B≈C，三者也会进入同一个传递视觉簇。切分算法接收完整视觉簇，而不是单个来源。每个样本记录 `visual_scene_group_id`，每个切分列出视觉簇编号，`leakage_audit` 同时验证精确来源和视觉簇均无交集。
+
+This is intentionally conservative. Difference hashes can collide, single linkage can chain unrelated scenes, and ROI similarity is not geolocation. Raising the threshold reduces leakage risk but increases false grouping and may leave validation or test empty. Every link stores both source digests, both fingerprints, and the measured distance so a reviewer can audit the grouping rather than trust a hidden heuristic.
+
+该机制有意保持保守。差分指纹可能碰撞，单链可能把无关场景串联，ROI 相似也不等于地理位置相同。调高阈值会降低泄漏风险，但增加误合并概率，并可能使验证集或测试集为空。每条连接保存两侧来源摘要、指纹和实际距离，让复核者审计分组，而不是盲目信任隐藏启发式规则。
 
 Images larger than two million pixels are processed on a downsampled work raster and the binary proposal is restored to the exact source resolution. This bounds memory and runtime without sending pixels to a cloud service. The sensitivity slider changes proposal recall; it is not a calibrated probability or YOLO confidence.
 

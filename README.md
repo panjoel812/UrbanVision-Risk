@@ -1,14 +1,14 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。选择一张图片会在本机并行启动三视图检测和裂缝候选；画笔/橡皮修订把 `automatic_draft` 更新为 `human_reviewed`。v4.9 把主动学习反馈推进到防泄漏数据策划：只选择通过像素一致性门控的 ROI；相同 64 位差分指纹只在候选清单中保留一个最高优先级代表；所有来自同一 `source_sha256` 的 ROI 必须整体进入 train、val 或 test 之一。生成的不可覆盖 JSON 会记录输入清单摘要、排除原因、切分内容、原图交集审计和训练就绪阻断项。原反馈 ZIP 不会被删除，且即使没有阻断项，系统也不会自动授权训练。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。选择一张图片会在本机并行启动三视图检测和裂缝候选；画笔/橡皮修订把 `automatic_draft` 更新为 `human_reviewed`。v5.0 在质量门控、确定性去重和源图分组之上增加视觉场景泄漏防火墙：计算不同来源 ROI 的 64 位感知指纹汉明距离，用确定性单链并查集构建传递近重复簇，再把整个视觉簇作为不可分割单元分配到 train、val 或 test。不可覆盖 JSON 同时审计精确源图交集和视觉簇交集，并保存触发聚类的指纹对与距离。它是保守的泄漏风险控制，不是地点身份识别；原反馈 ZIP 不会被删除，系统也不会自动授权训练。
 
-**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Choosing one image starts three-view detection and a crack proposal locally in parallel; brush/eraser correction advances `automatic_draft` to `human_reviewed`. Version 4.9 advances active-learning feedback into leakage-safe data curation: only pixel-consistency-gated ROIs are eligible; equal 64-bit difference fingerprints retain one highest-priority representative in the candidate plan; and every ROI with the same `source_sha256` must stay wholly in train, validation, or test. The immutable JSON records its inventory digest, exclusions, split contents, source-overlap audit, and readiness blockers. Original feedback ZIPs are never deleted, and the system never authorizes training automatically—even when no blocker remains.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Choosing one image starts three-view detection and a crack proposal locally in parallel; brush/eraser correction advances `automatic_draft` to `human_reviewed`. Version 5.0 adds a visual-scene leakage firewall above quality gates, deterministic deduplication, and exact-source grouping. It measures Hamming distance between 64-bit source-ROI perceptual fingerprints, builds transitive near-duplicate groups with deterministic single-linkage union-find, and assigns each whole visual group to train, validation, or test. The immutable JSON audits both exact-source and visual-group intersections and records every fingerprint pair that formed a link. This is conservative leakage-risk control, not location identity; original ZIPs remain untouched and training is never authorized automatically.
 
 **v3.0 Calibrated Metrology / 标定量测：** printable field fiducials, semantic marker detection (`TL/TR/BR/BL`), homography rectification, graph-geodesic length, skeleton distance-transform width, immutable artifacts, privacy-minimized provenance, deterministic uncertainty analysis, and a first-hand field-validation protocol. / 可打印现场标记、语义标记检测、单应性矫正、图测地长度、骨架距离变换宽度、不可覆盖结果、最小化隐私来源记录、确定性不确定性分析和亲身现场验证方案。
 
 **v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v4.9 Quick Start / v4.9 快速启动
+## v5.0 Quick Start / v5.0 快速启动
 
 ```bash
 uv sync --extra dev
@@ -23,9 +23,9 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`: upload once; reliability-aware detection and the editable mask proposal run in parallel; green candidates, yellow review hotspots, a ranked queue, synchronized magnified editing, and an automatic pixel-metrology draft appear next. Saving structured dispositions creates the local feedback ZIP and refreshes the registry. The integrated **Build leakage-safe candidate plan** control then filters quality failures, removes duplicate candidates without modifying their source packages, groups by source digest, creates deterministic 80/10/10 splits, and writes an immutable audit JSON. Checkboxes record privacy and label-QA confirmation; they do not grant training authorization.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`. After reviewed dispositions create local feedback ZIPs, **Build leakage-safe candidate plan** filters quality failures, removes exact duplicate candidates without modifying source packages, connects visually near-duplicate sources at the selected 0–16 bit threshold, assigns whole transitive groups to deterministic 80/10/10 splits, and writes a dual-layer leakage audit. The default threshold is 4 bits. Raising it is more conservative but increases false grouping; privacy and label-QA checkboxes still do not grant training authorization.
 
-第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程。保存结构化处置后会生成本地反馈 ZIP 并刷新台账。随后可直接在同一区域点击 **生成防泄漏候选策划**：系统会排除质量失败项、在不改动原包的前提下去除重复候选、按原图摘要分组、确定性生成 80/10/10 切分，并保存不可覆盖的审计 JSON。两个勾选框只记录隐私和标签抽检是否完成，不构成训练授权。端口被占用时使用 `--port 8001`。
+第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程。复核处置生成本地反馈 ZIP 后，点击 **生成防泄漏候选策划**：系统排除质量失败项，在不改动原包的前提下去除精确重复候选，按所选 0–16 bit 阈值连接视觉近重复来源，把完整传递簇确定性分配到 80/10/10 切分，并保存双层泄漏审计。默认阈值为 4 bit；调高会更保守，也更容易误合并。隐私和标签抽检勾选仍不构成训练授权。端口被占用时使用 `--port 8001`。
 
 The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
 

@@ -274,9 +274,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v4.9 · Leakage-safe feedback curation</p>
+        <p class="eyebrow">v5.0 · Visual-scene leakage firewall</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>人工处置先经过像素一致性门控，再进入防泄漏策划：重复 ROI 指纹只保留一个候选，同一原图的所有 ROI 永远进入同一个数据切分，并明确阻止未经隐私与标签复核的数据被称为“训练就绪”。</span><span data-en class="hidden-lang">Operator dispositions pass pixel-consistency gates before leakage-safe curation: duplicate ROI fingerprints retain one candidate, every ROI from one source stays in one split, and data without privacy and label review is never called training-ready.</span></p>
+        <p class="hero-copy"><span data-zh>训练前防火墙不仅阻止同一原图跨切分，还用 ROI 感知指纹的汉明距离连接视觉近重复来源；传递相似的完整场景簇只能进入 train、val 或 test 之一，并保留可机器复核的连接证据。</span><span data-en class="hidden-lang">The pre-training firewall blocks both exact-source leakage and visually near-duplicate leakage. Hamming-distance links over ROI fingerprints form transitive source-scene groups that must stay wholly in train, validation, or test, with machine-auditable evidence.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -462,9 +462,10 @@ METROLOGY_HTML = """<!doctype html>
               <a id="feedback-download" class="download-link" href="" download><span data-zh>下载反馈 ZIP</span><span data-en class="hidden-lang">Download feedback ZIP</span></a>
               <div class="utility-fields">
                 <div class="field"><label for="curation-seed"><span data-zh>确定性种子</span><span data-en class="hidden-lang">Deterministic seed</span></label><input id="curation-seed" type="number" min="0" max="2147483647" step="1" value="42"></div>
-                <div class="field"><label for="curation-min-sources"><span data-zh>最少独立原图</span><span data-en class="hidden-lang">Minimum source images</span></label><input id="curation-min-sources" type="number" min="1" max="10000" step="1" value="10"></div>
+                <div class="field"><label for="curation-min-sources"><span data-zh>最少独立视觉簇</span><span data-en class="hidden-lang">Minimum visual groups</span></label><input id="curation-min-sources" type="number" min="1" max="10000" step="1" value="10"></div>
+                <div class="field"><label for="curation-scene-distance"><span data-zh>近重复阈值（bits）</span><span data-en class="hidden-lang">Near-duplicate threshold (bits)</span></label><input id="curation-scene-distance" type="number" min="0" max="16" step="1" value="4"></div>
               </div>
-              <p class="subcopy"><span data-zh>固定切分 80% / 10% / 10%；按原图 SHA-256 整组分配。</span><span data-en class="hidden-lang">Fixed 80% / 10% / 10% split; grouped by source SHA-256.</span></p>
+              <p class="subcopy"><span data-zh>固定切分 80% / 10% / 10%；同一 SHA-256 或视觉近重复簇均不可跨切分。阈值越高越保守，也越可能把不同场景合并。</span><span data-en class="hidden-lang">Fixed 80% / 10% / 10%. Exact sources and visual near-duplicate groups cannot cross splits. Higher thresholds are more conservative and may merge unrelated scenes.</span></p>
               <label class="privacy"><input id="curation-privacy" type="checkbox"> <span data-zh>我已完成人物、车牌与位置隐私复核</span><span data-en class="hidden-lang">People, plate, and location privacy review is complete</span></label>
               <label class="privacy"><input id="curation-label-qa" type="checkbox"> <span data-zh>我已完成标签质量抽检</span><span data-en class="hidden-lang">Label-quality review is complete</span></label>
               <button id="curation-button" class="utility-button" type="button" disabled><span data-zh>生成防泄漏候选策划</span><span data-en class="hidden-lang">Build leakage-safe candidate plan</span></button>
@@ -511,7 +512,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v4.9 · Leakage-Safe Feedback Curation · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v5.0 · Visual-Scene Leakage Firewall · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -668,8 +669,11 @@ METROLOGY_HTML = """<!doctype html>
           curationBlocked: "策划已生成，但尚未训练就绪",
           selectedItems: "入选样本",
           uniqueSources: "独立原图",
+          visualSceneGroups: "独立视觉簇",
+          nearDuplicateLinks: "近重复连接",
           duplicateRemoved: "重复指纹排除",
           sourceLeakage: "原图跨切分泄漏",
+          visualSceneLeakage: "视觉簇跨切分泄漏",
           readinessBlockers: "阻断项",
           trainingAuthorization: "训练授权",
           downloadJson: "下载审计 JSON"
@@ -777,8 +781,11 @@ METROLOGY_HTML = """<!doctype html>
           curationBlocked: "Plan created, but not training-ready",
           selectedItems: "Selected items",
           uniqueSources: "Independent sources",
+          visualSceneGroups: "Independent visual groups",
+          nearDuplicateLinks: "Near-duplicate links",
           duplicateRemoved: "Duplicate fingerprints excluded",
           sourceLeakage: "Cross-split source leakage",
+          visualSceneLeakage: "Cross-split visual-group leakage",
           readinessBlockers: "Blockers",
           trainingAuthorization: "Training authorization",
           downloadJson: "Download audit JSON"
@@ -811,6 +818,7 @@ METROLOGY_HTML = """<!doctype html>
         zh: {
           no_quality_passing_candidates: "没有通过质量门控的候选",
           insufficient_unique_sources: "独立原图不足",
+          insufficient_independent_visual_scene_groups: "独立视觉簇不足",
           empty_train_split: "训练切分为空",
           empty_val_split: "验证切分为空",
           empty_test_split: "测试切分为空",
@@ -818,11 +826,14 @@ METROLOGY_HTML = """<!doctype html>
           label_qa_pending: "标签抽检未确认",
           invalid_feedback_packages_present: "存在损坏反馈包",
           feedback_inventory_truncated: "反馈清单超过本次读取上限",
-          source_group_leakage_detected: "发现原图跨切分泄漏"
+          scene_fingerprint_inventory_truncated: "视觉指纹超过单个来源读取上限",
+          source_group_leakage_detected: "发现原图跨切分泄漏",
+          visual_scene_group_leakage_detected: "发现视觉簇跨切分泄漏"
         },
         en: {
           no_quality_passing_candidates: "No quality-passing candidates",
           insufficient_unique_sources: "Too few independent sources",
+          insufficient_independent_visual_scene_groups: "Too few independent visual groups",
           empty_train_split: "Training split is empty",
           empty_val_split: "Validation split is empty",
           empty_test_split: "Test split is empty",
@@ -830,7 +841,9 @@ METROLOGY_HTML = """<!doctype html>
           label_qa_pending: "Label QA is unconfirmed",
           invalid_feedback_packages_present: "Malformed feedback packages exist",
           feedback_inventory_truncated: "Feedback inventory exceeded the read limit",
-          source_group_leakage_detected: "Cross-split source leakage detected"
+          scene_fingerprint_inventory_truncated: "Per-source visual-fingerprint inventory was truncated",
+          source_group_leakage_detected: "Cross-split source leakage detected",
+          visual_scene_group_leakage_detected: "Cross-split visual-group leakage detected"
         }
       };
       const tierLabels = {
@@ -1953,19 +1966,27 @@ METROLOGY_HTML = """<!doctype html>
         const curation = payload.curation;
         const selection = curation.selection;
         const leakage = curation.leakage_audit;
+        const clustering = curation.visual_scene_clustering || {};
+        const sourceOverlap = leakage.source_overlaps || {};
+        const visualOverlap = leakage.visual_scene_group_overlaps || {};
+        const hasOverlap = (overlaps) => Object.values(overlaps).some(
+          (items) => Array.isArray(items) && items.length > 0
+        );
         const blockers = curation.readiness.blockers || [];
         const splitSummary = ["train", "val", "test"].map((split) => {
           const value = curation.splits[split];
-          return `${split}: ${value.item_count} / ${value.unique_source_count}`;
+          return `${split}: ${value.item_count} / ${value.unique_source_count} / ${value.visual_scene_group_count}`;
         }).join(" · ");
         const blockerText = blockers.length
           ? blockers.map((code) => curationBlockerLabels[language][code] || code).join("；")
           : (language === "zh" ? "无；仍需单独批准训练" : "None; training still requires separate approval");
         const lines = [
-          `${t("selectedItems")}: ${selection.selected_item_count} · ${t("uniqueSources")}: ${selection.unique_source_count}`,
-          `${splitSummary} (${language === "zh" ? "样本 / 原图" : "items / sources"})`,
+          `${t("selectedItems")}: ${selection.selected_item_count} · ${t("uniqueSources")}: ${selection.unique_source_count} · ${t("visualSceneGroups")}: ${selection.visual_scene_group_count}`,
+          `${splitSummary} (${language === "zh" ? "样本 / 原图 / 视觉簇" : "items / sources / visual groups"})`,
+          `${t("nearDuplicateLinks")}: ${Number(clustering.near_duplicate_link_count || 0)} · ${language === "zh" ? "多来源视觉簇" : "multi-source groups"}: ${Number(clustering.multi_source_scene_group_count || 0)}`,
           `${t("duplicateRemoved")}: ${selection.exclusion_counts.duplicate_fingerprint}`,
-          `${t("sourceLeakage")}: ${leakage.passed ? (language === "zh" ? "未发现" : "not detected") : (language === "zh" ? "已发现" : "detected")}`,
+          `${t("sourceLeakage")}: ${hasOverlap(sourceOverlap) ? (language === "zh" ? "已发现" : "detected") : (language === "zh" ? "未发现" : "not detected")}`,
+          `${t("visualSceneLeakage")}: ${hasOverlap(visualOverlap) ? (language === "zh" ? "已发现" : "detected") : (language === "zh" ? "未发现" : "not detected")}`,
           `${t("readinessBlockers")}: ${blockerText}`,
           `${t("trainingAuthorization")}: ${curation.training_authorized ? (language === "zh" ? "已授权" : "authorized") : (language === "zh" ? "未授权" : "not authorized")}`
         ];
@@ -1989,6 +2010,7 @@ METROLOGY_HTML = """<!doctype html>
         form.append("val_ratio", "0.1");
         form.append("test_ratio", "0.1");
         form.append("minimum_unique_sources", String(inputNumber("curation-min-sources")));
+        form.append("max_scene_hamming_distance", String(inputNumber("curation-scene-distance")));
         form.append("privacy_review_confirmed", String(byId("curation-privacy").checked));
         form.append("label_qa_confirmed", String(byId("curation-label-qa").checked));
         try {

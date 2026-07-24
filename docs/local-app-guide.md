@@ -1,4 +1,4 @@
-# UrbanVision-Risk v4.9 Reliability-Aware Local App / 可靠性本地应用指南
+# UrbanVision-Risk v5.0 Reliability-Aware Local App / 可靠性本地应用指南
 
 ## Finished product / 最终产品
 
@@ -44,13 +44,17 @@ The browser workflow includes:
 - overlay, rectified overlay, width heatmap, skeleton, topology, physical geometry, interval evidence, and complete `measurement.json` / 叠加图、矫正图、宽度热图、骨架、拓扑、真实几何量、区间证据和完整 JSON；
 - immutable local output under `results/metrology/<run-id>/` / 保存到不可覆盖的本地量测目录。
 
-One upload automatically starts transform-consensus detection and the independent local crack proposal in parallel. Ranked disagreement, synchronized correction, structured dispositions, deterministic feedback export, quality gates, and the bounded registry remain in one workflow. Version 4.9 adds `/api/metrology/feedback-curations`: it selects only `pass` items, retains one deterministic highest-priority representative per equal 64-bit difference fingerprint, and assigns complete `source_sha256` groups to train, validation, or test. The output includes its exact manifest-inventory digest, exclusion counts, source-overlap audit, readiness blockers, and `training_authorized: false`.
+One upload automatically starts transform-consensus detection and the independent local crack proposal in parallel. Ranked disagreement, synchronized correction, structured dispositions, deterministic feedback export, quality gates, and the bounded registry remain in one workflow. Version 5.0 extends `/api/metrology/feedback-curations` with a visual near-duplicate split firewall. After exact duplicate removal, it computes pairwise Hamming distance between bounded sets of 64-bit source-ROI fingerprints. Deterministic single-linkage union-find makes every transitively connected source group an indivisible allocation unit.
 
-上传一次仍会并行启动变换共识检测和本地裂缝建议；排序分歧、同步修订、结构化处置、确定性反馈导出、质量门控和有界台账都位于同一流程。v4.9 新增 `/api/metrology/feedback-curations`：只选择 `pass` 项；相同 64 位差分指纹确定性保留最高优先级代表；再把完整 `source_sha256` 组分配到训练、验证或测试集。输出记录精确清单摘要、排除计数、原图交集审计、就绪阻断项和 `training_authorized: false`。
+上传一次仍会并行启动变换共识检测和本地裂缝建议；排序分歧、同步修订、结构化处置、确定性反馈导出、质量门控和有界台账都位于同一流程。v5.0 为 `/api/metrology/feedback-curations` 增加视觉近重复切分防火墙：精确去重后，在每个来源有界的 64 位 ROI 指纹集合之间计算两两汉明距离，再由确定性单链并查集把所有传递相连的来源变成不可分割分配单元。
 
-In the feedback panel, choose a seed and minimum independent-source count, record whether privacy and label QA are complete, then build the candidate plan. The default ratios are 80/10/10. Empty holdouts, too few sources, malformed packages, missing governance confirmations, or detected source overlap remain explicit blockers. The plan is immutable JSON under `results/metrology/curations/`; it references files inside preserved ZIPs rather than extracting or deleting them.
+In the feedback panel, choose a seed, minimum independent visual-group count, and a Hamming threshold from 0 to 16 bits, then record whether privacy and label QA are complete. The default threshold is 4 bits. Each split reports items, exact sources, and visual groups. The audit separately lists exact-source and visual-group intersections plus the source pair, fingerprint pair, and distance behind every near-duplicate link. Empty holdouts, insufficient independent groups, malformed packages, truncated fingerprint inventories, missing governance confirmations, or overlap remain blockers.
 
-在反馈区域选择种子和最少独立原图数量，记录隐私复核与标签抽检是否完成，再生成候选策划。默认比例为 80/10/10。留出集为空、原图不足、反馈包损坏、治理确认缺失或发现原图交集都会保留为明确阻断项。策划以不可覆盖 JSON 保存到 `results/metrology/curations/`，只引用保留 ZIP 内的文件，不解压或删除原包。
+在反馈区域选择种子、最少独立视觉簇数量和 0–16 bit 汉明阈值，再记录隐私复核与标签抽检是否完成。默认阈值为 4 bit。每个切分同时显示样本数、精确来源数和视觉簇数；审计分别列出精确来源与视觉簇交集，并记录每条近重复连接的来源对、指纹对和距离。留出集为空、独立簇不足、反馈包损坏、指纹清单截断、治理确认缺失或发现交集都会保留为阻断项。
+
+The plan remains immutable JSON under `results/metrology/curations/` and references preserved ZIP members rather than extracting or deleting them. A perceptual link is deliberately one-way safety evidence: it forces co-location in a split, but it does not prove two files are identical or show the same physical road.
+
+策划仍以不可覆盖 JSON 保存到 `results/metrology/curations/`，只引用保留 ZIP 内的成员，不解压或删除原包。感知连接只是单向安全证据：它会强制两个来源进入同一切分，但不能证明两个文件完全相同或拍摄了同一实际路段。
 
 ## What happens after upload / 上传后发生什么
 

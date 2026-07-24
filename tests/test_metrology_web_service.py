@@ -17,6 +17,8 @@ from urbanvision_risk.app.metrology_service import (
     _deterministic_zip_bytes,
     _difference_hash64,
     _feedback_quality_gate,
+    _fingerprint_hamming_distance,
+    _near_duplicate_scene_groups,
 )
 from urbanvision_risk.errors import ProjectError
 from urbanvision_risk.paths import get_paths
@@ -147,17 +149,62 @@ def test_feedback_curation_group_assignment_is_deterministic_and_leakage_safe() 
         _curation_ratios(0.8, 0.15, 0.1)
 
 
+def test_visual_scene_clustering_is_deterministic_transitive_and_auditable() -> None:
+    source_a = "a" * 64
+    source_b = "b" * 64
+    source_c = "c" * 64
+    source_d = "d" * 64
+    fingerprints = {
+        source_a: {"0000000000000000"},
+        source_b: {"0000000000000001"},
+        source_c: {"0000000000000003"},
+        source_d: {"ffffffffffffffff"},
+    }
+
+    first = _near_duplicate_scene_groups(fingerprints, max_hamming_distance=1)
+    second = _near_duplicate_scene_groups(fingerprints, max_hamming_distance=1)
+
+    assert first == second
+    assert _fingerprint_hamming_distance(
+        "0000000000000000",
+        "0000000000000003",
+    ) == 2
+    assert len(first["groups"]) == 2
+    assert first["source_to_scene_group"][source_a] == (
+        first["source_to_scene_group"][source_c]
+    )
+    assert first["source_to_scene_group"][source_d] != (
+        first["source_to_scene_group"][source_a]
+    )
+    assert [link["hamming_distance"] for link in first["links"]] == [1, 1]
+    with pytest.raises(ProjectError, match="max_scene_hamming_distance"):
+        _near_duplicate_scene_groups(fingerprints, max_hamming_distance=17)
+
+
 def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
     tmp_path: Path,
 ) -> None:
     paths = get_paths(tmp_path)
     feedback_name = "active-learning-feedback.zip"
+    scene_fingerprints = [
+        "0000000000000000",
+        "0000000000000001",
+        "ffffffffffffffff",
+        "aaaaaaaaaaaaaaaa",
+        "5555555555555555",
+        "cccccccccccccccc",
+        "3333333333333333",
+        "f0f0f0f0f0f0f0f0",
+        "0f0f0f0f0f0f0f0f",
+        "9696969696969696",
+    ]
     for index in range(10):
         run_id = f"feedback-source-{index:03d}"
         run_dir = paths.metrology / run_id
         run_dir.mkdir(parents=True)
         item_root = f"items/01-hotspot-{index:03d}"
         file_digest = f"{index + 100:064x}"
+        scene_fingerprint = scene_fingerprints[index]
         manifest = {
             "schema_version": "urbanvision-active-learning-feedback-v1.1.0",
             "run_id": run_id,
@@ -170,7 +217,7 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
                     "rank": 1,
                     "disposition": "accepted_as_proposed",
                     "priority_score": float(100 - index),
-                    "source_roi_difference_hash64": f"{index + 1:016x}",
+                    "source_roi_difference_hash64": scene_fingerprint,
                     "quality_gate": {"status": "pass"},
                     "source_bounding_box": {
                         "x": 1,
@@ -218,7 +265,7 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
 
     result = service.create_feedback_curation(
         seed=42,
-        minimum_unique_sources=10,
+        minimum_unique_sources=9,
         privacy_review_confirmed=True,
         label_qa_confirmed=True,
     )
@@ -228,11 +275,28 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
     assert curation["training_authorized"] is False
     assert curation["readiness"]["blockers"] == []
     assert curation["selection"]["selected_item_count"] == 10
+    assert curation["selection"]["visual_scene_group_count"] == 9
+    assert curation["visual_scene_clustering"]["near_duplicate_link_count"] == 1
+    assert curation["visual_scene_clustering"]["scene_group_count"] == 9
+    assert curation["visual_scene_clustering"][
+        "multi_source_scene_group_count"
+    ] == 1
     assert {
         split: curation["splits"][split]["item_count"]
         for split in ("train", "val", "test")
     } == {"train": 8, "val": 1, "test": 1}
     assert curation["leakage_audit"]["passed"] is True
+    assert curation["leakage_audit"]["visual_scene_group_overlaps"] == {
+        "train_val": [],
+        "train_test": [],
+        "val_test": [],
+    }
+    split_by_source = {
+        source: split
+        for split, split_payload in curation["splits"].items()
+        for source in split_payload["source_sha256s"]
+    }
+    assert split_by_source[f"{1:064x}"] == split_by_source[f"{2:064x}"]
 
 
 def _textured_crack_source() -> bytes:

@@ -110,6 +110,16 @@ METROLOGY_HTML = """<!doctype html>
     .pipeline-stage.complete::before { background: var(--forest-2); }
     .autopilot-control { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--forest-2) 35%, var(--line)); border-radius: 10px; background: var(--mint); color: var(--forest); font-size: .7rem; font-weight: 680; }
     .autopilot-control input { flex: none; margin-top: 3px; accent-color: var(--forest-2); }
+    .batch-panel { margin-top: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+    .batch-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; font-size: .72rem; }
+    .batch-summary { color: var(--muted); font-size: .68rem; }
+    .batch-list { display: grid; gap: 5px; max-height: 180px; margin-top: 8px; overflow: auto; }
+    .batch-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--soft); font-size: .65rem; }
+    .batch-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .batch-item-state { color: var(--muted); font-weight: 720; }
+    .batch-item.running .batch-item-state { color: var(--amber); }
+    .batch-item.complete .batch-item-state { color: var(--forest-2); }
+    .batch-item.failed .batch-item-state { color: var(--red); }
     .inspection-loading { display: flex; align-items: center; gap: 9px; padding: 12px; border-radius: 12px; background: var(--soft); color: var(--muted); font-size: .76rem; }
     .spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--line); border-top-color: var(--forest-2); border-radius: 50%; animation: spin 800ms linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -276,9 +286,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v5.2 · Policy-bounded local autopilot</p>
+        <p class="eyebrow">v5.3 · Resilient batch autopilot</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>选图后，机器默认自动完成检测、掩膜、热点处置、候选量测、反馈筛选与内容寻址快照。所有机器结论都标记为“机器候选”；系统不会冒充人工确认，也不会自动授权训练。</span><span data-en class="hidden-lang">After one image selection, the machine automatically runs detection, masking, hotspot disposition, candidate metrology, feedback curation, and a content-addressed snapshot. Every machine conclusion remains a machine candidate; the system never impersonates human confirmation or authorizes training.</span></p>
+        <p class="hero-copy"><span data-zh>一次选择最多 100 张图片，机器会逐张完成检测、掩膜、热点处置和候选量测；单张失败不会中断整批。最后统一生成批次审计、防泄漏策划与内容寻址快照。机器结论不会冒充人工确认，也不会自动授权训练。</span><span data-en class="hidden-lang">Choose up to 100 images once. The machine runs detection, masking, hotspot disposition, and candidate metrology for each image; one failure cannot stop the batch. It then creates one batch audit, leakage-safe curation, and content-addressed snapshot. Machine conclusions never impersonate human confirmation or authorize training.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -292,13 +302,13 @@ METROLOGY_HTML = """<!doctype html>
       <section class="card workbench">
         <div class="section">
           <div class="section-head">
-            <div><h2><span data-zh>选择一次，自动开始</span><span data-en class="hidden-lang">Choose once, start automatically</span></h2><p class="subcopy">JPEG · PNG · WebP · ≤ 15 MiB · ≤ 20 MP</p></div>
+            <div><h2><span data-zh>一次选择多张，整批自动完成</span><span data-en class="hidden-lang">Choose multiple images, automate the batch</span></h2><p class="subcopy">JPEG · PNG · WebP · ≤ 15 MiB each · ≤ 20 MP each · ≤ 100 files</p></div>
             <span class="step">01 · UPLOAD + AUTO</span>
           </div>
           <div class="upload-row">
             <label class="file-label">
-              <input id="source-input" type="file" accept="image/jpeg,image/png,image/webp">
-              <span id="file-title" class="file-title"><span data-zh>点击选择道路图片</span><span data-en class="hidden-lang">Click to choose a road image</span></span>
+              <input id="source-input" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+              <span id="file-title" class="file-title"><span data-zh>点击选择一张或多张道路图片</span><span data-en class="hidden-lang">Choose one or more road images</span></span>
               <span id="file-meta" class="file-meta"><span data-zh>图片不会发送到互联网</span><span data-en class="hidden-lang">The image never leaves this machine</span></span>
             </label>
             <button id="replace-button" class="secondary-button" type="button" disabled><span data-zh>重新选择</span><span data-en class="hidden-lang">Replace</span></button>
@@ -310,6 +320,11 @@ METROLOGY_HTML = """<!doctype html>
             <span id="stage-review" class="pipeline-stage"><span data-zh>机器保存 + 治理</span><span data-en class="hidden-lang">Machine save + governance</span></span>
           </div>
           <label class="autopilot-control"><input id="autopilot-toggle" type="checkbox" checked><span><span data-zh>自动驾驶开启：自动处置热点、保存机器候选、生成防泄漏策划并验证 Merkle 快照；人工可随时覆盖修正。</span><span data-en class="hidden-lang">Autopilot on: disposition hotspots, save the machine candidate, build leakage-safe curation, and verify the Merkle snapshot automatically. A human can override it at any time.</span></span></label>
+          <section id="batch-panel" class="batch-panel hidden" aria-live="polite">
+            <div class="batch-head"><strong><span data-zh>批量自动驾驶队列</span><span data-en class="hidden-lang">Batch-autopilot queue</span></strong><span id="batch-summary" class="batch-summary">—</span></div>
+            <div id="batch-list" class="batch-list"></div>
+            <div id="batch-result" class="utility-result hidden"></div>
+          </section>
         </div>
 
         <div id="inspection-section" class="section hidden">
@@ -517,7 +532,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v5.2 · Policy-bounded Local Autopilot · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v5.3 · Resilient Batch Autopilot · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -553,6 +568,7 @@ METROLOGY_HTML = """<!doctype html>
       let latestFeedbackCatalog = null;
       let latestFeedbackCuration = null;
       let latestFeedbackSnapshot = null;
+      let latestAutopilotBatch = null;
       let activeProposalId = null;
       let proposalSuppressed = false;
       let reviewHotspotsVisible = true;
@@ -570,11 +586,13 @@ METROLOGY_HTML = """<!doctype html>
       let reviewProgressDirty = false;
       let measurementOperationCount = 0;
       let pipelineStage = "idle";
+      let batchRunning = false;
+      let batchQueue = [];
       const AUTOPILOT_ACCEPT_OVERLAP = 0.10;
 
       const text = {
         zh: {
-          choose: "点击选择道路图片",
+          choose: "点击选择一张或多张道路图片",
           private: "图片不会发送到互联网",
           ready: "原图已就绪，自动检测与自动掩膜正在并行运行。",
           pipelineComplete: "自动驾驶已完成检测、掩膜、机器候选量测与数据治理；可选人工抽检或修正。",
@@ -611,6 +629,16 @@ METROLOGY_HTML = """<!doctype html>
           machineComplete: "机器候选已保存，正在自动运行反馈治理与快照预检…",
           autopilotComplete: "本地自动驾驶链已完成；机器标签仍被训练防火墙阻断，等待独立人工批准。",
           autopilotPartial: "机器候选已保存，但自动治理链未全部完成；可使用下方按钮重试。",
+          batchTooLarge: "一次最多处理 100 张图片。",
+          batchRequiresAutopilot: "多图队列需要开启自动驾驶；当前只处理第一张。",
+          batchPending: "等待",
+          batchRunning: "处理中",
+          batchComplete: "完成",
+          batchFailed: "失败，已跳过",
+          batchGovernance: "图片处理结束，正在一次性生成批次策划与 Merkle 快照…",
+          batchFinished: "批量自动驾驶完成",
+          batchFinishedWithFailures: "批次已完成，部分图片失败但没有中断其他图片",
+          batchFinalizeFailed: "图片候选已保存，但批次治理记录生成失败。",
           editedState: "绿色掩膜已有尚未保存的人工修改；右侧仍显示上一次自动草稿。",
           reviewedState: "这是已保存的人工复核版本；真实尺寸仍只在有效标定后成立。",
           demoState: "这是确定性算法演示，不代表人工复核或现场精度验证。",
@@ -699,7 +727,7 @@ METROLOGY_HTML = """<!doctype html>
           downloadJson: "下载审计 JSON"
         },
         en: {
-          choose: "Click to choose a road image",
+          choose: "Choose one or more road images",
           private: "The image never leaves this machine",
           ready: "Source ready; automatic detection and mask proposal are running in parallel.",
           pipelineComplete: "Autopilot completed detection, masking, machine-candidate metrology, and data governance. Optional human spot-checking or correction remains available.",
@@ -736,6 +764,16 @@ METROLOGY_HTML = """<!doctype html>
           machineComplete: "Machine candidate saved; running feedback governance and snapshot preflight automatically…",
           autopilotComplete: "The local autopilot chain is complete. The training firewall still blocks machine labels pending independent human approval.",
           autopilotPartial: "The machine candidate was saved, but the governance chain did not fully complete. Retry with the controls below.",
+          batchTooLarge: "A batch may contain at most 100 images.",
+          batchRequiresAutopilot: "Multiple-image queues require Autopilot; only the first image will be processed.",
+          batchPending: "Pending",
+          batchRunning: "Running",
+          batchComplete: "Complete",
+          batchFailed: "Failed; skipped",
+          batchGovernance: "Image processing is complete; building one batch curation and Merkle snapshot…",
+          batchFinished: "Batch autopilot complete",
+          batchFinishedWithFailures: "Batch complete; some images failed without interrupting the others",
+          batchFinalizeFailed: "Image candidates were saved, but finalizing the batch-governance record failed.",
           editedState: "The green mask has unsaved human changes; the right side still shows the previous automatic draft.",
           reviewedState: "This is a saved human-reviewed version. Physical dimensions still require valid calibration.",
           demoState: "This is a deterministic algorithm demo, not human review or field-accuracy validation.",
@@ -1288,6 +1326,8 @@ METROLOGY_HTML = """<!doctype html>
         if (latestFeedbackCatalog) renderFeedbackCatalog(latestFeedbackCatalog);
         if (latestFeedbackCuration) renderFeedbackCuration(latestFeedbackCuration);
         if (latestFeedbackSnapshot) renderFeedbackSnapshot(latestFeedbackSnapshot);
+        renderBatchQueue();
+        if (latestAutopilotBatch) renderAutopilotBatch(latestAutopilotBatch);
         renderProposalState();
         renderHotspotReview();
         setPipeline(pipelineStage);
@@ -1468,11 +1508,13 @@ METROLOGY_HTML = """<!doctype html>
 
       function updateControls() {
         const ready = Boolean(sourceImage);
-        const editable = ready && measurementOperationCount === 0;
+        const editable = ready && measurementOperationCount === 0 && !batchRunning;
         ["proposal-sensitivity", "brush-tool", "eraser-tool", "clear-button", "brush-size"].forEach((id) => { byId(id).disabled = !editable; });
         byId("point-tool").disabled = !editable || byId("calibration-mode").value !== "manual";
         byId("undo-button").disabled = !editable || strokes.length === 0;
-        byId("replace-button").disabled = !ready;
+        byId("replace-button").disabled = batchRunning;
+        byId("source-input").disabled = batchRunning;
+        byId("autopilot-toggle").disabled = batchRunning;
         const hasMask = (activeProposalId && !proposalSuppressed) || strokes.length > 0;
         byId("measure-button").disabled = !editable || !hasMask;
         hotspotLoupe.setAttribute("aria-disabled", String(!editable || !hotspotComponents.length));
@@ -1510,13 +1552,43 @@ METROLOGY_HTML = """<!doctype html>
         updateControls();
       }
 
-      async function loadSource(file) {
-        if (!file) return;
+      function renderBatchQueue() {
+        const panel = byId("batch-panel");
+        panel.classList.toggle("hidden", batchQueue.length === 0);
+        const list = byId("batch-list");
+        list.replaceChildren();
+        const complete = batchQueue.filter((item) => item.state === "complete").length;
+        const failed = batchQueue.filter((item) => item.state === "failed").length;
+        byId("batch-summary").textContent = batchQueue.length
+          ? `${complete + failed}/${batchQueue.length} · ${language === "zh" ? "成功" : "success"} ${complete} · ${language === "zh" ? "失败" : "failed"} ${failed}`
+          : "—";
+        batchQueue.forEach((item, index) => {
+          const row = document.createElement("div");
+          row.className = `batch-item ${item.state}`;
+          const name = document.createElement("span");
+          name.className = "batch-item-name";
+          name.textContent = `${index + 1}. ${item.name}`;
+          const state = document.createElement("span");
+          state.className = "batch-item-state";
+          state.textContent = t(`batch${item.state[0].toUpperCase()}${item.state.slice(1)}`);
+          row.append(name, state);
+          list.appendChild(row);
+        });
+      }
+
+      function setBatchItemState(index, state, runId = null) {
+        if (!batchQueue[index]) return;
+        batchQueue[index] = { ...batchQueue[index], state, run_id: runId };
+        renderBatchQueue();
+      }
+
+      async function loadSource(file, { deferGovernance = false } = {}) {
+        if (!file) return { success: false, run_id: null };
         const generation = ++sourceGeneration;
         setPipeline("upload");
         if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 15 * 1024 * 1024) {
           setStatus(language === "zh" ? "请选择不超过 15 MiB 的 JPEG、PNG 或 WebP。" : "Choose a JPEG, PNG, or WebP no larger than 15 MiB.", true);
-          return;
+          return { success: false, run_id: null };
         }
         if (sourceUrl) URL.revokeObjectURL(sourceUrl);
         sourceUrl = URL.createObjectURL(file);
@@ -1526,12 +1598,12 @@ METROLOGY_HTML = """<!doctype html>
           await image.decode();
         } catch {
           setStatus(language === "zh" ? "浏览器无法解码这张图片。" : "The browser cannot decode this image.", true);
-          return;
+          return { success: false, run_id: null };
         }
-        if (generation !== sourceGeneration) return;
+        if (generation !== sourceGeneration) return { success: false, run_id: null };
         if (image.naturalWidth * image.naturalHeight > 20_000_000) {
           setStatus(language === "zh" ? "量测工作台限制为 2000 万像素。" : "The metrology workbench is limited to 20 megapixels.", true);
-          return;
+          return { success: false, run_id: null };
         }
         sourceFile = file;
         sourceImage = image;
@@ -1559,9 +1631,9 @@ METROLOGY_HTML = """<!doctype html>
         setStatus(t("ready"));
         const tasks = await Promise.allSettled([
           runAutomaticInspection(file, generation),
-          generateProposalAndDraft(file, generation)
+          generateProposalAndDraft(file, generation, { deferGovernance })
         ]);
-        if (generation !== sourceGeneration) return;
+        if (generation !== sourceGeneration) return { success: false, run_id: null };
         const inspectionSucceeded = tasks[0].status === "fulfilled" && tasks[0].value === true;
         const draftSucceeded = tasks[1].status === "fulfilled" && tasks[1].value === true;
         if (!inspectionSucceeded) {
@@ -1570,6 +1642,11 @@ METROLOGY_HTML = """<!doctype html>
         }
         setPipeline(draftSucceeded && byId("autopilot-toggle").checked ? "saved" : (draftSucceeded ? "review" : "draft"));
         setStatus(inspectionSucceeded && draftSucceeded ? t("pipelineComplete") : t("pipelinePartial"), !inspectionSucceeded && !draftSucceeded);
+        return {
+          success: draftSucceeded,
+          run_id: draftSucceeded && latestResult ? latestResult.run_id : null,
+          inspection_succeeded: inspectionSucceeded
+        };
       }
 
       function writeBinaryImage(image, canvas, context) {
@@ -1675,14 +1752,14 @@ METROLOGY_HTML = """<!doctype html>
         }
       }
 
-      async function generateProposalAndDraft(file, generation) {
+      async function generateProposalAndDraft(file, generation, { deferGovernance = false } = {}) {
         const found = await generateProposal(file, generation);
         if (!found || generation !== sourceGeneration) return false;
         const machineReviewed = byId("autopilot-toggle").checked;
         if (machineReviewed) applyAutopilotDecisions();
         setPipeline("draft");
         setStatus(t("autoDrafting"));
-        const drafted = await runMeasurement({ automatic: true, machineReviewed, generation });
+        const drafted = await runMeasurement({ automatic: true, machineReviewed, deferGovernance, generation });
         if (drafted && generation === sourceGeneration) {
           setPipeline(machineReviewed ? "saved" : "review");
         }
@@ -1804,7 +1881,7 @@ METROLOGY_HTML = """<!doctype html>
         return String(Number(byId(id).value));
       }
 
-      async function runMeasurement({ automatic = false, machineReviewed = false, generation = sourceGeneration } = {}) {
+      async function runMeasurement({ automatic = false, machineReviewed = false, deferGovernance = false, generation = sourceGeneration } = {}) {
         if (!sourceFile || (!activeProposalId && strokes.length === 0)) {
           setStatus(t("drawingRequired"), true);
           return false;
@@ -1857,10 +1934,12 @@ METROLOGY_HTML = """<!doctype html>
             reviewProgressDirty = false;
           }
           renderResult(payload);
-          if (machineReviewed && payload.artifacts["active-learning-feedback.zip"]) {
+          if (machineReviewed && payload.artifacts["active-learning-feedback.zip"] && !deferGovernance) {
             setStatus(t("machineComplete"));
             const governed = await runGovernanceAutopilot();
             setStatus(governed ? t("autopilotComplete") : t("autopilotPartial"), !governed);
+          } else if (machineReviewed) {
+            setStatus(t("machineComplete"));
           } else {
             setStatus(automatic ? t("autoDraftComplete") : t("complete"));
           }
@@ -2212,6 +2291,112 @@ METROLOGY_HTML = """<!doctype html>
         return Boolean(snapshot);
       }
 
+      function renderAutopilotBatch(payload) {
+        latestAutopilotBatch = payload;
+        const batch = payload.batch;
+        const blockers = batch.governance && Array.isArray(batch.governance.blockers)
+          ? batch.governance.blockers
+          : [];
+        const blockerText = blockers.length
+          ? blockers.map((code) => curationBlockerLabels[language][code] || code).join("；")
+          : (language === "zh" ? "无；训练仍需单独批准" : "None; training still requires separate approval");
+        renderUtilityResult(
+          byId("batch-result"),
+          t("batchFinished"),
+          [
+            `${language === "zh" ? "完成量测" : "Completed runs"}: ${batch.run_count}`,
+            `${language === "zh" ? "反馈包" : "Feedback packages"}: ${batch.feedback_run_count}`,
+            `${t("readinessBlockers")}: ${blockerText}`,
+            `${t("trainingAuthorization")}: ${batch.training_authorized ? (language === "zh" ? "已授权" : "authorized") : (language === "zh" ? "未授权" : "not authorized")}`
+          ],
+          payload.batch_url,
+          blockers.length > 0
+        );
+      }
+
+      async function finalizeAutopilotBatch(runIds) {
+        const form = new FormData();
+        form.append("run_ids", JSON.stringify(runIds));
+        form.append("seed", String(inputNumber("curation-seed")));
+        form.append("minimum_unique_sources", String(inputNumber("curation-min-sources")));
+        form.append("max_scene_hamming_distance", String(inputNumber("curation-scene-distance")));
+        const response = await fetch(
+          "/api/metrology/autopilot-batches/finalize",
+          { method: "POST", body: form }
+        );
+        const payload = await response.json();
+        if (!response.ok) throw payload.error || payload;
+        renderAutopilotBatch(payload);
+        renderFeedbackCuration({
+          curation: payload.curation,
+          curation_url: payload.curation_url
+        });
+        renderFeedbackSnapshot({
+          snapshot: payload.snapshot,
+          snapshot_url: payload.snapshot_url
+        });
+        return payload;
+      }
+
+      async function runAutopilotBatch(fileList) {
+        const files = Array.from(fileList || []);
+        if (!files.length) return;
+        if (files.length > 100) {
+          setStatus(t("batchTooLarge"), true);
+          byId("source-input").value = "";
+          return;
+        }
+        batchRunning = true;
+        latestAutopilotBatch = null;
+        batchQueue = files.map((file) => ({
+          name: file.name,
+          state: "pending",
+          run_id: null
+        }));
+        byId("batch-result").classList.add("hidden");
+        renderBatchQueue();
+        updateControls();
+        const completedRunIds = [];
+        try {
+          for (let index = 0; index < files.length; index += 1) {
+            setBatchItemState(index, "running");
+            let outcome = { success: false, run_id: null };
+            try {
+              outcome = await loadSource(
+                files[index],
+                { deferGovernance: true }
+              );
+            } catch {
+              outcome = { success: false, run_id: null };
+            }
+            if (outcome.success && outcome.run_id) {
+              completedRunIds.push(outcome.run_id);
+              setBatchItemState(index, "complete", outcome.run_id);
+            } else {
+              setBatchItemState(index, "failed");
+            }
+          }
+          const failedCount = batchQueue.filter((item) => item.state === "failed").length;
+          if (!completedRunIds.length) {
+            setStatus(t("batchFinishedWithFailures"), true);
+            return;
+          }
+          setStatus(t("batchGovernance"));
+          await finalizeAutopilotBatch(completedRunIds);
+          setStatus(
+            failedCount ? t("batchFinishedWithFailures") : t("batchFinished"),
+            failedCount > 0
+          );
+        } catch (error) {
+          const message = error && (language === "zh" ? error.message_zh : error.message_en);
+          setStatus(message || t("batchFinalizeFailed"), true);
+        } finally {
+          batchRunning = false;
+          byId("source-input").value = "";
+          updateControls();
+        }
+      }
+
       function inputNumber(id) {
         const value = byId(id).value.trim();
         return value === "" ? null : Number(value);
@@ -2391,7 +2576,17 @@ METROLOGY_HTML = """<!doctype html>
           renderEditor();
         }
       });
-      byId("source-input").addEventListener("change", (event) => loadSource(event.target.files[0]));
+      byId("source-input").addEventListener("change", async (event) => {
+        const files = Array.from(event.target.files || []);
+        if (!files.length) return;
+        if (!byId("autopilot-toggle").checked) {
+          if (files.length > 1) setStatus(t("batchRequiresAutopilot"), true);
+          await loadSource(files[0]);
+          byId("source-input").value = "";
+          return;
+        }
+        await runAutopilotBatch(files);
+      });
       byId("replace-button").addEventListener("click", () => byId("source-input").click());
       byId("proposal-sensitivity").addEventListener("input", () => {
         byId("proposal-sensitivity-value").textContent = String(Math.round(Number(byId("proposal-sensitivity").value) * 100));

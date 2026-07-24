@@ -42,6 +42,7 @@ class MetrologyStub:
         self.feedback_catalog_limit: int | None = None
         self.feedback_curation_arguments: dict[str, Any] | None = None
         self.feedback_snapshot_curation_id: str | None = None
+        self.autopilot_batch_arguments: dict[str, Any] | None = None
 
     def demo(self) -> dict[str, object]:
         return {
@@ -191,6 +192,44 @@ class MetrologyStub:
             raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
         return self.artifact
 
+    def finalize_autopilot_batch(self, **kwargs: Any) -> dict[str, object]:
+        self.autopilot_batch_arguments = kwargs
+        return {
+            "local_only": True,
+            "batch": {
+                "batch_id": "autopilot-batch-001",
+                "status": "completed_with_governance_blockers",
+                "training_authorized": False,
+            },
+            "batch_url": (
+                "/api/metrology/autopilot-batches/"
+                "autopilot-batch-001.json"
+            ),
+            "curation": {
+                "curation_id": "feedback-curation-001",
+                "status": "not_training_ready",
+                "training_authorized": False,
+            },
+            "curation_url": (
+                "/api/metrology/feedback-curations/"
+                "feedback-curation-001.json"
+            ),
+            "snapshot": {
+                "snapshot_id": "feedback-snapshot-001",
+                "status": "not_snapshot_ready",
+                "training_authorized": False,
+            },
+            "snapshot_url": (
+                "/api/metrology/feedback-snapshots/"
+                "feedback-snapshot-001.json"
+            ),
+        }
+
+    def autopilot_batch_path(self, batch_id: str) -> Path:
+        if batch_id != "autopilot-batch-001":
+            raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
+        return self.artifact
+
     def create_maintenance_plan(
         self,
         run_id: str,
@@ -314,9 +353,19 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "runAutomaticInspection" in response.text
     assert "generateProposalAndDraft" in response.text
     assert 'id="autopilot-toggle"' in response.text
+    assert (
+        'id="source-input" type="file" '
+        'accept="image/jpeg,image/png,image/webp" multiple'
+    ) in response.text
+    assert 'id="batch-panel"' in response.text
+    assert 'id="batch-list"' in response.text
+    assert 'id="batch-result"' in response.text
     assert "applyAutopilotDecisions" in response.text
     assert "AUTOPILOT_ACCEPT_OVERLAP = 0.10" in response.text
     assert "runGovernanceAutopilot" in response.text
+    assert "runAutopilotBatch" in response.text
+    assert "finalizeAutopilotBatch" in response.text
+    assert "/api/metrology/autopilot-batches/finalize" in response.text
     assert "proposalSuppressed" in response.text
     assert '"machine_reviewed_candidate"' in response.text
     assert 'form.append("review_state", reviewState)' in response.text
@@ -407,6 +456,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["visual_near_duplicate_split_firewall"] is True
     assert health.json()["content_addressed_snapshot_preflight"] is True
     assert health.json()["policy_bounded_local_autopilot"] is True
+    assert health.json()["resilient_batch_autopilot"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
@@ -467,6 +517,15 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
         "/api/metrology/feedback-curations/"
         "feedback-curation-001/snapshot-preflight"
     )
+    autopilot_batch = client.post(
+        "/api/metrology/autopilot-batches/finalize",
+        data={
+            "run_ids": '["metrology-web-001"]',
+            "seed": "9",
+            "minimum_unique_sources": "6",
+            "max_scene_hamming_distance": "3",
+        },
+    )
     plan = client.post(
         "/api/metrology/runs/metrology-web-001/maintenance-plan",
         data={
@@ -494,6 +553,9 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     downloaded_snapshot = client.get(
         "/api/metrology/feedback-snapshots/feedback-snapshot-001.json"
     )
+    downloaded_batch = client.get(
+        "/api/metrology/autopilot-batches/autopilot-batch-001.json"
+    )
     downloaded_comparison = client.get("/api/metrology/comparisons/comparison-001.json")
     downloaded_change_map = client.get("/api/metrology/comparisons/comparison-001/change-map.png")
 
@@ -517,6 +579,14 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     assert feedback_snapshot.status_code == 200
     assert feedback_snapshot.json()["snapshot"]["training_authorized"] is False
     assert metrology.feedback_snapshot_curation_id == "feedback-curation-001"
+    assert autopilot_batch.status_code == 200
+    assert autopilot_batch.json()["batch"]["training_authorized"] is False
+    assert metrology.autopilot_batch_arguments == {
+        "run_ids": '["metrology-web-001"]',
+        "seed": 9,
+        "minimum_unique_sources": 6,
+        "max_scene_hamming_distance": 3,
+    }
     assert plan.status_code == 200
     assert metrology.plan_arguments == {
         "run_id": "metrology-web-001",
@@ -540,6 +610,8 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     assert downloaded_curation.headers["content-type"] == "application/json"
     assert downloaded_snapshot.status_code == 200
     assert downloaded_snapshot.headers["content-type"] == "application/json"
+    assert downloaded_batch.status_code == 200
+    assert downloaded_batch.headers["content-type"] == "application/json"
     assert downloaded_comparison.status_code == 200
     assert downloaded_comparison.headers["content-type"] == "application/json"
     assert downloaded_change_map.status_code == 200

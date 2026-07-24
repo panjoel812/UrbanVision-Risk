@@ -136,6 +136,7 @@ def create_app(
         payload["visual_near_duplicate_split_firewall"] = True
         payload["content_addressed_snapshot_preflight"] = True
         payload["policy_bounded_local_autopilot"] = True
+        payload["resilient_batch_autopilot"] = True
         return payload
 
     @app.get("/api/review-queue")
@@ -294,6 +295,31 @@ def create_app(
         snapshot_id: str,
     ) -> FileResponse:
         path = active_metrology.feedback_snapshot_path(snapshot_id)
+        return FileResponse(
+            path,
+            media_type="application/json",
+            filename=path.name,
+        )
+
+    @app.post("/api/metrology/autopilot-batches/finalize")
+    async def metrology_finalize_autopilot_batch(
+        run_ids: Annotated[str, Form()],
+        seed: Annotated[int, Form()] = 42,
+        minimum_unique_sources: Annotated[int, Form()] = 10,
+        max_scene_hamming_distance: Annotated[int, Form()] = 4,
+    ) -> dict[str, object]:
+        return active_metrology.finalize_autopilot_batch(
+            run_ids=run_ids,
+            seed=seed,
+            minimum_unique_sources=minimum_unique_sources,
+            max_scene_hamming_distance=max_scene_hamming_distance,
+        )
+
+    @app.get("/api/metrology/autopilot-batches/{batch_id}.json")
+    async def metrology_autopilot_batch_record(
+        batch_id: str,
+    ) -> FileResponse:
+        path = active_metrology.autopilot_batch_path(batch_id)
         return FileResponse(
             path,
             media_type="application/json",

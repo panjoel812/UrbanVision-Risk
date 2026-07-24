@@ -1,10 +1,10 @@
-# UrbanVision-Risk v5.2 Reliability-Aware Local App / 可靠性本地应用指南
+# UrbanVision-Risk v5.3 Resilient Batch Local App / 弹性批量本地应用指南
 
 ## Finished product / 最终产品
 
-**English:** v2.0 runs a three-view transform-consensus detector locally on Apple MPS. It associates boxes across 640, 1280, and horizontally mirrored views; fuses supported boxes; quantifies localization stability and uncertainty; and ranks inspections for active learning. Large images retain overlapping 1024-pixel spatial inference. The bilingual Ollama/template narrative remains optional.
+**English:** v5.3 runs a resilient, policy-bounded inspection queue locally on Apple MPS. Up to 100 selected road images are processed serially to bound accelerator memory, while three-view detection and crack proposal run concurrently within each image. Per-image failures are isolated, successful machine candidates are finalized through one batch-scoped governance pass, and the privacy-minimized ledger stores hashes and run IDs rather than filenames or local paths.
 
-**中文：** v2.0 在 Apple MPS 上运行三视图变换共识检测：关联 640、1280 和水平镜像视图中的检测框，融合得到共识框，量化定位稳定性与不确定性，并为主动学习排列巡检样本。大图继续使用 1024 像素重叠空间推理；双语 Ollama/模板说明仍为可选层。
+**中文：** v5.3 在 Apple MPS 上运行受策略约束的弹性巡检队列。一次最多选择 100 张道路图片；图片之间串行处理以限制加速器内存，每张图片内部并行运行三视图检测与裂缝候选。单张失败会被隔离，成功机器候选统一经过一次批次范围治理；隐私最小化账本只保存摘要与运行编号，不保存原文件名或本机路径。
 
 It uses no AWS, Azure, Google Cloud, paid API, remote model, CDN, analytics, or telemetry. After dependencies and the model are present, the complete workflow can run without internet access.
 
@@ -72,6 +72,14 @@ Merkle 根只能证明某一精确引用集合产生了记录中的根，不能�
 Version 5.2 checks **Autopilot** by default. It dispositions ranked hotspots with the published overlap rule, saves a `machine_reviewed_candidate`, builds curation, and invokes snapshot preflight without more clicks. Provenance records `machine_heuristic`; selected machine labels add a training blocker until a human operator independently approves them. Brush/eraser correction remains available as an explicit `human_reviewed` override.
 
 v5.2 默认勾选 **自动驾驶**。它使用公开的重叠规则处置排序热点，保存 `machine_reviewed_candidate`，随后无需额外点击即可生成策划并调用快照预检。来源记录明确写入 `machine_heuristic`；入选机器标签会添加训练阻断，直到人工操作员独立批准。画笔/橡皮修订仍可作为明确的 `human_reviewed` 覆盖版本保存。
+
+Version 5.3 turns that single-image path into a **resilient batch autopilot**. Keep Autopilot enabled, select up to 100 images in one file dialog, and watch every queue item move through pending, running, complete, or failed. The browser deliberately processes one image at a time so Apple MPS memory remains bounded; detection and proposal still execute concurrently inside that image. An exception on one item is recorded in the live queue and does not cancel later items.
+
+v5.3 把单图路径扩展为 **弹性批量自动驾驶**。保持自动驾驶开启，在一次文件选择中最多选择 100 张图片，即可观察每项依次进入等待、运行、完成或失败状态。浏览器刻意一次只处理一张图片，从而限制 Apple MPS 内存；但该图片内部的检测与候选仍并发执行。某一项发生异常时只会在当前队列中记录，不会取消后续图片。
+
+After the queue ends, `POST /api/metrology/autopilot-batches/finalize` sends only successful run IDs to the service. The service reloads every measurement, revalidates `machine_reviewed_candidate`, `machine_heuristic`, and source SHA-256 provenance, scopes curation to this exact batch, and runs snapshot preflight once. The immutable `urbanvision-autopilot-batch-v1.0.0` record is saved under `results/metrology/autopilot-batches/`. It contains no original filename or absolute path, and `training_authorized` remains `false`; governance blockers are an honest result, not a batch failure.
+
+队列结束后，`POST /api/metrology/autopilot-batches/finalize` 只把成功运行编号交给服务端。服务端重新读取每份量测，复核 `machine_reviewed_candidate`、`machine_heuristic` 与原图 SHA-256 来源，把策划范围严格限制为本批次，并只运行一次快照预检。不可覆盖的 `urbanvision-autopilot-batch-v1.0.0` 记录保存在 `results/metrology/autopilot-batches/`。其中不含原文件名或绝对路径，且 `training_authorized` 仍为 `false`；出现治理阻断是诚实的安全结果，不代表批处理崩溃。
 
 ## What happens after upload / 上传后发生什么
 

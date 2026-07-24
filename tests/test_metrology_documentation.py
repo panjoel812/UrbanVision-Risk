@@ -30,7 +30,8 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "complete workflow directly at `http://127.0.0.1:8000`" in readme
     assert "完整单页流程" in readme
     assert "Run calibrated demo / 运行完整标定 Demo" in guide
-    assert "Choosing one image starts three-view detection" in readme
+    assert "resilient queue of up to 100 images" in readme
+    assert "最多 100 张图片" in readme
     assert "画笔/橡皮" in readme
     assert "automatic_draft" in readme
     assert "human_reviewed" in readme
@@ -59,7 +60,7 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "candidate_plan_requires_training_approval" in guide
     assert "`training_authorized` remains `false`" in guide
     assert "防泄漏候选数据策划" in guide
-    assert "Build leakage-safe candidate plan" in readme
+    assert "batch-scoped quality gate, leakage-safe split" in readme
     assert "Visual-scene leakage firewall" in guide
     assert "single-linkage union-find" in guide
     assert "max_scene_hamming_distance" in guide
@@ -72,7 +73,7 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "0x00" in guide
     assert "0x01" in guide
     assert "verified_candidate_snapshot_requires_training_approval" in guide
-    assert "Verify content-addressed snapshot" in readme
+    assert "content-addressed Merkle preflight records" in readme
     assert "unchanged-manifest byte tampering" in portfolio
     assert "内容寻址分割快照预检" in portfolio
     assert "不是模型不确定性校准" in guide
@@ -81,6 +82,13 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "candidate_overlap_ratio >= 0.10" in guide
     assert "machine_labels_require_human_approval" in guide
     assert "local_proposal_machine_reviewed_candidate" in guide
+    assert "Resilient batch autopilot" in guide
+    assert "POST /api/metrology/autopilot-batches/finalize" in guide
+    assert "urbanvision-autopilot-batch-v1.0.0" in guide
+    assert "omits original filenames and absolute paths" in guide
+    assert "up to 100 images" in portfolio
+    assert "per-item failure isolation" in portfolio
+    assert "隐私最小化账本" in portfolio
     assert "ArUco" in portfolio
     assert "Ground truth / 人工参考值" in template
     assert "Absolute length error" in template

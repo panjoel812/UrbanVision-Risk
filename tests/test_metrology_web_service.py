@@ -12,6 +12,7 @@ from PIL import Image
 from urbanvision_risk.app.metrology_service import (
     LocalMetrologyService,
     _assign_curation_groups,
+    _autopilot_batch_run_ids,
     _bounded_feedback_layers,
     _canonical_merkle_root,
     _curation_ratios,
@@ -40,6 +41,26 @@ def _straight_sample(end_x: int = 350) -> tuple[bytes, bytes]:
     cv2.line(mask, (50, 110), (end_x, 110), 255, 11)
     source[mask > 0] = 28
     return _encode_image(source), _encode_image(mask)
+
+
+def test_autopilot_batch_run_ids_are_bounded_unique_and_path_safe() -> None:
+    assert _autopilot_batch_run_ids('["run-001", "run-002"]') == [
+        "run-001",
+        "run-002",
+    ]
+
+    invalid_values = (
+        "not-json",
+        "{}",
+        "[]",
+        json.dumps([f"run-{index:03d}" for index in range(101)]),
+        '["run-001", "run-001"]',
+        '["../private"]',
+        '["run-001", 2]',
+    )
+    for value in invalid_values:
+        with pytest.raises(ProjectError):
+            _autopilot_batch_run_ids(value)
 
 
 def test_active_learning_feedback_layers_are_size_bounded() -> None:
@@ -997,11 +1018,11 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
             hotspot_decisions=json.dumps(invalid_decisions),
         )
 
-    curation = service.create_feedback_curation(
+    batch_result = service.finalize_autopilot_batch(
+        run_ids=json.dumps([result["run_id"]]),
         minimum_unique_sources=1,
-        privacy_review_confirmed=True,
-        label_qa_confirmed=True,
-    )["curation"]
+    )
+    curation = batch_result["curation"]
     assert curation["selection"]["machine_only_selected_count"] >= 1
     assert curation["selection"]["review_authority_counts"][
         "machine_heuristic"
@@ -1010,6 +1031,29 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
         curation["readiness"]["blockers"]
     )
     assert curation["training_authorized"] is False
+    assert curation["configuration"]["scope"] == {
+        "kind": "explicit_autopilot_batch",
+        "run_ids": [result["run_id"]],
+    }
+    batch = batch_result["batch"]
+    assert batch["schema_version"] == "urbanvision-autopilot-batch-v1.0.0"
+    assert batch["status"] == "completed_with_governance_blockers"
+    assert batch["run_count"] == 1
+    assert batch["feedback_run_count"] == 1
+    assert batch["training_authorized"] is False
+    assert batch["runs"][0]["run_id"] == result["run_id"]
+    assert batch["runs"][0]["feedback_exported"] is True
+    assert batch["governance"]["curation_id"] == (
+        "feedback-curation-machine-001"
+    )
+    assert batch["governance"]["snapshot_id"] == (
+        "feedback-snapshot-machine-001"
+    )
+    batch_path = service.autopilot_batch_path(
+        "autopilot-batch-machine-001"
+    )
+    assert batch_path.is_file()
+    assert "/Users/" not in batch_path.read_text(encoding="utf-8")
 
 
 def test_aruco_web_calibration_preserves_detection_quality(tmp_path: Path) -> None:

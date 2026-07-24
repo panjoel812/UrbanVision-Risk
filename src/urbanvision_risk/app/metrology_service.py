@@ -60,6 +60,7 @@ MAX_FEEDBACK_SNAPSHOT_ITEMS = 5_000
 MAX_FEEDBACK_SNAPSHOT_MEMBER_BYTES = 8 * 1024 * 1024
 MAX_FEEDBACK_SNAPSHOT_TOTAL_BYTES = 512 * 1024 * 1024
 MAX_FEEDBACK_SNAPSHOT_FINDINGS = 500
+MAX_AUTOPILOT_BATCH_IMAGES = 100
 CURATION_SPLITS = ("train", "val", "test")
 FEEDBACK_FILE_ROLES = (
     "source_roi",
@@ -211,6 +212,33 @@ def _reviewed_hotspot_ids(value: str | None) -> list[str]:
         if hotspot_id in result:
             raise _input_error(f"reviewed_hotspots contains duplicate ID {hotspot_id}")
         result.append(hotspot_id)
+    return result
+
+
+def _autopilot_batch_run_ids(value: str) -> list[str]:
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise _input_error("autopilot batch run_ids is not valid JSON") from error
+    if not isinstance(payload, list):
+        raise _input_error("autopilot batch run_ids must be a JSON array")
+    if not 1 <= len(payload) <= MAX_AUTOPILOT_BATCH_IMAGES:
+        raise _input_error(
+            f"autopilot batch run count={len(payload)} must be between "
+            f"1 and {MAX_AUTOPILOT_BATCH_IMAGES}"
+        )
+    result: list[str] = []
+    for run_id in payload:
+        if not isinstance(run_id, str):
+            raise _input_error(
+                "autopilot batch run_ids contains a non-string ID"
+            )
+        safe_id = validate_run_name(run_id)
+        if safe_id in result:
+            raise _input_error(
+                f"autopilot batch run_ids contains duplicate ID {safe_id}"
+            )
+        result.append(safe_id)
     return result
 
 
@@ -2025,6 +2053,7 @@ class LocalMetrologyService:
         max_scene_hamming_distance: int = 4,
         privacy_review_confirmed: bool = False,
         label_qa_confirmed: bool = False,
+        included_run_ids: list[str] | None = None,
     ) -> dict[str, object]:
         if (
             isinstance(seed, bool)
@@ -2056,6 +2085,34 @@ class LocalMetrologyService:
             )
         ratios = _curation_ratios(train_ratio, val_ratio, test_ratio)
         packages, invalid_package_count = self._feedback_packages()
+        safe_included_run_ids: list[str] | None = None
+        if included_run_ids is not None:
+            if len(included_run_ids) > MAX_AUTOPILOT_BATCH_IMAGES:
+                raise _input_error(
+                    "included_run_ids exceeds the autopilot batch limit"
+                )
+            safe_included_run_ids = []
+            for run_id in included_run_ids:
+                safe_id = validate_run_name(run_id)
+                if safe_id in safe_included_run_ids:
+                    raise _input_error(
+                        f"included_run_ids contains duplicate ID {safe_id}"
+                    )
+                safe_included_run_ids.append(safe_id)
+            requested = set(safe_included_run_ids)
+            packages = [
+                package
+                for package in packages
+                if package["run_id"] in requested
+            ]
+            found = {str(package["run_id"]) for package in packages}
+            missing = sorted(requested - found)
+            if missing:
+                raise _input_error(
+                    "included_run_ids has no valid feedback package: "
+                    + ", ".join(missing)
+                )
+            invalid_package_count = 0
         inventory_truncated = len(packages) > MAX_FEEDBACK_CATALOG_PACKAGES
         selected_packages = packages[:MAX_FEEDBACK_CATALOG_PACKAGES]
         inventory_refs = [
@@ -2419,6 +2476,14 @@ class LocalMetrologyService:
                 "max_scene_hamming_distance": max_scene_hamming_distance,
                 "privacy_review_confirmed": privacy_review_confirmed,
                 "label_qa_confirmed": label_qa_confirmed,
+                "scope": (
+                    {
+                        "kind": "explicit_autopilot_batch",
+                        "run_ids": safe_included_run_ids,
+                    }
+                    if safe_included_run_ids is not None
+                    else {"kind": "all_local_feedback"}
+                ),
             },
             "inventory": {
                 "digest_sha256": inventory_digest,
@@ -3141,6 +3206,150 @@ class LocalMetrologyService:
             ),
         }
 
+    def finalize_autopilot_batch(
+        self,
+        *,
+        run_ids: str,
+        seed: int = 42,
+        minimum_unique_sources: int = 10,
+        max_scene_hamming_distance: int = 4,
+    ) -> dict[str, object]:
+        safe_run_ids = _autopilot_batch_run_ids(run_ids)
+        run_records: list[dict[str, object]] = []
+        feedback_run_ids: list[str] = []
+        for run_id in safe_run_ids:
+            measurement_bytes, measurement = self._measurement_bytes(run_id)
+            run = measurement.get("run")
+            input_evidence = (
+                run.get("input_evidence")
+                if isinstance(run, dict)
+                else None
+            )
+            if (
+                not isinstance(input_evidence, dict)
+                or input_evidence.get("review_state")
+                != "machine_reviewed_candidate"
+                or input_evidence.get("review_authority")
+                != "machine_heuristic"
+            ):
+                raise _input_error(
+                    f"autopilot batch run {run_id} is not a "
+                    "machine-reviewed candidate"
+                )
+            source = input_evidence.get("source")
+            source_sha256 = (
+                source.get("sha256")
+                if isinstance(source, dict)
+                else None
+            )
+            if not _is_hex_digest(source_sha256, 64):
+                raise _input_error(
+                    f"autopilot batch run {run_id} has invalid source evidence"
+                )
+            feedback_path = (
+                self.paths.metrology
+                / run_id
+                / ACTIVE_LEARNING_FEEDBACK_ARTIFACT
+            )
+            feedback_exported = feedback_path.is_file()
+            if feedback_exported:
+                feedback_run_ids.append(run_id)
+            run_records.append(
+                {
+                    "run_id": run_id,
+                    "measurement_sha256": _sha256(measurement_bytes),
+                    "source_sha256": source_sha256,
+                    "feedback_exported": feedback_exported,
+                }
+            )
+
+        curation_result = self.create_feedback_curation(
+            seed=seed,
+            minimum_unique_sources=minimum_unique_sources,
+            max_scene_hamming_distance=max_scene_hamming_distance,
+            privacy_review_confirmed=False,
+            label_qa_confirmed=False,
+            included_run_ids=feedback_run_ids,
+        )
+        curation = curation_result["curation"]
+        if not isinstance(curation, dict):
+            raise RuntimeError("autopilot curation did not return a record")
+        curation_id = curation.get("curation_id")
+        if not isinstance(curation_id, str):
+            raise RuntimeError("autopilot curation has no ID")
+        snapshot_result = self.create_feedback_snapshot_preflight(
+            curation_id
+        )
+        snapshot = snapshot_result["snapshot"]
+        if not isinstance(snapshot, dict):
+            raise RuntimeError("autopilot snapshot did not return a record")
+        batch_id = validate_run_name(
+            self._record_id_factory("autopilot-batch")
+        )
+        snapshot_blockers = snapshot.get("readiness")
+        blocker_codes = (
+            snapshot_blockers.get("blockers")
+            if isinstance(snapshot_blockers, dict)
+            else []
+        )
+        payload: dict[str, object] = {
+            "schema_version": "urbanvision-autopilot-batch-v1.0.0",
+            "batch_id": batch_id,
+            "created_at_utc": datetime.now(UTC).isoformat(),
+            "local_only": True,
+            "status": (
+                "completed_with_governance_blockers"
+                if blocker_codes
+                else "completed_requires_training_approval"
+            ),
+            "training_authorized": False,
+            "run_count": len(run_records),
+            "feedback_run_count": len(feedback_run_ids),
+            "runs": run_records,
+            "governance": {
+                "curation_id": curation_id,
+                "curation_url": curation_result["curation_url"],
+                "snapshot_id": snapshot.get("snapshot_id"),
+                "snapshot_url": snapshot_result["snapshot_url"],
+                "blockers": blocker_codes,
+            },
+            "configuration": {
+                "seed": seed,
+                "minimum_unique_sources": minimum_unique_sources,
+                "max_scene_hamming_distance": (
+                    max_scene_hamming_distance
+                ),
+                "execution": (
+                    "browser serial queue; per-image detection and proposal "
+                    "may run concurrently"
+                ),
+            },
+            "claim_boundary": (
+                "This record proves which completed machine-candidate runs "
+                "entered one bounded governance pass. It is not privacy "
+                "clearance, label approval, training authorization, physical "
+                "calibration, or a road-safety conclusion"
+            ),
+        }
+        path = (
+            self.paths.metrology
+            / "autopilot-batches"
+            / f"{batch_id}.json"
+        )
+        with self._write_lock:
+            self._write_json_exclusive(path, payload)
+        return {
+            "local_only": True,
+            "batch": payload,
+            "batch_url": (
+                f"/api/metrology/autopilot-batches/{batch_id}.json"
+            ),
+            "curation": curation,
+            "curation_url": curation_result["curation_url"],
+            "snapshot": snapshot,
+            "snapshot_url": snapshot_result["snapshot_url"],
+        }
+
     def demo(self) -> dict[str, object]:
         run_id = validate_run_name(self._id_factory())
         source, mask, calibration = synthetic_field_sample(seed=42)
@@ -3514,6 +3723,24 @@ class LocalMetrologyService:
                 "The feedback-snapshot preflight does not exist",
                 "检查快照编号，或重新运行数据快照预检",
                 "Check the snapshot ID or run snapshot preflight again",
+                safe_id,
+            )
+        return path
+
+    def autopilot_batch_path(self, batch_id: str) -> Path:
+        safe_id = validate_run_name(batch_id)
+        path = (
+            self.paths.metrology
+            / "autopilot-batches"
+            / f"{safe_id}.json"
+        )
+        if not path.is_file():
+            raise ProjectError(
+                "E201",
+                "自动驾驶批次记录不存在",
+                "The autopilot batch record does not exist",
+                "检查批次编号，或重新运行批量自动巡检",
+                "Check the batch ID or rerun batch autopilot",
                 safe_id,
             )
         return path

@@ -1,4 +1,4 @@
-# UrbanVision-Risk v5.2 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v5.3 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -172,6 +172,20 @@ v5.2 默认开启自动驾驶。候选生成后，浏览器会确定性地把所
 The automated chain saves work without fabricating accountability. A machine candidate may pass pixel-consistency gates, but any selected non-human label adds `machine_labels_require_human_approval`; `training_authorized` remains `false`. A later brush/eraser correction is submitted separately as `human_reviewed` with `human_operator` authority. Disabling the toggle preserves the older `automatic_draft` path.
 
 自动链路减少操作，但不伪造责任归属。机器候选可能通过像素一致性门控，但任何入选的非人工标签都会加入 `machine_labels_require_human_approval`，且 `training_authorized` 保持 `false`。后续画笔/橡皮修订会单独以 `human_reviewed` 和 `human_operator` 身份保存。关闭开关则保留旧的 `automatic_draft` 路径。
+
+### Resilient batch autopilot / 弹性批量自动驾驶
+
+Version 5.3 accepts up to 100 images from one browser selection. It processes images serially to bound Apple MPS memory while retaining the existing per-image parallelism between multi-view inspection and crack proposal. Every queue entry has an independent `pending`, `running`, `complete`, or `failed` state. Decode, size, proposal, inference, or measurement failure marks only that entry as failed; the next image still runs.
+
+v5.3 支持在一次浏览器选择中加入最多 100 张图片。图片之间串行处理以限制 Apple MPS 内存峰值，同时保留每张图片内部多视图巡检与裂缝候选的并行。每个队列项独立处于 `pending`、`running`、`complete` 或 `failed` 状态。解码、尺寸、候选、推理或量测失败只会标记当前项，下一张仍继续运行。
+
+The browser defers governance during the queue and submits only successful metrology run IDs to `POST /api/metrology/autopilot-batches/finalize`. The service reloads every immutable `measurement.json`, requires `machine_reviewed_candidate` plus `machine_heuristic`, and rejects duplicates, missing runs, or non-machine records. Curation is scoped to feedback packages from that explicit run set, preventing unrelated historical packages from entering the batch.
+
+浏览器在队列期间暂缓治理，只把成功量测编号提交给 `POST /api/metrology/autopilot-batches/finalize`。服务端重新读取每份不可变 `measurement.json`，强制要求 `machine_reviewed_candidate` 与 `machine_heuristic`，并拒绝重复编号、缺失运行或非机器记录。策划仅限该明确运行集合的反馈包，防止不相关历史包混入本批次。
+
+The immutable `urbanvision-autopilot-batch-v1.0.0` record binds measurement SHA-256, source SHA-256, feedback presence, curation ID, snapshot ID, configuration, and blockers. It deliberately omits original filenames and absolute paths. A completed batch is operational automation evidence, not privacy clearance, label certification, physical calibration, training authorization, or road-safety evidence.
+
+不可覆盖的 `urbanvision-autopilot-batch-v1.0.0` 记录绑定量测 SHA-256、来源 SHA-256、反馈是否存在、策划编号、快照编号、配置和阻断项，并有意省略原文件名与绝对路径。完成批次只能证明自动流程执行过，不代表隐私许可、标签认证、物理标定、训练授权或道路安全结论。
 
 This package is a candidate pool for separately governed relabeling, error analysis, and future training—not an automatic training set. Source ROIs may contain people, vehicles, licence plates, or location cues, so a dataset owner must apply privacy review, split control, deduplication, and label QA before training.
 

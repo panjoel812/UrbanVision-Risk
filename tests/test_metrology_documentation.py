@@ -38,6 +38,9 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "three_level_sensitivity_vote_disagreement" in guide
     assert "priority score = disagreement pixels" in guide
     assert "proposal_revision.hotspot_review" in guide
+    assert "640 \u00d7 360" in guide
+    assert "source_x = viewport_x" in guide
+    assert "同步复核放大窗" in guide
     assert "不是模型不确定性校准" in guide
     assert "local_proposal_automatic_draft" in guide
     assert "ArUco" in portfolio

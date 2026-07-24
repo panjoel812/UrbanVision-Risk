@@ -57,7 +57,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="4.4.0",
+        version="4.5.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -127,6 +127,7 @@ def create_app(
         payload["metrology_modes"] = ["pixel", "manual", "aruco"]
         payload["automatic_pixel_draft"] = True
         payload["ranked_hotspot_review"] = True
+        payload["synchronized_review_loupe"] = True
         return payload
 
     @app.get("/api/review-queue")

@@ -205,6 +205,11 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="hotspot-previous"' in response.text
     assert 'id="hotspot-next"' in response.text
     assert 'id="hotspot-reviewed"' in response.text
+    assert 'id="hotspot-loupe"' in response.text
+    assert "calculateLoupeViewport" in response.text
+    assert "loupeCanvasPosition" in response.text
+    assert "synchronized_hotspot_loupe" in response.text
+    assert 'hotspotLoupe.addEventListener("pointerdown"' in response.text
     assert 'id="inspection-section"' in response.text
     assert 'id="narrative-button"' in response.text
     assert "/api/inspect" in response.text
@@ -287,6 +292,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["metrology_modes"] == ["pixel", "manual", "aruco"]
     assert health.json()["automatic_pixel_draft"] is True
     assert health.json()["ranked_hotspot_review"] is True
+    assert health.json()["synchronized_review_loupe"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:

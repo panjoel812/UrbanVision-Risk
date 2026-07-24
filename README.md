@@ -1,14 +1,14 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v4.4 在统一页面中形成“自动草稿→排序复核→人工修订→证据保存”闭环：三视图目标检测与裂缝掩膜建议在本机并行运行，算法在相邻三个灵敏度下重复提议。绿色表示当前候选，黄色表示随灵敏度改变的区域；系统再把黄色连通区域按分歧像素数和候选重叠影响排序，生成最多 24 项智能复核队列。用户可逐项查看、标记已检查并用画笔/橡皮修订；保存后审计状态从 `automatic_draft` 变为 `human_reviewed`。不可覆盖证据链记录复核热点编号、数量/优先影响覆盖率、增加/删除像素、修改比例和候选—最终 IoU。黄色热点是参数敏感性分歧，不是概率；“已检查”也不等于缺陷正确或道路安全。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v4.5 在“自动草稿→排序复核→人工修订→证据保存”闭环中加入同步 ROI 放大编辑：三视图检测与掩膜建议在本机并行运行，黄色灵敏度分歧区被排序为最多 24 项复核队列。每个目标自动生成保持原图坐标的放大窗；用户可直接用画笔/橡皮修订细裂缝，所有笔迹精确映射回原分辨率掩膜，并自动把当前目标记为已检查。保存后审计状态从 `automatic_draft` 变为 `human_reviewed`，不可覆盖证据记录热点编号、覆盖率、人工像素差和候选—最终 IoU。放大窗改善操作精度，但不把模型建议变成真值或道路安全结论。
 
-**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 4.4 completes an automatic-draft-to-ranked-review-to-human-revision-to-evidence loop. Choosing one image starts three-view detection and a crack proposal locally in parallel; the proposal is repeated at three nearby sensitivities. Green is the nominal candidate and yellow marks sensitivity-dependent regions. Yellow connected components are ranked by disagreement pixels and overlap impact into a queue of up to 24 review targets. Operators can navigate, mark inspected, and correct with the brush/eraser. Immutable evidence records inspected hotspot IDs, count/priority-impact coverage, pixel deltas, changed-image ratio, and proposal-to-final IoU. Yellow is parameter disagreement—not probability—and “inspected” does not mean correct or safe.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 4.5 adds synchronized ROI editing to the automatic-draft-to-ranked-review-to-human-revision-to-evidence loop. Choosing one image starts three-view detection and a crack proposal locally in parallel; yellow sensitivity-disagreement regions become a queue of up to 24 targets. Each target opens in a magnified view that preserves original-image coordinates. Brush/eraser strokes drawn inside the loupe map exactly back to the source-resolution mask and automatically mark the target inspected. Saving changes `automatic_draft` to `human_reviewed`; immutable evidence records hotspot IDs, coverage, human pixel deltas, and proposal-to-final IoU. Magnification improves operator precision but does not turn a proposal into ground truth or a safety conclusion.
 
 **v3.0 Calibrated Metrology / 标定量测：** printable field fiducials, semantic marker detection (`TL/TR/BR/BL`), homography rectification, graph-geodesic length, skeleton distance-transform width, immutable artifacts, privacy-minimized provenance, deterministic uncertainty analysis, and a first-hand field-validation protocol. / 可打印现场标记、语义标记检测、单应性矫正、图测地长度、骨架距离变换宽度、不可覆盖结果、最小化隐私来源记录、确定性不确定性分析和亲身现场验证方案。
 
 **v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v4.4 Quick Start / v4.4 快速启动
+## v4.5 Quick Start / v4.5 快速启动
 
 ```bash
 uv sync --extra dev
@@ -23,9 +23,9 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`: upload once; reliability-aware detection and the editable mask proposal run in parallel; green candidates, yellow review hotspots, a ranked next/previous inspection queue, and an automatic pixel-metrology draft appear next. The reviewed mask and hotspot progress can then be saved with manual four-point or automatic ArUco calibration, uncertainty, material planning, multi-date physical alignment, colour-coded spatial change, and audit JSON. The legacy `/metrology` URL remains only as a compatibility alias. If port 8000 is occupied, the server prints a bilingual `--port 8001` recovery command.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`: upload once; reliability-aware detection and the editable mask proposal run in parallel; green candidates, yellow review hotspots, a ranked queue, synchronized magnified editing, and an automatic pixel-metrology draft appear next. Brush/eraser edits made in either canvas update the same original-resolution mask. The reviewed mask and hotspot progress can then be saved with calibration, uncertainty, material planning, multi-date physical alignment, spatial change, and audit JSON.
 
-第一条命令在 `results/metrology/metrology-demo-001` 生成可审计量测结果；第二条生成四张精确尺寸 SVG 现场标记和清单；第三条直接在 `http://127.0.0.1:8000` 打开完整单页流程：上传一次，可靠性检测与可编辑掩膜建议并行自动运行，随后立即显示绿色候选、黄色复核热点、上一个/下一个排序检查队列和像素量测草稿；人工复核后，可把热点检查进度与手动四点或 ArUco 自动标定、不确定性、材料计划、多期物理对齐、彩色空间变化图一起保存到审计 JSON。旧 `/metrology` 地址只作为书签兼容别名保留。如果 8000 被占用，程序会直接打印双语 `--port 8001` 修复命令。
+第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程：上传一次后自动显示绿色候选、黄色热点、排序队列、同步放大编辑窗和像素量测草稿。主图与放大窗使用同一原分辨率掩膜，任一处的画笔/橡皮修订都会同步。人工复核后，可把检查进度、标定、不确定性、材料计划、多期变化和审计 JSON 一起保存。端口被占用时使用 `--port 8001`。
 
 The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
 

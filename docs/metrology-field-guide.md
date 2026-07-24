@@ -1,4 +1,4 @@
-# UrbanVision-Risk v3.0 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v4.5 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -115,6 +115,29 @@ This places large unstable regions that directly intersect the current editable 
 The browser can mark ranked items as inspected without changing mask pixels. On save, `measurement.json` records the inspected IDs, count completion ratio, and priority-weighted coverage under `mask.proposal_revision.hotspot_review`. The status is `not_started`, `partial`, `complete`, or `not_available`. “Complete” means every ranked target was marked; it does not mean every raw component was ranked, every crack was found, or the mask is correct.
 
 网页可把排序项标记为已检查，而不改变掩膜像素。保存后，`measurement.json` 在 `mask.proposal_revision.hotspot_review` 下记录已检查编号、数量完成率和优先影响覆盖率；状态为 `not_started`、`partial`、`complete` 或 `not_available`。“complete”只表示所有排序目标都被标记，不代表所有原始热点都进入队列、所有裂缝都被发现或掩膜正确。
+
+### Synchronized review loupe / 同步复核放大窗
+
+Version 4.5 places a fixed `640 × 360` internal-pixel loupe next to the ranked queue. For the current hotspot, the browser expands the source-resolution bounding box by at least `2.2×`, enforces the loupe's `16:9` aspect ratio, keeps a minimum source viewport of `72 × 54` pixels, and clamps that viewport to the image boundary. The zoom badge reports both effective magnification and the source viewport size.
+
+v4.5 在排序队列旁加入内部像素固定为 `640 × 360` 的同步放大窗。浏览器以当前热点的原图边界框为中心，至少扩展 `2.2×`，保持放大窗的 `16:9` 比例，原图视口最小为 `72 × 54` 像素，并把视口限制在原图边界内。角标同时显示有效放大倍数和原图视口尺寸。
+
+Pointer positions are first normalized from the loupe's CSS display size to its internal `640 × 360` raster. They are then mapped back to source-image coordinates:
+
+指针位置先从放大窗的 CSS 显示尺寸归一化到内部 `640 × 360` 栅格，再映射回原图坐标：
+
+```text
+source_x = viewport_x + loupe_x / loupe_width × viewport_width
+source_y = viewport_y + loupe_y / loupe_height × viewport_height
+```
+
+The main canvas and loupe therefore share one original-resolution mask, stroke history, brush diameter, eraser behaviour, and undo stack. A brush or eraser stroke in the loupe immediately updates both views and marks the active ranked target as inspected. Calibration points remain restricted to the main canvas because their four-point ordering requires whole-image context.
+
+因此，主画布和放大窗共用同一张原图分辨率掩膜、笔迹历史、笔刷直径、橡皮行为和撤销栈。在放大窗画或擦会立即同步更新两处，并把当前排序目标标为已检查。四点标定仍只允许在主画布操作，因为点位顺序需要完整画面上下文。
+
+Magnification improves review ergonomics but does not create new image information or guarantee that a subtle crack is detected. The audit record stores the resulting proposal-to-final pixel difference and reviewed hotspot ID; it does not treat the loupe as additional model evidence.
+
+放大只改善复核操作，不会创造新的图像信息，也不保证发现细微裂缝。审计记录保存候选到最终掩膜的像素差异和已检查热点编号，不会把放大窗当作额外模型证据。
 
 Images larger than two million pixels are processed on a downsampled work raster and the binary proposal is restored to the exact source resolution. This bounds memory and runtime without sending pixels to a cloud service. The sensitivity slider changes proposal recall; it is not a calibrated probability or YOLO confidence.
 

@@ -157,11 +157,16 @@ METROLOGY_HTML = """<!doctype html>
     .hotspot-review-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
     .hotspot-review-title { font-size: .76rem; font-weight: 760; }
     .hotspot-review-progress { color: var(--muted); font-size: .68rem; text-align: right; }
+    .hotspot-review-body { display: grid; grid-template-columns: minmax(0, .78fr) minmax(260px, 1.22fr); gap: 12px; margin-top: 9px; align-items: stretch; }
     .hotspot-review-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
     .hotspot-review-actions .tool-button.reviewed { border-color: var(--forest-2); background: var(--mint); color: var(--forest); }
     .hotspot-review-detail { margin: 8px 0 0; color: var(--muted); font-size: .69rem; }
     .hotspot-review-track { height: 5px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: var(--line); }
     .hotspot-review-bar { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--amber); transition: width 180ms ease; }
+    .hotspot-loupe-shell { position: relative; min-height: 170px; display: grid; place-items: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--amber) 45%, var(--line)); border-radius: 11px; background: #101713; }
+    #hotspot-loupe { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; touch-action: none; cursor: crosshair; }
+    .hotspot-loupe-scale { position: absolute; top: 7px; right: 7px; padding: 3px 7px; border-radius: 999px; background: rgba(0, 0, 0, .76); color: #ffd34d; font-size: .64rem; font-weight: 760; pointer-events: none; }
+    .hotspot-loupe-help { margin: 7px 0 0; color: var(--muted); font-size: .66rem; }
     .mode-grid { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(0, 1.3fr); gap: 13px; }
     .field { display: grid; gap: 5px; }
     .field label { color: var(--muted); font-size: .7rem; font-weight: 680; }
@@ -237,6 +242,7 @@ METROLOGY_HTML = """<!doctype html>
       .point-list, .metric-grid { grid-template-columns: 1fr 1fr; }
       .inspection-overview, .inspection-evidence-grid { grid-template-columns: 1fr; }
       .inspection-grid { grid-template-columns: 1fr 1fr; }
+      .hotspot-review-body { grid-template-columns: 1fr; }
       .pipeline-rail { grid-template-columns: 1fr 1fr; }
       .practical-grid { grid-template-columns: 1fr; }
       .brush-control { width: 100%; margin-left: 0; }
@@ -259,9 +265,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v4.4 · Ranked human-review queue</p>
+        <p class="eyebrow">v4.5 · Synchronized ROI review loupe</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>目标检测、绿色裂缝候选和像素量测草稿会自动运行；黄色分歧区域会被拆分并排序成复核队列，逐项检查与修订进度可一起保存到审计证据。</span><span data-en class="hidden-lang">Detection, the green crack proposal, and a pixel-metrology draft run automatically. Yellow disagreement regions become a ranked review queue whose inspected targets and corrections are saved as audit evidence.</span></p>
+        <p class="hero-copy"><span data-zh>黄色分歧区域会被排序成复核队列；每个目标自动进入同步放大窗，可直接画笔补漏或橡皮删错，笔迹映射回原图并进入审计证据。</span><span data-en class="hidden-lang">Yellow disagreement regions become a ranked queue. Each target opens in a synchronized loupe where brush and eraser strokes map back to the original-resolution mask and audit evidence.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -347,13 +353,22 @@ METROLOGY_HTML = """<!doctype html>
               <strong class="hotspot-review-title"><span data-zh>智能复核队列</span><span data-en class="hidden-lang">Ranked review queue</span></strong>
               <span id="hotspot-progress" class="hotspot-review-progress">—</span>
             </div>
-            <div class="hotspot-review-actions">
-              <button id="hotspot-previous" class="tool-button" type="button"><span data-zh>上一个</span><span data-en class="hidden-lang">Previous</span></button>
-              <button id="hotspot-next" class="tool-button" type="button"><span data-zh>下一个</span><span data-en class="hidden-lang">Next</span></button>
-              <button id="hotspot-reviewed" class="tool-button" type="button"><span data-zh>标记已检查</span><span data-en class="hidden-lang">Mark inspected</span></button>
+            <div class="hotspot-review-body">
+              <div>
+                <div class="hotspot-review-actions">
+                  <button id="hotspot-previous" class="tool-button" type="button"><span data-zh>上一个</span><span data-en class="hidden-lang">Previous</span></button>
+                  <button id="hotspot-next" class="tool-button" type="button"><span data-zh>下一个</span><span data-en class="hidden-lang">Next</span></button>
+                  <button id="hotspot-reviewed" class="tool-button" type="button"><span data-zh>标记已检查</span><span data-en class="hidden-lang">Mark inspected</span></button>
+                </div>
+                <p id="hotspot-detail" class="hotspot-review-detail">—</p>
+                <div class="hotspot-review-track" aria-hidden="true"><span id="hotspot-progress-bar" class="hotspot-review-bar"></span></div>
+                <p class="hotspot-loupe-help"><span data-zh>放大窗与原图使用同一像素坐标；选择画笔或橡皮后可直接在右侧修订。</span><span data-en class="hidden-lang">The loupe shares original-image pixel coordinates; choose Brush or Eraser and edit directly on the right.</span></p>
+              </div>
+              <div class="hotspot-loupe-shell">
+                <canvas id="hotspot-loupe" width="640" height="360" tabindex="0" aria-label="Magnified hotspot mask editor"></canvas>
+                <span id="hotspot-loupe-scale" class="hotspot-loupe-scale">—</span>
+              </div>
             </div>
-            <p id="hotspot-detail" class="hotspot-review-detail">—</p>
-            <div class="hotspot-review-track" aria-hidden="true"><span id="hotspot-progress-bar" class="hotspot-review-bar"></span></div>
           </section>
           <p id="proposal-state" class="subcopy"><span data-zh>上传图片后自动生成可编辑底稿；提交量测前必须人工复核。</span><span data-en class="hidden-lang">An editable proposal is generated automatically after upload; human review is required before metrology.</span></p>
         </div>
@@ -461,7 +476,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v4.4 · Ranked Review Queue + Audited Draft · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v4.5 · Synchronized Loupe + Ranked Review · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -476,6 +491,8 @@ METROLOGY_HTML = """<!doctype html>
       const hotspotContext = hotspotCanvas.getContext("2d");
       const tintCanvas = document.createElement("canvas");
       const tintContext = tintCanvas.getContext("2d");
+      const hotspotLoupe = byId("hotspot-loupe");
+      const hotspotLoupeContext = hotspotLoupe.getContext("2d");
       const labels = ["TL", "TR", "BR", "BL"];
       let language = "zh";
       let sourceFile = null;
@@ -498,6 +515,9 @@ METROLOGY_HTML = """<!doctype html>
       let hotspotComponents = [];
       let reviewedHotspotIds = new Set();
       let activeHotspotIndex = -1;
+      let hotspotLoupeViewport = null;
+      let loupeDrawing = false;
+      let loupeActiveStroke = null;
       let hoverPoint = null;
       let sourceGeneration = 0;
       let maskDirty = false;
@@ -560,6 +580,7 @@ METROLOGY_HTML = """<!doctype html>
           markedInspected: "取消已检查",
           saveReviewProgress: "保存复核进度",
           reviewProgressState: "热点检查进度尚未保存；保存后会进入不可覆盖的量测证据。",
+          loupeToolRequired: "放大窗只用于画笔或橡皮；请先切换工具。",
           pointsRequired: "手动标定需要依次点击 TL、TR、BR、BL 四个点。",
           measuring: "正在本机提取骨架、构建图结构并计算不确定性…",
           demoRunning: "正在生成完整标定 Demo…",
@@ -654,6 +675,7 @@ METROLOGY_HTML = """<!doctype html>
           markedInspected: "Undo inspected",
           saveReviewProgress: "Save review progress",
           reviewProgressState: "Hotspot-review progress is not saved yet; saving records it in immutable measurement evidence.",
+          loupeToolRequired: "The loupe accepts Brush or Eraser; switch tools first.",
           pointsRequired: "Manual calibration needs TL, TR, BR, and BL clicks in order.",
           measuring: "Extracting the skeleton, graph, geometry, and uncertainty locally…",
           demoRunning: "Generating the full calibrated demo…",
@@ -775,6 +797,77 @@ METROLOGY_HTML = """<!doctype html>
         renderHotspotReview();
         renderEditor();
         byId("editor-canvas").scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+
+      function calculateLoupeViewport(hotspot) {
+        const box = hotspot.bounding_box;
+        const aspect = hotspotLoupe.width / hotspotLoupe.height;
+        let width = Math.max(72, Number(box.width) * 2.2);
+        let height = Math.max(54, Number(box.height) * 2.2);
+        if (width / height < aspect) width = height * aspect;
+        else height = width / aspect;
+        if (width > editor.width) {
+          width = editor.width;
+          height = width / aspect;
+        }
+        if (height > editor.height) {
+          height = editor.height;
+          width = height * aspect;
+        }
+        const centerX = Number(box.x) + Number(box.width) / 2;
+        const centerY = Number(box.y) + Number(box.height) / 2;
+        return {
+          x: Math.max(0, Math.min(editor.width - width, centerX - width / 2)),
+          y: Math.max(0, Math.min(editor.height - height, centerY - height / 2)),
+          width,
+          height
+        };
+      }
+
+      function renderHotspotLoupe() {
+        hotspotLoupeContext.clearRect(0, 0, hotspotLoupe.width, hotspotLoupe.height);
+        const hotspot = hotspotComponents[activeHotspotIndex];
+        if (!sourceImage || !hotspot) {
+          hotspotLoupeViewport = null;
+          byId("hotspot-loupe-scale").textContent = "—";
+          return;
+        }
+        hotspotLoupeViewport = calculateLoupeViewport(hotspot);
+        hotspotLoupeContext.imageSmoothingEnabled = true;
+        hotspotLoupeContext.imageSmoothingQuality = "high";
+        hotspotLoupeContext.drawImage(
+          editor,
+          hotspotLoupeViewport.x,
+          hotspotLoupeViewport.y,
+          hotspotLoupeViewport.width,
+          hotspotLoupeViewport.height,
+          0,
+          0,
+          hotspotLoupe.width,
+          hotspotLoupe.height
+        );
+        const zoom = hotspotLoupe.width / hotspotLoupeViewport.width;
+        byId("hotspot-loupe-scale").textContent = `${zoom.toFixed(1)}× · ${Math.round(hotspotLoupeViewport.width)} × ${Math.round(hotspotLoupeViewport.height)} px`;
+      }
+
+      function loupeCanvasPosition(event) {
+        if (!hotspotLoupeViewport) return null;
+        const rectangle = hotspotLoupe.getBoundingClientRect();
+        const loupeX = Math.max(0, Math.min(hotspotLoupe.width, (event.clientX - rectangle.left) * hotspotLoupe.width / rectangle.width));
+        const loupeY = Math.max(0, Math.min(hotspotLoupe.height, (event.clientY - rectangle.top) * hotspotLoupe.height / rectangle.height));
+        return {
+          x: hotspotLoupeViewport.x + loupeX / hotspotLoupe.width * hotspotLoupeViewport.width,
+          y: hotspotLoupeViewport.y + loupeY / hotspotLoupe.height * hotspotLoupeViewport.height
+        };
+      }
+
+      function inspectActiveHotspot() {
+        const hotspot = hotspotComponents[activeHotspotIndex];
+        if (!hotspot || reviewedHotspotIds.has(hotspot.hotspot_id)) return;
+        reviewedHotspotIds.add(hotspot.hotspot_id);
+        reviewProgressDirty = true;
+        setPipeline("review");
+        renderHotspotReview();
       }
 
       function setStatus(message, error = false) {
@@ -1030,6 +1123,11 @@ METROLOGY_HTML = """<!doctype html>
         hotspotComponents = [];
         reviewedHotspotIds = new Set();
         activeHotspotIndex = -1;
+        hotspotLoupeViewport = null;
+        loupeDrawing = false;
+        loupeActiveStroke = null;
+        hotspotLoupeContext.clearRect(0, 0, hotspotLoupe.width, hotspotLoupe.height);
+        byId("hotspot-loupe-scale").textContent = "—";
         maskDirty = false;
         reviewProgressDirty = false;
         renderProposalState();
@@ -1158,12 +1256,14 @@ METROLOGY_HTML = """<!doctype html>
           editorContext.stroke();
           editorContext.restore();
         }
+        renderHotspotLoupe();
       }
 
       function setTool(nextTool) {
         tool = nextTool;
         ["brush", "eraser", "point"].forEach((name) => byId(`${name}-tool`).classList.toggle("active", name === tool));
         editor.style.cursor = tool === "point" ? "cell" : "crosshair";
+        hotspotLoupe.style.cursor = tool === "point" ? "not-allowed" : "crosshair";
       }
 
       function updateControls() {
@@ -1175,6 +1275,8 @@ METROLOGY_HTML = """<!doctype html>
         byId("replace-button").disabled = !ready;
         const hasMask = (activeProposalId && !proposalSuppressed) || strokes.length > 0;
         byId("measure-button").disabled = !editable || !hasMask;
+        hotspotLoupe.setAttribute("aria-disabled", String(!editable || !hotspotComponents.length));
+        hotspotLoupe.style.opacity = editable && hotspotComponents.length ? "1" : ".5";
         updateHotspotToggle();
         renderHotspotReview();
         updateReviewUI();
@@ -1406,6 +1508,57 @@ METROLOGY_HTML = """<!doctype html>
         drawing = false;
         activeStroke = null;
         try { editor.releasePointerCapture(event.pointerId); } catch {}
+        renderEditor();
+        updateControls();
+      }
+
+      function loupePointerDown(event) {
+        if (!sourceImage || !hotspotLoupeViewport || measurementOperationCount > 0) return;
+        if (tool === "point") {
+          setStatus(t("loupeToolRequired"), true);
+          return;
+        }
+        event.preventDefault();
+        const point = loupeCanvasPosition(event);
+        if (!point) return;
+        hoverPoint = point;
+        loupeDrawing = true;
+        hotspotLoupe.setPointerCapture(event.pointerId);
+        loupeActiveStroke = {
+          tool,
+          size: Number(byId("brush-size").value),
+          points: [point],
+          input_surface: "synchronized_hotspot_loupe"
+        };
+        strokes.push(loupeActiveStroke);
+        drawStroke(maskContext, loupeActiveStroke);
+        inspectActiveHotspot();
+        markMaskDirty();
+        renderEditor();
+        updateControls();
+      }
+
+      function loupePointerMove(event) {
+        const point = loupeCanvasPosition(event);
+        if (!point) return;
+        hoverPoint = point;
+        if (!loupeDrawing || !loupeActiveStroke) {
+          renderEditor();
+          return;
+        }
+        event.preventDefault();
+        const previous = loupeActiveStroke.points[loupeActiveStroke.points.length - 1];
+        if (Math.hypot(point.x - previous.x, point.y - previous.y) < .35) return;
+        loupeActiveStroke.points.push(point);
+        drawStroke(maskContext, { ...loupeActiveStroke, points: [previous, point] });
+        renderEditor();
+      }
+
+      function loupePointerUp(event) {
+        if (!loupeDrawing) return;
+        loupeDrawing = false;
+        loupeActiveStroke = null;
+        try { hotspotLoupe.releasePointerCapture(event.pointerId); } catch {}
         renderEditor();
         updateControls();
       }
@@ -1771,6 +1924,16 @@ METROLOGY_HTML = """<!doctype html>
       editor.addEventListener("pointercancel", pointerUp);
       editor.addEventListener("pointerleave", () => {
         if (!drawing) {
+          hoverPoint = null;
+          renderEditor();
+        }
+      });
+      hotspotLoupe.addEventListener("pointerdown", loupePointerDown);
+      hotspotLoupe.addEventListener("pointermove", loupePointerMove);
+      hotspotLoupe.addEventListener("pointerup", loupePointerUp);
+      hotspotLoupe.addEventListener("pointercancel", loupePointerUp);
+      hotspotLoupe.addEventListener("pointerleave", () => {
+        if (!loupeDrawing) {
           hoverPoint = null;
           renderEditor();
         }

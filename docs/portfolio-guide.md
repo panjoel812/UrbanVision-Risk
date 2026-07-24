@@ -1,10 +1,10 @@
 # Portfolio and Interview Guide / 简历与面试表达
 
-## What makes v5.5 different / v5.5 的差异化
+## What makes v5.6 different / v5.6 的差异化
 
-Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v5.5 adds a cross-method selective-prediction layer: semantic YOLO boxes and independent pixel segmentation are SHA-256 source-bound, spatially arbitrated, and refused when evidence is proposal-only, detector-only, mutually displaced, or jointly inconclusive. The system can therefore expose an obvious candidate that the semantic model missed without inventing a class label or presenting a misleading low-risk score. Every batch run binds its immutable arbitration record before governance.
+Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v5.6 additionally treats data readiness as an auditable control system: complete visual groups are deterministically assigned, every positive-ratio split is seeded when possible, exact deficits become a machine-readable remediation plan, and external benchmark licensing remains separate from local mask approval. The v5.5 cross-method selective-prediction layer remains intact, so obvious proposal-only evidence cannot become a misleading zero-risk result.
 
-许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v5.5 加入跨方法选择性预测层：语义 YOLO 框与独立像素分割先进行 SHA-256 同源绑定，再做空间仲裁；当证据仅来自分割、仅来自检测、两者错位或共同无结论时拒绝给分。因此系统可以暴露“肉眼明显、语义模型漏掉”的候选，同时不编造类别标签，也不显示误导性的低风险分数。每个批次运行在治理前都会绑定不可变仲裁记录。
+许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v5.6 进一步把数据就绪做成可审计控制系统：完整视觉簇被确定性分配，条件允许时自动填充所有正比例切分，精确缺口转化为机器可读修复计划，外部基准许可证与本地掩膜批准严格分离。v5.5 的跨方法选择性预测仍完整保留，因此肉眼明显的仅分割证据不会被显示成误导性的零风险。
 
 ## Resume bullets / 简历要点
 
@@ -25,6 +25,7 @@ Use only metrics you can reproduce. A concise English version:
 - Engineered a resilient batch-autopilot state machine for up to 100 images with bounded MPS memory, per-item failure isolation, backend candidate revalidation, batch-scoped curation/preflight, and privacy-minimized SHA-256 ledgers.
 - Added a content-aware self-healing control plane with Web Crypto pre-inference deduplication, typed retry eligibility, bounded automatic recovery, browser/server digest binding, duplicate-source rejection, and validated batch-accounting invariants.
 - Built a cross-channel selective-prediction arbiter that source-binds YOLO and segmentation evidence, rasterizes semantic box unions, quantifies bidirectional spatial support, detects suspected semantic misses, and withholds scores under method disagreement without claiming ground truth.
+- Engineered self-remediating data readiness with non-empty group-aware holdout seeding, exact source/scene/approval deficit computation, inherited snapshot guidance, and license-scoped RDD2022 benchmark provenance.
 - Shipped the model as a loopback-only FastAPI product with bilingual UI, MPS inference, optional local Ollama narratives, privacy headers, structured failure recovery, and a comprehensive automated test suite.
 
 中文版本：
@@ -44,6 +45,7 @@ Use only metrics you can reproduce. A concise English version:
 - 设计最多 100 张图片的弹性批量自动驾驶状态机，实现 MPS 内存有界、单项故障隔离、后端候选重验证、批次范围策划/预检，以及仅记录 SHA-256 的隐私最小化账本。
 - 增加内容感知自愈控制平面，实现 Web Crypto 推理前去重、按失败类型决定重试资格、有界自动恢复、浏览器/服务端摘要绑定、重复来源拒绝和批次账目不变量校验。
 - 构建双通道选择性预测仲裁器，对 YOLO 与分割证据做同源绑定、语义框并集栅格化和双向空间支持量化，识别疑似语义漏检，并在方法分歧时拒绝给分而不冒充真值。
+- 实现自修复数据就绪层：视觉簇感知的非空留出预留、精确来源/场景/批准缺口计算、快照继承修复建议，以及受许可证边界约束的 RDD2022 基准来源记录。
 - 使用 FastAPI 交付仅监听本机回环地址的双语产品，支持 Apple MPS、本地 Ollama 可选说明、隐私响应头、结构化故障恢复与完整自动化测试。
 
 ## Interview deep-dive / 面试追问
@@ -69,6 +71,8 @@ Be prepared to explain these decisions:
 17. How leaf/parent domain separation prevents Merkle structural ambiguity and why odd nodes are duplicated deterministically.
 18. Why cryptographic byte integrity cannot establish privacy permission, semantic correctness, or generalization quality.
 19. Why workflow automation may be complete while training authorization remains a separate accountable decision.
+20. Why three independent visual groups can populate train/validation/test but still cannot satisfy a ten-source readiness threshold.
+21. Why a CC BY-SA detector benchmark must not be silently converted into approved pixel-mask supervision.
 
 准备回答：为什么不取最高置信度、镜像一致性有什么局限、为什么聚类必须限制每个视图只贡献一次、主动学习如何形成数据闭环、为什么零检测不能解释为安全、为什么框不能量测裂缝宽度、单应性何时失效、骨架像素数为什么不等于测地长度，以及敏感性区间为什么不是认证置信区间。
 
@@ -82,8 +86,9 @@ Be prepared to explain these decisions:
 6. Show a proposal-only image and explain why `proposal_only_semantic_miss` withholds the score rather than auto-assigning D00/D10/D20.
 7. Open `urbanvision-cross-channel-arbitration-v1.0.0` and explain source binding, semantic-box rasterization, proposal-supported ratio, selective abstention, and why agreement is not ground truth.
 8. Open the resulting `urbanvision-autopilot-batch-v1.2.0` JSON and show that every completed run binds its arbitration record before curation.
-9. Open `/api/review-queue?limit=20` and connect detection uncertainty to human review.
-10. Finish with your own held-out field errors and limitations, not a certified-safety claim.
+9. Open `urbanvision-feedback-curation-v2.2.0` and show non-empty split seeding plus the exact next-batch and approval deficits.
+10. Open `/api/review-queue?limit=20` and connect detection uncertainty to human review.
+11. Finish with your own held-out field errors and limitations, not a certified-safety claim.
 
 ## Claims to avoid / 不要夸大的内容
 

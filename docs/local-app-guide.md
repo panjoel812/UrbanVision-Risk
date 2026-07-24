@@ -1,10 +1,10 @@
-# UrbanVision-Risk v5.5 Cross-Channel Local App / 双通道本地应用指南
+# UrbanVision-Risk v5.6 Self-Remediating Local App / 自修复数据就绪本地应用指南
 
 ## Finished product / 最终产品
 
-**English:** v5.5 automatically arbitrates YOLO semantic boxes against an independently generated crack mask. The service verifies both artifacts came from identical upload bytes, recomputes spatial support, and withholds the displayed maintenance score when evidence suggests a semantic miss or channel disagreement. Content-aware self-healing and bounded Apple MPS execution remain active.
+**English:** v5.6 automatically repairs empty holdout allocation when enough independent visual groups exist and reports exact source, scene-group, and approval deficits. v5.5 YOLO × segmentation arbitration, content-aware self-healing, and bounded Apple MPS execution remain active.
 
-**中文：** v5.5 自动仲裁 YOLO 语义框与独立生成的裂缝掩膜。服务端验证两份证据来自完全相同的上传字节，重新计算空间支持，并在证据显示语义漏检或通道分歧时隐藏维护分数。内容感知自愈和 Apple MPS 有界执行继续生效。
+**中文：** v5.6 会在独立视觉簇足够时自动修复空留出集，并报告精确的来源、视觉簇和批准缺口。v5.5 的 YOLO × 分割仲裁、内容感知自愈和 Apple MPS 有界执行继续生效。
 
 It uses no AWS, Azure, Google Cloud, paid API, remote model, CDN, analytics, or telemetry. After dependencies and the model are present, the complete workflow can run without internet access.
 
@@ -100,6 +100,18 @@ The policy compares only crack classes D00, D10, and D20 with the segmentation m
 Every successful queue item now needs detection, metrology, and arbitration. The immutable `urbanvision-cross-channel-arbitration-v1.0.0` record is stored under `results/metrology/arbitrations/` and then SHA-256-bound into the batch ledger. Agreement strengthens evidence but never proves correctness; disagreement forces abstention but does not prove which channel is wrong.
 
 每个成功队列项现在必须同时完成检测、量测和仲裁。不可覆盖的 `urbanvision-cross-channel-arbitration-v1.0.0` 记录保存在 `results/metrology/arbitrations/`，随后以 SHA-256 绑定进批次账本。一致只能增强证据，不能证明正确；分歧会触发拒答，但不能证明哪个通道错误。
+
+Version 5.6 adds **self-remediating data readiness**. The allocator first orders complete visual groups deterministically, then reserves one group for every split with a positive ratio whenever enough groups exist. With three independent groups, train, validation, and test therefore become non-empty automatically; no ROI or exact source can cross a split. Remaining groups are assigned by ratio deficit.
+
+v5.6 增加 **自修复数据就绪**。分配器先对完整视觉簇做确定性排序，只要视觉簇数量足够，就为每个正比例切分预留一个视觉簇。因此三个独立簇会自动形成非空 train、val、test；任何 ROI 或精确来源都不会跨切分，剩余视觉簇再按比例缺口分配。
+
+`urbanvision-feedback-curation-v2.2.0` now contains structured `readiness.remediation`: observed counts, requirements, exact deficits, additional images needed by the cumulative local registry, the minimum size of a fresh batch-scoped run, machine candidates pending independent approval, completed automatic protections, and required actions. `urbanvision-feedback-snapshot-preflight-v1.1.0` carries the same upstream remediation instead of reducing the explanation to `upstream_curation_not_ready`.
+
+`urbanvision-feedback-curation-v2.2.0` 现在包含结构化 `readiness.remediation`：当前数量、要求、精确缺口、本机累计台账需要补充的图片数、全新批次范围运行的最小图片数、待独立批准的机器候选、已完成的自动保护以及仍需执行的动作。`urbanvision-feedback-snapshot-preflight-v1.1.0` 会继承同一修复建议，不再只显示笼统的 `upstream_curation_not_ready`。
+
+The vetted external reference is the official [RDD2022 repository](https://github.com/sekilab/RoadDamageDetector), which provides multi-country D00/D10/D20/D40 bounding-box annotations and identifies the image license as CC BY-SA 4.0. It remains a detector benchmark, not a substitute for approving locally generated segmentation masks. A newly published RDD2022-derived mask record was not auto-imported because its Zenodo CC BY metadata does not by itself resolve the upstream ShareAlike obligation.
+
+经过核实的外部参考是官方 [RDD2022 仓库](https://github.com/sekilab/RoadDamageDetector)：它提供多国家 D00/D10/D20/D40 框标注，并明确图片采用 CC BY-SA 4.0。它只作为检测器基准，不替代对本地生成分割掩膜的批准。新发布的 RDD2022 派生掩膜记录没有被自动导入，因为其 Zenodo CC BY 元数据本身不能解释上游 ShareAlike 义务如何落实。
 
 ## What happens after upload / 上传后发生什么
 

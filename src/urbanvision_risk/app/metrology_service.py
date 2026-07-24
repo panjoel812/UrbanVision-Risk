@@ -66,6 +66,16 @@ ARBITRATION_CRACK_CODES = frozenset({"D00", "D10", "D20"})
 ARBITRATION_MIN_PROPOSAL_PIXELS = 64
 ARBITRATION_MIN_PROPOSAL_COVERAGE = 0.00005
 ARBITRATION_MIN_SUPPORTED_PROPOSAL_RATIO = 0.10
+CURATION_EXTERNAL_BENCHMARK_REFERENCE = {
+    "name": "RDD2022",
+    "official_url": "https://github.com/sekilab/RoadDamageDetector",
+    "data_license": "CC-BY-SA-4.0",
+    "role": (
+        "Independent detector benchmark with D00/D10/D20/D40 bounding-box "
+        "annotations; it does not replace approval of locally generated "
+        "segmentation masks"
+    ),
+}
 CURATION_SPLITS = ("train", "val", "test")
 FEEDBACK_FILE_ROLES = (
     "source_roi",
@@ -803,7 +813,7 @@ def _assign_curation_groups(
     ratios: dict[str, float],
     seed: int,
 ) -> dict[str, list[dict[str, object]]]:
-    """Assign whole governance groups while approximating requested item ratios."""
+    """Assign whole groups and seed every positive split when possible."""
     total_items = sum(len(items) for items in groups.values())
     targets = {
         split: total_items * ratios[split]
@@ -819,9 +829,30 @@ def _assign_curation_groups(
             entry[0],
         ),
     )
+    positive_splits = sorted(
+        (
+            split
+            for split in CURATION_SPLITS
+            if ratios[split] > 0
+        ),
+        key=lambda split: (
+            -ratios[split],
+            CURATION_SPLITS.index(split),
+        ),
+    )
+    if len(ordered_groups) >= len(positive_splits):
+        seeded_groups = ordered_groups[: len(positive_splits)]
+        ordered_groups = ordered_groups[len(positive_splits) :]
+        for split, (_, items) in zip(
+            positive_splits,
+            seeded_groups,
+            strict=True,
+        ):
+            assigned[split].extend(items)
+            counts[split] += len(items)
     for _, items in ordered_groups:
         split = max(
-            CURATION_SPLITS,
+            positive_splits,
             key=lambda candidate: (
                 targets[candidate] - counts[candidate],
                 -CURATION_SPLITS.index(candidate),
@@ -830,6 +861,109 @@ def _assign_curation_groups(
         assigned[split].extend(items)
         counts[split] += len(items)
     return assigned
+
+
+def _curation_readiness_remediation(
+    *,
+    source_count: int,
+    scene_group_count: int,
+    minimum_unique_sources: int,
+    machine_candidate_count: int,
+    human_reviewed_count: int,
+    ratios: dict[str, float],
+    split_item_counts: dict[str, int],
+    privacy_review_confirmed: bool,
+    label_qa_confirmed: bool,
+    scope_kind: str,
+) -> dict[str, object]:
+    positive_splits = [
+        split for split in CURATION_SPLITS if ratios[split] > 0
+    ]
+    empty_positive_splits = [
+        split
+        for split in positive_splits
+        if split_item_counts.get(split, 0) == 0
+    ]
+    additional_sources = max(
+        0,
+        minimum_unique_sources - source_count,
+    )
+    additional_scene_groups = max(
+        0,
+        minimum_unique_sources - scene_group_count,
+    )
+    recommended_distinct_images = max(
+        additional_sources,
+        additional_scene_groups,
+        max(0, len(positive_splits) - scene_group_count),
+    )
+    required_actions: list[str] = []
+    if recommended_distinct_images:
+        required_actions.append("collect_distinct_full_frame_sources")
+    if empty_positive_splits:
+        required_actions.append("populate_every_positive_split")
+    if machine_candidate_count:
+        required_actions.append(
+            "independent_human_approval_for_machine_labels"
+        )
+    if not privacy_review_confirmed:
+        required_actions.append("confirm_privacy_review")
+    if not label_qa_confirmed:
+        required_actions.append("complete_label_quality_review")
+    return {
+        "observed": {
+            "unique_source_count": source_count,
+            "visual_scene_group_count": scene_group_count,
+            "machine_candidate_count": machine_candidate_count,
+            "human_reviewed_count": human_reviewed_count,
+            "privacy_review_confirmed": privacy_review_confirmed,
+            "label_qa_confirmed": label_qa_confirmed,
+        },
+        "requirements": {
+            "minimum_unique_sources": minimum_unique_sources,
+            "minimum_visual_scene_groups": minimum_unique_sources,
+            "positive_ratio_splits": positive_splits,
+            "separate_training_approval": True,
+        },
+        "deficits": {
+            "additional_unique_sources_required": additional_sources,
+            "additional_visual_scene_groups_required": (
+                additional_scene_groups
+            ),
+            "empty_positive_splits": empty_positive_splits,
+            "machine_candidates_pending_independent_approval": (
+                machine_candidate_count
+            ),
+        },
+        "recommended_next_batch": {
+            "scope_kind": scope_kind,
+            "additional_distinct_images_for_current_registry": (
+                recommended_distinct_images
+            ),
+            "minimum_distinct_images_for_new_scoped_batch": max(
+                minimum_unique_sources,
+                len(positive_splits),
+            ),
+            "maximum_supported_images": (
+                MAX_AUTOPILOT_BATCH_IMAGES
+            ),
+            "avoid": [
+                "byte-identical files",
+                "crops or edits of the same source",
+                "near-duplicate views of one physical scene",
+            ],
+        },
+        "automatic_actions_completed": [
+            "exact_sha256_deduplication",
+            "near_duplicate_visual_grouping",
+            "non_empty_positive_split_seeding_when_possible",
+            "cross_split_leakage_audit",
+        ],
+        "required_actions": required_actions,
+        "external_benchmark_reference": dict(
+            CURATION_EXTERNAL_BENCHMARK_REFERENCE
+        ),
+    }
 
 
 def _calibration(
@@ -2574,6 +2708,30 @@ class LocalMetrologyService:
             not any(source_overlaps.values())
             and not any(scene_overlaps.values())
         )
+        positive_split_count = sum(
+            ratios[split] > 0 for split in CURATION_SPLITS
+        )
+        remediation = _curation_readiness_remediation(
+            source_count=len(source_groups),
+            scene_group_count=len(scene_groups),
+            minimum_unique_sources=minimum_unique_sources,
+            machine_candidate_count=machine_only_selected_count,
+            human_reviewed_count=review_authority_counts[
+                "human_operator"
+            ],
+            ratios=ratios,
+            split_item_counts={
+                split: int(split_payloads[split]["item_count"])
+                for split in CURATION_SPLITS
+            },
+            privacy_review_confirmed=privacy_review_confirmed,
+            label_qa_confirmed=label_qa_confirmed,
+            scope_kind=(
+                "explicit_autopilot_batch"
+                if safe_included_run_ids is not None
+                else "all_local_feedback"
+            ),
+        )
         blockers: list[str] = []
         if not deduplicated:
             blockers.append("no_quality_passing_candidates")
@@ -2610,7 +2768,7 @@ class LocalMetrologyService:
             self._record_id_factory("feedback-curation")
         )
         payload: dict[str, object] = {
-            "schema_version": "urbanvision-feedback-curation-v2.1.0",
+            "schema_version": "urbanvision-feedback-curation-v2.2.0",
             "curation_id": curation_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "local_only": True,
@@ -2687,6 +2845,25 @@ class LocalMetrologyService:
                 ),
             },
             "splits": split_payloads,
+            "allocation": {
+                "algorithm": (
+                    "deterministic whole-visual-group deficit balancing "
+                    "with non-empty positive-split seeding"
+                ),
+                "seed": seed,
+                "positive_ratio_split_count": positive_split_count,
+                "non_empty_positive_split_seeding_applied": (
+                    len(scene_candidate_groups)
+                    >= positive_split_count
+                ),
+                "targets_by_item_count": {
+                    split: round(
+                        len(deduplicated) * ratios[split],
+                        6,
+                    )
+                    for split in CURATION_SPLITS
+                },
+            },
             "leakage_audit": {
                 "group_keys": [
                     "source_sha256",
@@ -2705,6 +2882,7 @@ class LocalMetrologyService:
             "readiness": {
                 "blockers": blockers,
                 "requires_separate_training_approval": True,
+                "remediation": remediation,
             },
             "claim_boundary": (
                 "This immutable JSON is a candidate curation plan, not a "
@@ -2768,11 +2946,17 @@ class LocalMetrologyService:
         if curation.get("schema_version") not in {
             "urbanvision-feedback-curation-v2.0.0",
             "urbanvision-feedback-curation-v2.1.0",
+            "urbanvision-feedback-curation-v2.2.0",
         }:
             add_blocker("unsupported_curation_schema")
         readiness = curation.get("readiness")
         upstream_blockers = (
             readiness.get("blockers")
+            if isinstance(readiness, dict)
+            else None
+        )
+        upstream_remediation = (
+            readiness.get("remediation")
             if isinstance(readiness, dict)
             else None
         )
@@ -3255,7 +3439,7 @@ class LocalMetrologyService:
         )
         payload: dict[str, object] = {
             "schema_version": (
-                "urbanvision-feedback-snapshot-preflight-v1.0.0"
+                "urbanvision-feedback-snapshot-preflight-v1.1.0"
             ),
             "snapshot_id": snapshot_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
@@ -3333,6 +3517,16 @@ class LocalMetrologyService:
             "readiness": {
                 "blockers": blockers,
                 "requires_separate_training_approval": True,
+                "upstream_curation_blockers": (
+                    upstream_blockers
+                    if isinstance(upstream_blockers, list)
+                    else None
+                ),
+                "remediation": (
+                    upstream_remediation
+                    if isinstance(upstream_remediation, dict)
+                    else None
+                ),
             },
             "claim_boundary": (
                 "This preflight verifies referenced bytes, image-mask "

@@ -1,4 +1,4 @@
-# UrbanVision-Risk v5.5 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v5.6 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -259,13 +259,21 @@ Each source ROI also receives a deterministic 64-bit difference hash. Equal hash
 
 `POST /api/metrology/feedback-curations` 从至多 100 个本地反馈包清单生成不可覆盖的候选策划。只有 `quality_gate.status == "pass"` 可以入选；警告、暂缓、未知和格式错误候选都会计数并排除。相同 64 位差分指纹按优先级降序及确定性的运行/热点规则只保留一个代表；原始 ZIP 不会被修改或删除。
 
-The assignment unit is the complete `source_sha256` group, never an individual ROI. A seeded greedy allocator approximates the requested train/validation/test ratios while guaranteeing that one source digest cannot cross splits. The JSON records all three pairwise source intersections, so the guarantee is machine-verifiable. This protects against same-file leakage; it cannot prove that two different files do not show the same physical location.
+The assignment unit is the complete `source_sha256` group, never an individual ROI. In v5.6, a seeded deterministic allocator first reserves one complete visual group for each positive-ratio split whenever enough groups exist, then assigns the remainder by ratio deficit. The JSON records all three pairwise source intersections, so the guarantee is machine-verifiable. This protects against same-file leakage; it cannot prove that two different files do not show the same physical location.
 
-分配单位是完整的 `source_sha256` 组，而不是单个 ROI。带种子的贪心分配器在逼近训练/验证/测试比例时，保证同一源图摘要不会跨切分。JSON 记录三个两两源图交集，因此该保证可以机器验证。它能防止同一文件泄漏，但不能证明两个不同文件没有拍摄同一实际地点。
+分配单位是完整的 `source_sha256` 组，而不是单个 ROI。v5.6 的带种子确定性分配器会在视觉簇足够时，先为每个正比例切分预留一个完整视觉簇，再按比例缺口分配剩余簇。JSON 记录三个两两源图交集，因此该保证可以机器验证。它能防止同一文件泄漏，但不能证明两个不同文件没有拍摄同一实际地点。
 
 The plan stays `not_training_ready` when it has too few independent sources, an empty split, pending privacy or label review, malformed packages, a truncated inventory, or a failed overlap audit. Even with no blocker, its status is `candidate_plan_requires_training_approval` and `training_authorized` remains `false`. A separate accountable decision is required before materialization or training.
 
 当独立原图不足、任一切分为空、隐私或标签复核待完成、存在损坏反馈包、清单被截断或交集审计失败时，策划保持 `not_training_ready`。即使没有阻断项，其状态也只是 `candidate_plan_requires_training_approval`，且 `training_authorized` 始终为 `false`；真正落盘为数据集或训练前仍需单独的责任审批。
+
+The v5.6 `urbanvision-feedback-curation-v2.2.0` record adds `allocation` and `readiness.remediation`. For the example “67 candidates from 3 independent sources,” automatic seeding produces non-empty train/validation/test groups, while remediation reports seven additional independent sources and seven additional visual groups required to reach the default minimum of ten. Because immutable autopilot governance is scoped to one selection, it separately reports that a fresh standalone batch should contain at least ten distinct images. It also reports all 67 machine candidates as awaiting independent approval. This turns a generic blocker into an executable acquisition plan without weakening the gate.
+
+v5.6 的 `urbanvision-feedback-curation-v2.2.0` 新增 `allocation` 与 `readiness.remediation`。对于“67 个候选来自 3 张独立原图”的例子，自动预留会生成非空 train、val、test；修复建议明确显示，为达到默认最少 10 个来源，本机累计台账还需 7 张独立原图和 7 个独立视觉簇。由于不可变自动驾驶治理只绑定一次选择，它还会单独提示：全新独立批次至少应选择 10 张图片。67 个机器候选仍待独立批准。这样把笼统阻断转化为可执行采集计划，同时不降低安全门。
+
+Internet research is recorded as a bounded reference rather than an automatic download. The official [RDD2022 source](https://github.com/sekilab/RoadDamageDetector) provides six-country data, D00/D10/D20/D40 Pascal VOC annotations, and CC BY-SA 4.0 image licensing. It is valid as an external detector benchmark but not as pixel-mask approval. A 400-image RDD2022-derived mask deposit was deliberately excluded from automatic ingestion because its downstream CC BY metadata does not explain how the upstream ShareAlike condition is preserved; license review is required before reuse.
+
+联网调研结果只作为有界参考记录，不会触发自动下载。官方 [RDD2022 来源](https://github.com/sekilab/RoadDamageDetector) 提供六国数据、D00/D10/D20/D40 Pascal VOC 标注及 CC BY-SA 4.0 图片许可，可作为外部检测基准，但不能冒充分割掩膜批准。一个含 400 张图片的 RDD2022 派生掩膜存档被明确排除出自动导入，因为其下游 CC BY 元数据没有说明如何保留上游 ShareAlike 条件；复用前必须单独审查许可证。
 
 ### Visual-scene leakage firewall / 视觉场景泄漏防火墙
 
@@ -291,9 +299,9 @@ Each member is capped at 8 MiB and the full read is capped at 512 MiB. SHA-256 i
 
 每个成员上限为 8 MiB，完整读取预算为 512 MiB；解码前先验证 SHA-256。原图与掩膜必须可解码、尺寸一致、不超过 512,000 像素，最终掩膜只能含 0/255 二值。合法全零最终掩膜会被保留并计数，因为人工复核后的负分割样本同样可能有价值。
 
-Preflight independently recomputes cross-split exact-source, visual-group, and identical source-member overlaps. Canonical JSON leaves contain split, run, hotspot, source digest, visual group, source-member digest, target-member digest, and review authority. Sorted leaves use SHA-256 with `0x00` leaf-domain separation; parents use `0x01`; the final node is duplicated on odd levels. The result is an immutable `urbanvision-feedback-snapshot-preflight-v1.0.0` JSON with a reproducible Merkle root.
+Preflight independently recomputes cross-split exact-source, visual-group, and identical source-member overlaps. Canonical JSON leaves contain split, run, hotspot, source digest, visual group, source-member digest, target-member digest, and review authority. Sorted leaves use SHA-256 with `0x00` leaf-domain separation; parents use `0x01`; the final node is duplicated on odd levels. The result is an immutable `urbanvision-feedback-snapshot-preflight-v1.1.0` JSON with a reproducible Merkle root and upstream remediation guidance.
 
-预检会独立重算切分间的精确来源、视觉簇和相同原图成员交集。规范化 JSON 叶节点包含切分、运行、热点、来源摘要、视觉簇、原图成员摘要、目标成员摘要和审核身份。排序叶使用带 `0x00` 叶域分离的 SHA-256，父节点使用 `0x01`，奇数层复制最后节点。结果是带可复现 Merkle 根的不可覆盖 `urbanvision-feedback-snapshot-preflight-v1.0.0` JSON。
+预检会独立重算切分间的精确来源、视觉簇和相同原图成员交集。规范化 JSON 叶节点包含切分、运行、热点、来源摘要、视觉簇、原图成员摘要、目标成员摘要和审核身份。排序叶使用带 `0x00` 叶域分离的 SHA-256，父节点使用 `0x01`，奇数层复制最后节点。结果是带可复现 Merkle 根和上游修复建议的不可覆盖 `urbanvision-feedback-snapshot-preflight-v1.1.0` JSON。
 
 Passing status is `verified_candidate_snapshot_requires_training_approval`, never “training ready.” Member integrity and Merkle reproducibility do not establish privacy clearance, semantic label correctness, field validity, or model performance.
 

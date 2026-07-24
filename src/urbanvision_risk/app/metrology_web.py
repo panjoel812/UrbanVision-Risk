@@ -289,9 +289,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v5.5 · Cross-channel selective prediction</p>
+        <p class="eyebrow">v5.6 · Self-remediating data readiness</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>YOLO 语义检测与独立裂缝分割会并行运行，随后由服务端验证同源摘要并计算空间支持。两者一致时记录增强证据；分割发现明显裂缝但 YOLO 没框时自动标为疑似语义漏检并隐藏风险分数。最多 100 张的内容去重、自愈队列与训练防火墙继续保留。</span><span data-en class="hidden-lang">YOLO semantics and independent crack segmentation run in parallel, then the service verifies source identity and spatial support. Agreement strengthens evidence; proposal-only evidence becomes a suspected semantic miss with the score withheld. The deduplicated, self-healing queue and training firewall remain active.</span></p>
+        <p class="hero-copy"><span data-zh>v5.6 会在视觉簇足够时自动保证训练、验证和测试切分非空，并把“还差多少张独立原图、多少视觉簇、多少机器候选待批准”直接显示出来。YOLO × 分割仲裁、内容去重、自愈队列与训练防火墙继续保留。</span><span data-en class="hidden-lang">v5.6 automatically keeps train, validation, and test non-empty when enough visual groups exist, then reports the exact source, scene-group, and machine-approval deficits. YOLO × segmentation arbitration, content deduplication, self-healing, and the training firewall remain active.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -540,7 +540,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v5.5 · Cross-Channel Selective Prediction · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v5.6 · Self-Remediating Data Readiness · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -729,7 +729,7 @@ METROLOGY_HTML = """<!doctype html>
           withinThreshold: "变化未超过用户阈值",
           curationRunning: "正在生成不可覆盖的防泄漏候选策划…",
           curationComplete: "防泄漏候选策划已生成",
-          curationBlocked: "策划已生成，但尚未训练就绪",
+          curationBlocked: "候选策划已生成；训练安全门仍有阻断项",
           selectedItems: "入选样本",
           uniqueSources: "独立原图",
           visualSceneGroups: "独立视觉簇",
@@ -877,7 +877,7 @@ METROLOGY_HTML = """<!doctype html>
           withinThreshold: "Change remains within the user threshold",
           curationRunning: "Building an immutable leakage-safe candidate plan…",
           curationComplete: "Leakage-safe candidate plan created",
-          curationBlocked: "Plan created, but not training-ready",
+          curationBlocked: "Candidate plan created; training gates remain",
           selectedItems: "Selected items",
           uniqueSources: "Independent sources",
           visualSceneGroups: "Independent visual groups",
@@ -2390,6 +2390,36 @@ METROLOGY_HTML = """<!doctype html>
         }
       }
 
+      function readinessRemediationLines(remediation, allocation = null) {
+        if (!remediation || typeof remediation !== "object") return [];
+        const deficits = remediation.deficits || {};
+        const nextBatch = remediation.recommended_next_batch || {};
+        const benchmark = remediation.external_benchmark_reference || {};
+        const emptySplits = Array.isArray(deficits.empty_positive_splits)
+          ? deficits.empty_positive_splits
+          : [];
+        const splitRepairApplied = Boolean(
+          allocation && allocation.non_empty_positive_split_seeding_applied
+        );
+        return [
+          language === "zh"
+            ? `自动切分修复: ${splitRepairApplied ? "已为每个正比例切分预留独立视觉簇" : "视觉簇不足，无法填满所有切分"}`
+            : `Automatic split repair: ${splitRepairApplied ? "an independent visual group was reserved for every positive split" : "too few visual groups to populate every split"}`,
+          language === "zh"
+            ? `本机累计策划还差: ${Number(nextBatch.additional_distinct_images_for_current_registry || 0)} 张独立全幅原图 · 全新独立批次至少选择: ${Number(nextBatch.minimum_distinct_images_for_new_scoped_batch || 0)} 张`
+            : `Cumulative local plan deficit: ${Number(nextBatch.additional_distinct_images_for_current_registry || 0)} independent full-frame images · minimum for a fresh scoped batch: ${Number(nextBatch.minimum_distinct_images_for_new_scoped_batch || 0)}`,
+          language === "zh"
+            ? `当前空切分: ${emptySplits.length ? emptySplits.join(", ") : "无"}`
+            : `Current empty splits: ${emptySplits.length ? emptySplits.join(", ") : "none"}`,
+          language === "zh"
+            ? `待独立批准机器候选: ${Number(deficits.machine_candidates_pending_independent_approval || 0)}`
+            : `Machine candidates pending independent approval: ${Number(deficits.machine_candidates_pending_independent_approval || 0)}`,
+          language === "zh"
+            ? `外部检测基准: ${benchmark.name || "RDD2022"} · ${benchmark.data_license || "CC-BY-SA-4.0"} · 不替代本地分割标签批准`
+            : `External detector benchmark: ${benchmark.name || "RDD2022"} · ${benchmark.data_license || "CC-BY-SA-4.0"} · not a substitute for local mask approval`
+        ];
+      }
+
       function renderFeedbackCuration(payload) {
         latestFeedbackCuration = payload;
         const curation = payload.curation;
@@ -2417,6 +2447,10 @@ METROLOGY_HTML = """<!doctype html>
           `${t("duplicateRemoved")}: ${selection.exclusion_counts.duplicate_fingerprint}`,
           `${t("sourceLeakage")}: ${hasOverlap(sourceOverlap) ? (language === "zh" ? "已发现" : "detected") : (language === "zh" ? "未发现" : "not detected")}`,
           `${t("visualSceneLeakage")}: ${hasOverlap(visualOverlap) ? (language === "zh" ? "已发现" : "detected") : (language === "zh" ? "未发现" : "not detected")}`,
+          ...readinessRemediationLines(
+            curation.readiness && curation.readiness.remediation,
+            curation.allocation
+          ),
           `${t("readinessBlockers")}: ${blockerText}`,
           `${t("trainingAuthorization")}: ${curation.training_authorized ? (language === "zh" ? "已授权" : "authorized") : (language === "zh" ? "未授权" : "not authorized")}`
         ];
@@ -2493,6 +2527,12 @@ METROLOGY_HTML = """<!doctype html>
           `${t("memberBytes")}: ${byteLabel}`,
           `${t("contentDuplicates")}: ${(integrity.source_roi_content_overlaps || []).length}`,
           `${t("merkleRoot")}: ${merkle.root_sha256}`,
+          ...readinessRemediationLines(
+            snapshot.readiness && snapshot.readiness.remediation,
+            latestFeedbackCuration
+              && latestFeedbackCuration.curation
+              && latestFeedbackCuration.curation.allocation
+          ),
           `${t("readinessBlockers")}: ${blockerText}`,
           `${t("trainingAuthorization")}: ${snapshot.training_authorized ? (language === "zh" ? "已授权" : "authorized") : (language === "zh" ? "未授权" : "not authorized")}`
         ];

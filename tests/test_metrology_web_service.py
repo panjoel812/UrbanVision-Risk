@@ -20,6 +20,7 @@ from urbanvision_risk.app.metrology_service import (
     _canonical_merkle_root,
     _cross_channel_evidence_state,
     _curation_ratios,
+    _curation_readiness_remediation,
     _deterministic_zip_bytes,
     _difference_hash64,
     _feedback_quality_gate,
@@ -241,6 +242,58 @@ def test_feedback_curation_group_assignment_is_deterministic_and_leakage_safe() 
         _curation_ratios(0.8, 0.15, 0.1)
 
 
+def test_feedback_curation_repairs_empty_splits_and_reports_exact_deficits() -> None:
+    ratios = _curation_ratios(0.8, 0.1, 0.1)
+    groups = {
+        "scene-large": [{"source_sha256": "1" * 64}] * 40,
+        "scene-medium": [{"source_sha256": "2" * 64}] * 20,
+        "scene-small": [{"source_sha256": "3" * 64}] * 7,
+    }
+
+    assigned = _assign_curation_groups(groups, ratios, seed=42)
+
+    assert {
+        split: len(items) for split, items in assigned.items()
+    } == {"train": 40, "val": 20, "test": 7}
+    remediation = _curation_readiness_remediation(
+        source_count=3,
+        scene_group_count=3,
+        minimum_unique_sources=10,
+        machine_candidate_count=67,
+        human_reviewed_count=0,
+        ratios=ratios,
+        split_item_counts={
+            split: len(items) for split, items in assigned.items()
+        },
+        privacy_review_confirmed=True,
+        label_qa_confirmed=True,
+        scope_kind="explicit_autopilot_batch",
+    )
+    assert remediation["deficits"] == {
+        "additional_unique_sources_required": 7,
+        "additional_visual_scene_groups_required": 7,
+        "empty_positive_splits": [],
+        "machine_candidates_pending_independent_approval": 67,
+    }
+    assert remediation["recommended_next_batch"][
+        "additional_distinct_images_for_current_registry"
+    ] == 7
+    assert remediation["recommended_next_batch"][
+        "minimum_distinct_images_for_new_scoped_batch"
+    ] == 10
+    assert remediation["external_benchmark_reference"][
+        "data_license"
+    ] == "CC-BY-SA-4.0"
+    two_way = _assign_curation_groups(
+        groups,
+        {"train": 0.8, "val": 0.2, "test": 0.0},
+        seed=42,
+    )
+    assert two_way["train"]
+    assert two_way["val"]
+    assert two_way["test"] == []
+
+
 def test_visual_scene_clustering_is_deterministic_transitive_and_auditable() -> None:
     source_a = "a" * 64
     source_b = "b" * 64
@@ -401,8 +454,17 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
     curation = result["curation"]
 
     assert curation["status"] == "candidate_plan_requires_training_approval"
+    assert curation["schema_version"] == (
+        "urbanvision-feedback-curation-v2.2.0"
+    )
     assert curation["training_authorized"] is False
     assert curation["readiness"]["blockers"] == []
+    assert curation["allocation"][
+        "non_empty_positive_split_seeding_applied"
+    ] is True
+    assert curation["readiness"]["remediation"]["deficits"][
+        "empty_positive_splits"
+    ] == []
     assert curation["selection"]["selected_item_count"] == 10
     assert curation["selection"]["visual_scene_group_count"] == 9
     assert curation["selection"]["machine_only_selected_count"] == 0
@@ -437,8 +499,14 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
     assert snapshot["status"] == (
         "verified_candidate_snapshot_requires_training_approval"
     )
+    assert snapshot["schema_version"] == (
+        "urbanvision-feedback-snapshot-preflight-v1.1.0"
+    )
     assert snapshot["training_authorized"] is False
     assert snapshot["readiness"]["blockers"] == []
+    assert snapshot["readiness"]["remediation"] == (
+        curation["readiness"]["remediation"]
+    )
     assert snapshot["integrity"]["inventory_matches"] is True
     assert snapshot["integrity"]["expected_pair_count"] == 10
     assert snapshot["integrity"]["verified_pair_count"] == 10

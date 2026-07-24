@@ -96,7 +96,7 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "server_duplicate_source_rejection" in guide
     assert "content-aware self-healing control plane" in portfolio
     assert "内容感知自愈控制平面" in portfolio
-    assert "Version 5.5 adds cross-channel selective prediction" in readme
+    assert "Version 5.6 adds self-remediating data readiness" in readme
     assert "Cross-channel selective prediction" in guide
     assert "POST /api/evidence/arbitrate" in guide
     assert "source_upload_sha256" in guide
@@ -108,6 +108,13 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "urbanvision-cross-channel-arbitration-v1.0.0" in guide
     assert "cross-method selective-prediction layer" in portfolio
     assert "双通道选择性预测仲裁器" in portfolio
+    assert "urbanvision-feedback-curation-v2.2.0" in guide
+    assert "urbanvision-feedback-snapshot-preflight-v1.1.0" in guide
+    assert "readiness.remediation" in guide
+    assert "seven additional independent sources" in guide
+    assert "CC BY-SA 4.0" in guide
+    assert "non-empty group-aware holdout seeding" in portfolio
+    assert "自修复数据就绪层" in portfolio
     assert "ArUco" in portfolio
     assert "Ground truth / 人工参考值" in template
     assert "Absolute length error" in template

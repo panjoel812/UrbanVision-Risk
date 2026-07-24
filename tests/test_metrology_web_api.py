@@ -406,6 +406,9 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert '"retry_count"' in response.text
     assert "runEvidenceArbitration" in response.text
     assert "renderEvidenceArbitration" in response.text
+    assert "v5.6 · Self-remediating data readiness" in response.text
+    assert "readinessRemediationLines" in response.text
+    assert "全新独立批次至少选择" in response.text
     assert "/api/evidence/arbitrate" in response.text
     assert '"arbitration_ids"' in response.text
     assert "proposalSuppressed" in response.text
@@ -501,6 +504,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["resilient_batch_autopilot"] is True
     assert health.json()["self_healing_content_deduplication"] is True
     assert health.json()["cross_channel_evidence_arbitration"] is True
+    assert health.json()["self_remediating_data_readiness"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:

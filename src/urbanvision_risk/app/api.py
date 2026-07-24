@@ -139,6 +139,7 @@ def create_app(
         payload["resilient_batch_autopilot"] = True
         payload["self_healing_content_deduplication"] = True
         payload["cross_channel_evidence_arbitration"] = True
+        payload["self_remediating_data_readiness"] = True
         return payload
 
     @app.get("/api/review-queue")

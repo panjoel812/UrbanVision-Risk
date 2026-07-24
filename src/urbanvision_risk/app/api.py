@@ -144,6 +144,8 @@ def create_app(
         payload["dual_axis_training_readiness"] = True
         payload["automatic_dataset_shift_monitoring"] = True
         payload["mmd_permutation_drift_audit"] = True
+        payload["tamper_evident_transparency_log"] = True
+        payload["full_chain_artifact_verification"] = True
         return payload
 
     @app.get("/api/review-queue")
@@ -287,15 +289,11 @@ def create_app(
             filename=path.name,
         )
 
-    @app.post(
-        "/api/metrology/feedback-curations/{curation_id}/snapshot-preflight"
-    )
+    @app.post("/api/metrology/feedback-curations/{curation_id}/snapshot-preflight")
     async def metrology_feedback_snapshot_preflight(
         curation_id: str,
     ) -> dict[str, object]:
-        return active_metrology.create_feedback_snapshot_preflight(
-            curation_id
-        )
+        return active_metrology.create_feedback_snapshot_preflight(curation_id)
 
     @app.get("/api/metrology/feedback-snapshots/{snapshot_id}.json")
     async def metrology_feedback_snapshot_record(
@@ -308,13 +306,26 @@ def create_app(
             filename=path.name,
         )
 
-    @app.get(
-        "/api/metrology/feedback-drift-audits/{drift_id}.json"
-    )
+    @app.get("/api/metrology/feedback-drift-audits/{drift_id}.json")
     async def metrology_feedback_drift_audit_record(
         drift_id: str,
     ) -> FileResponse:
         path = active_metrology.feedback_drift_audit_path(drift_id)
+        return FileResponse(
+            path,
+            media_type="application/json",
+            filename=path.name,
+        )
+
+    @app.get("/api/metrology/transparency-log")
+    async def metrology_transparency_log() -> dict[str, object]:
+        return active_metrology.verify_transparency_log()
+
+    @app.get("/api/metrology/transparency-log/{entry_id}.json")
+    async def metrology_transparency_entry(
+        entry_id: str,
+    ) -> FileResponse:
+        path = active_metrology.transparency_entry_path(entry_id)
         return FileResponse(
             path,
             media_type="application/json",
@@ -364,9 +375,7 @@ def create_app(
     async def evidence_arbitration_record(
         arbitration_id: str,
     ) -> FileResponse:
-        path = active_metrology.evidence_arbitration_path(
-            arbitration_id
-        )
+        path = active_metrology.evidence_arbitration_path(arbitration_id)
         return FileResponse(
             path,
             media_type="application/json",

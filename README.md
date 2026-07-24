@@ -1,8 +1,8 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v5.8 增加自动数据漂移与覆盖审计：每次批次结束，系统会从经过 SHA-256 验证的 ROI 提取有界、可解释的亮度、饱和度、边缘、纹理、掩膜覆盖率与几何特征；随后使用确定性 RBF-MMD 置换检验比较当前批次与排除当前来源后的历史基线，并用最近邻覆盖率提示新颖场景。当前少于 3 个独立来源或历史少于 5 个来源时，系统会明确拒答而不是产生伪精确结论。v5.7 的跨会话累计与技术/治理双轴状态全部保留。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v5.9 增加防篡改透明度账本：每次自动巡检完成后，系统会把本批次策划与快照、累计策划与快照、漂移审计及批次记录六类工件的真实文件字节绑定到一条规范化 SHA-256 哈希链。追加前后会验证完整历史；改写、缺失、编号错位、序列缺口或断链都会主动失败。v5.8 的确定性 RBF-MMD 漂移审计与小样本拒答全部保留。
 
-**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 5.8 adds automatic dataset-shift and coverage auditing. After every batch, it extracts bounded, interpretable luminance, saturation, edge, texture, mask-coverage, and geometry features from SHA-256-verified ROIs. A deterministic RBF-MMD permutation test compares the current batch with the historical baseline after excluding current source digests, while nearest-neighbor coverage identifies novel scenes. The audit abstains instead of manufacturing precision when the current batch has fewer than three independent sources or history has fewer than five. The v5.7 cross-session registry and technical/governance readiness axes remain active.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 5.9 adds a tamper-evident transparency ledger. After every autopilot batch, the service binds the actual file bytes of six artifacts—batch curation and snapshot, cumulative curation and snapshot, drift audit, and batch record—into a canonical SHA-256 hash chain. The complete history is verified before and after append; mutation, loss, identity mismatch, sequence gaps, or broken links fail loudly. The v5.8 deterministic RBF-MMD shift audit and small-sample abstention remain active.
 
 The resilient queue of up to 100 images still performs content deduplication, bounded retry, and per-item failure isolation before batch-scoped governance and cumulative refresh.
 
@@ -18,7 +18,7 @@ Automatic results are reviewable evidence, not hidden ground truth. The synchron
 
 **v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v5.8 Quick Start / v5.8 快速启动
+## v5.9 Quick Start / v5.9 快速启动
 
 ```bash
 uv sync --extra dev
@@ -33,9 +33,9 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`. Keep **Autopilot** checked and choose one or more images. Each successful item receives an arbitration record, and `urbanvision-autopilot-batch-v1.4.0` binds those records, batch-scoped governance, the cumulative registry, and `urbanvision-feedback-drift-audit-v1.0.0`.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`. Keep **Autopilot** checked and choose one or more images. Each successful item receives an arbitration record. `urbanvision-autopilot-batch-v1.5.0` binds batch governance, cumulative governance, and `urbanvision-feedback-drift-audit-v1.0.0`; the resulting six artifacts then enter `urbanvision-transparency-entry-v1.0.0`.
 
-第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程。保持 **自动驾驶开启**，一次选择一张或多张图片。每个成功项都生成仲裁记录，`urbanvision-autopilot-batch-v1.4.0` 会绑定这些证据、本批次治理、跨会话累计台账与 `urbanvision-feedback-drift-audit-v1.0.0`。端口被占用时使用 `--port 8001`。
+第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程。保持 **自动驾驶开启**，一次选择一张或多张图片。每个成功项都生成仲裁记录；`urbanvision-autopilot-batch-v1.5.0` 绑定本批次治理、累计治理与 `urbanvision-feedback-drift-audit-v1.0.0`，随后六类工件进入 `urbanvision-transparency-entry-v1.0.0`。端口被占用时使用 `--port 8001`。
 
 The v5.7 curator writes `urbanvision-feedback-curation-v2.3.0`, and snapshot preflight writes `urbanvision-feedback-snapshot-preflight-v1.2.0`. The page displays the exact current-batch scope and an automatically refreshed all-session local feedback registry scope. A 67/67 byte-integrity result can therefore be shown as technically verified while governance remains blocked, instead of being collapsed into the misleading phrase “upstream not ready.”
 
@@ -44,6 +44,10 @@ v5.7 策划器写入 `urbanvision-feedback-curation-v2.3.0`，快照预检写入
 The drift audit is monitoring evidence only. A low p-value says the bounded feature distributions differ; it does not prove concept drift, model-accuracy loss, label correctness, or road danger. `training_authorized` remains `false`.
 
 漂移审计只属于监测证据。较低的 p 值只表示这些有界特征的分布存在差异，不能证明概念漂移、模型准确率下降、标签正确或道路危险；`training_authorized` 仍保持 `false`。
+
+`GET /api/metrology/transparency-log` rehashes every ledger entry and every bound artifact on demand. This is local tamper evidence, not absolute immutability: an attacker controlling the entire disk could rewrite or truncate the whole chain. The project does not claim an external timestamp, transparency service, or notarization.
+
+`GET /api/metrology/transparency-log` 会按需重新计算每条账本记录及全部绑定工件的摘要。这是本机防篡改证据，不是绝对不可变性：控制整块磁盘的攻击者仍可能重写或截断整条链；项目不声称外部时间戳、透明度服务或公证。
 
 The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
 
@@ -118,6 +122,7 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 - `results/metrology/curations/*.json` and `results/metrology/snapshots/*.json`: automatically generated leakage-safe plans and content-addressed Merkle preflight records; neither authorizes training / 自动生成的防泄漏策划与内容寻址 Merkle 预检记录；二者都不授权训练。
 - `results/metrology/arbitrations/*.json`: immutable YOLO–segmentation source binding, spatial support, abstention state, and claim boundary / 不可覆盖的 YOLO—分割同源绑定、空间支持、拒答状态与使用边界。
 - `results/metrology/autopilot-batches/*.json`: privacy-minimized batch ledger binding completed machine runs and arbitration evidence to one curation and snapshot / 隐私最小化批次台账，把成功机器运行及仲裁证据绑定到一次策划与快照。
+- `results/metrology/transparency-log/*.json`: local canonical hash-chain entries that bind and re-verify six governance artifacts per batch / 本机规范化哈希链记录，每个批次绑定并复核六类治理工件。
 - `results/metrology/<output>/plans/*.json`: immutable material quantity, cost assumptions, measurement digest, and decision boundary / 不可覆盖的材料数量、成本假设、量测摘要和使用边界。
 - `results/metrology/comparisons/*.json` and `*-change-map.png`: normalized two-date changes, physical alignment quality, spatial classes, daily growth, user thresholds, and source-record digests / 统一单位的两期变化、物理对齐质量、空间分类、每日增长、用户阈值和源记录摘要。
 

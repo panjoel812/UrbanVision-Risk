@@ -68,6 +68,36 @@ MAX_DRIFT_TOTAL_BYTES = 128 * 1024 * 1024
 DRIFT_MIN_CURRENT_SOURCES = 3
 DRIFT_MIN_REFERENCE_SOURCES = 5
 DRIFT_PERMUTATIONS = 199
+MAX_TRANSPARENCY_ENTRIES = 10_000
+MAX_TRANSPARENCY_FINDINGS = 500
+TRANSPARENCY_CHAIN_DOMAIN = b"urbanvision-transparency-v1\x00"
+TRANSPARENCY_ARTIFACT_KINDS = {
+    "feedback_curation": (
+        "curations",
+        "/api/metrology/feedback-curations/{record_id}.json",
+    ),
+    "feedback_snapshot": (
+        "snapshots",
+        "/api/metrology/feedback-snapshots/{record_id}.json",
+    ),
+    "feedback_drift_audit": (
+        "drift-audits",
+        "/api/metrology/feedback-drift-audits/{record_id}.json",
+    ),
+    "autopilot_batch": (
+        "autopilot-batches",
+        "/api/metrology/autopilot-batches/{record_id}.json",
+    ),
+}
+TRANSPARENCY_ROLE_KINDS = {
+    "current_batch_curation": "feedback_curation",
+    "current_batch_snapshot": "feedback_snapshot",
+    "cumulative_curation": "feedback_curation",
+    "cumulative_snapshot": "feedback_snapshot",
+    "drift_audit": "feedback_drift_audit",
+    "autopilot_batch": "autopilot_batch",
+}
+TRANSPARENCY_REQUIRED_ROLES = frozenset(TRANSPARENCY_ROLE_KINDS)
 DRIFT_FEATURE_NAMES = (
     "luminance_mean",
     "luminance_std",
@@ -108,9 +138,7 @@ FEEDBACK_FILE_ROLES = (
     "disagreement_layer",
 )
 COMPARISON_ARTIFACTS = frozenset({"change-map.png"})
-PROPOSAL_ARTIFACTS = frozenset(
-    {"proposal-mask.png", "review-hotspots.png", "evidence.json"}
-)
+PROPOSAL_ARTIFACTS = frozenset({"proposal-mask.png", "review-hotspots.png", "evidence.json"})
 MAX_FRAME_DIMENSION_MISMATCH_RATIO = 0.05
 MAX_CHANGE_MAP_PIXELS_PER_METER = 2_000.0
 METROLOGY_ARTIFACTS = frozenset(
@@ -241,8 +269,7 @@ def _reviewed_hotspot_ids(value: str | None) -> list[str]:
         raise _input_error("reviewed_hotspots must be a JSON array")
     if len(payload) > MAX_RANKED_REVIEW_HOTSPOTS:
         raise _input_error(
-            f"reviewed_hotspots count={len(payload)} exceeds "
-            f"{MAX_RANKED_REVIEW_HOTSPOTS}"
+            f"reviewed_hotspots count={len(payload)} exceeds {MAX_RANKED_REVIEW_HOTSPOTS}"
         )
     result: list[str] = []
     for hotspot_id in payload:
@@ -269,14 +296,10 @@ def _autopilot_batch_run_ids(value: str) -> list[str]:
     result: list[str] = []
     for run_id in payload:
         if not isinstance(run_id, str):
-            raise _input_error(
-                "autopilot batch run_ids contains a non-string ID"
-            )
+            raise _input_error("autopilot batch run_ids contains a non-string ID")
         safe_id = validate_run_name(run_id)
         if safe_id in result:
-            raise _input_error(
-                f"autopilot batch run_ids contains duplicate ID {safe_id}"
-            )
+            raise _input_error(f"autopilot batch run_ids contains duplicate ID {safe_id}")
         result.append(safe_id)
     return result
 
@@ -291,24 +314,16 @@ def _autopilot_batch_source_digests(
     try:
         payload = json.loads(value)
     except json.JSONDecodeError as error:
-        raise _input_error(
-            "autopilot batch source_digests is not valid JSON"
-        ) from error
+        raise _input_error("autopilot batch source_digests is not valid JSON") from error
     if not isinstance(payload, list) or len(payload) != run_count:
-        raise _input_error(
-            "autopilot batch source_digests must match the run count"
-        )
+        raise _input_error("autopilot batch source_digests must match the run count")
     result: list[str] = []
     for digest in payload:
         if not _is_hex_digest(digest, 64):
-            raise _input_error(
-                "autopilot batch source_digests contains an invalid digest"
-            )
+            raise _input_error("autopilot batch source_digests contains an invalid digest")
         normalized = str(digest).lower()
         if normalized in result:
-            raise _input_error(
-                "autopilot batch source_digests contains a duplicate digest"
-            )
+            raise _input_error("autopilot batch source_digests contains a duplicate digest")
         result.append(normalized)
     return result
 
@@ -323,24 +338,16 @@ def _autopilot_batch_arbitration_ids(
     try:
         payload = json.loads(value)
     except json.JSONDecodeError as error:
-        raise _input_error(
-            "autopilot batch arbitration_ids is not valid JSON"
-        ) from error
+        raise _input_error("autopilot batch arbitration_ids is not valid JSON") from error
     if not isinstance(payload, list) or len(payload) != run_count:
-        raise _input_error(
-            "autopilot batch arbitration_ids must match the run count"
-        )
+        raise _input_error("autopilot batch arbitration_ids must match the run count")
     result: list[str] = []
     for arbitration_id in payload:
         if not isinstance(arbitration_id, str):
-            raise _input_error(
-                "autopilot batch arbitration_ids contains a non-string ID"
-            )
+            raise _input_error("autopilot batch arbitration_ids contains a non-string ID")
         safe_id = validate_run_name(arbitration_id)
         if safe_id in result:
-            raise _input_error(
-                "autopilot batch arbitration_ids contains a duplicate ID"
-            )
+            raise _input_error("autopilot batch arbitration_ids contains a duplicate ID")
         result.append(safe_id)
     return result
 
@@ -354,9 +361,7 @@ def _autopilot_batch_accounting(
     retry_count: int,
     max_attempts: int,
 ) -> dict[str, int | bool | str]:
-    actual_selected_count = (
-        run_count if selected_count is None else selected_count
-    )
+    actual_selected_count = run_count if selected_count is None else selected_count
     values = {
         "selected_count": actual_selected_count,
         "failed_count": failed_count,
@@ -364,32 +369,19 @@ def _autopilot_batch_accounting(
         "retry_count": retry_count,
         "max_attempts": max_attempts,
     }
-    if any(
-        isinstance(value, bool) or not isinstance(value, int)
-        for value in values.values()
-    ):
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in values.values()):
         raise _input_error("autopilot batch accounting must contain integers")
     if not 1 <= actual_selected_count <= MAX_AUTOPILOT_BATCH_IMAGES:
-        raise _input_error(
-            "autopilot batch selected_count is outside the batch limit"
-        )
+        raise _input_error("autopilot batch selected_count is outside the batch limit")
     if failed_count < 0 or duplicate_count < 0 or retry_count < 0:
-        raise _input_error(
-            "autopilot batch accounting cannot contain negative counts"
-        )
+        raise _input_error("autopilot batch accounting cannot contain negative counts")
     if not 1 <= max_attempts <= MAX_AUTOPILOT_BATCH_ATTEMPTS:
-        raise _input_error(
-            "autopilot batch max_attempts is outside the retry limit"
-        )
+        raise _input_error("autopilot batch max_attempts is outside the retry limit")
     if run_count + failed_count + duplicate_count != actual_selected_count:
-        raise _input_error(
-            "autopilot batch accounting does not match completed runs"
-        )
+        raise _input_error("autopilot batch accounting does not match completed runs")
     processed_count = run_count + failed_count
     if retry_count > processed_count * (max_attempts - 1):
-        raise _input_error(
-            "autopilot batch retry_count exceeds the retry policy"
-        )
+        raise _input_error("autopilot batch retry_count exceeds the retry policy")
     return {
         "selected_count": actual_selected_count,
         "completed_count": run_count,
@@ -413,8 +405,7 @@ def _hotspot_decisions(value: str | None) -> list[dict[str, str]]:
         raise _input_error("hotspot_decisions must be a JSON array")
     if len(payload) > MAX_RANKED_REVIEW_HOTSPOTS:
         raise _input_error(
-            f"hotspot_decisions count={len(payload)} exceeds "
-            f"{MAX_RANKED_REVIEW_HOTSPOTS}"
+            f"hotspot_decisions count={len(payload)} exceeds {MAX_RANKED_REVIEW_HOTSPOTS}"
         )
     result: list[dict[str, str]] = []
     seen_ids: set[str] = set()
@@ -433,13 +424,9 @@ def _hotspot_decisions(value: str | None) -> list[dict[str, str]]:
         if not isinstance(hotspot_id, str) or not hotspot_id:
             raise _input_error("hotspot_decisions contains an invalid hotspot_id")
         if hotspot_id in seen_ids:
-            raise _input_error(
-                f"hotspot_decisions contains duplicate ID {hotspot_id}"
-            )
+            raise _input_error(f"hotspot_decisions contains duplicate ID {hotspot_id}")
         if not isinstance(disposition, str) or disposition not in HOTSPOT_DISPOSITIONS:
-            raise _input_error(
-                f"hotspot_decisions contains invalid disposition {disposition!r}"
-            )
+            raise _input_error(f"hotspot_decisions contains invalid disposition {disposition!r}")
         if not isinstance(note, str):
             raise _input_error("hotspot_decisions note must be a string")
         note = note.strip()
@@ -607,9 +594,7 @@ def _feedback_manifest(path: Path) -> tuple[dict[str, object], str]:
         with zipfile.ZipFile(path) as archive:
             info = archive.getinfo("manifest.json")
             if info.file_size <= 0 or info.file_size > MAX_FEEDBACK_MANIFEST_BYTES:
-                raise ValueError(
-                    f"feedback manifest bytes={info.file_size}"
-                )
+                raise ValueError(f"feedback manifest bytes={info.file_size}")
             raw = archive.read(info)
             payload = json.loads(raw.decode("utf-8"))
     except (
@@ -671,8 +656,7 @@ def _cross_channel_evidence_state(
     if (
         proposal_significant
         and semantic_positive
-        and proposal_supported_ratio
-        >= ARBITRATION_MIN_SUPPORTED_PROPOSAL_RATIO
+        and proposal_supported_ratio >= ARBITRATION_MIN_SUPPORTED_PROPOSAL_RATIO
     ):
         return "cross_channel_supported"
     if proposal_significant and semantic_positive:
@@ -706,9 +690,7 @@ def _curation_file_evidence(
 
 def _fingerprint_hamming_distance(left: str, right: str) -> int:
     if not _is_hex_digest(left, 16) or not _is_hex_digest(right, 16):
-        raise _input_error(
-            f"invalid 64-bit fingerprints left={left!r}, right={right!r}"
-        )
+        raise _input_error(f"invalid 64-bit fingerprints left={left!r}, right={right!r}")
     return (int(left, 16) ^ int(right, 16)).bit_count()
 
 
@@ -722,18 +704,12 @@ def _near_duplicate_scene_groups(
         or not isinstance(max_hamming_distance, int)
         or not 0 <= max_hamming_distance <= 16
     ):
-        raise _input_error(
-            f"max_scene_hamming_distance={max_hamming_distance!r}"
-        )
+        raise _input_error(f"max_scene_hamming_distance={max_hamming_distance!r}")
     for source, fingerprints in source_fingerprints.items():
         if not _is_hex_digest(source, 64) or not fingerprints:
-            raise _input_error(
-                f"source scene fingerprints are missing for {source!r}"
-            )
+            raise _input_error(f"source scene fingerprints are missing for {source!r}")
         if any(not _is_hex_digest(fingerprint, 16) for fingerprint in fingerprints):
-            raise _input_error(
-                f"source scene fingerprints are invalid for {source!r}"
-            )
+            raise _input_error(f"source scene fingerprints are invalid for {source!r}")
     sources = sorted(source_fingerprints)
     parent = {source: source for source in sources}
 
@@ -787,9 +763,9 @@ def _near_duplicate_scene_groups(
     groups: list[dict[str, object]] = []
     source_to_group: dict[str, str] = {}
     for members in sorted(components.values(), key=lambda values: tuple(values)):
-        scene_group_id = "visual-scene-" + hashlib.sha256(
-            ",".join(members).encode()
-        ).hexdigest()[:24]
+        scene_group_id = (
+            "visual-scene-" + hashlib.sha256(",".join(members).encode()).hexdigest()[:24]
+        )
         for source in members:
             source_to_group[source] = scene_group_id
         groups.append(
@@ -818,10 +794,7 @@ def _canonical_merkle_root(records: list[dict[str, object]]) -> str:
     )
     if not canonical_leaves:
         return hashlib.sha256(b"\x00").hexdigest()
-    level = [
-        hashlib.sha256(b"\x00" + canonical).digest()
-        for canonical in canonical_leaves
-    ]
+    level = [hashlib.sha256(b"\x00" + canonical).digest() for canonical in canonical_leaves]
     while len(level) > 1:
         if len(level) % 2:
             level.append(level[-1])
@@ -832,6 +805,19 @@ def _canonical_merkle_root(records: list[dict[str, object]]) -> str:
     return level[0].hex()
 
 
+def _canonical_json_bytes(payload: dict[str, object]) -> bytes:
+    return json.dumps(
+        payload,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+
+
+def _transparency_chain_sha256(payload: dict[str, object]) -> str:
+    return hashlib.sha256(TRANSPARENCY_CHAIN_DOMAIN + _canonical_json_bytes(payload)).hexdigest()
+
+
 def _assign_curation_groups(
     groups: dict[str, list[dict[str, object]]],
     ratios: dict[str, float],
@@ -839,10 +825,7 @@ def _assign_curation_groups(
 ) -> dict[str, list[dict[str, object]]]:
     """Assign whole groups and seed every positive split when possible."""
     total_items = sum(len(items) for items in groups.values())
-    targets = {
-        split: total_items * ratios[split]
-        for split in CURATION_SPLITS
-    }
+    targets = {split: total_items * ratios[split] for split in CURATION_SPLITS}
     assigned = {split: [] for split in CURATION_SPLITS}
     counts = {split: 0 for split in CURATION_SPLITS}
     ordered_groups = sorted(
@@ -854,11 +837,7 @@ def _assign_curation_groups(
         ),
     )
     positive_splits = sorted(
-        (
-            split
-            for split in CURATION_SPLITS
-            if ratios[split] > 0
-        ),
+        (split for split in CURATION_SPLITS if ratios[split] > 0),
         key=lambda split: (
             -ratios[split],
             CURATION_SPLITS.index(split),
@@ -900,13 +879,9 @@ def _curation_readiness_remediation(
     label_qa_confirmed: bool,
     scope_kind: str,
 ) -> dict[str, object]:
-    positive_splits = [
-        split for split in CURATION_SPLITS if ratios[split] > 0
-    ]
+    positive_splits = [split for split in CURATION_SPLITS if ratios[split] > 0]
     empty_positive_splits = [
-        split
-        for split in positive_splits
-        if split_item_counts.get(split, 0) == 0
+        split for split in positive_splits if split_item_counts.get(split, 0) == 0
     ]
     additional_sources = max(
         0,
@@ -927,9 +902,7 @@ def _curation_readiness_remediation(
     if empty_positive_splits:
         required_actions.append("populate_every_positive_split")
     if machine_candidate_count:
-        required_actions.append(
-            "independent_human_approval_for_machine_labels"
-        )
+        required_actions.append("independent_human_approval_for_machine_labels")
     if not privacy_review_confirmed:
         required_actions.append("confirm_privacy_review")
     if not label_qa_confirmed:
@@ -951,26 +924,18 @@ def _curation_readiness_remediation(
         },
         "deficits": {
             "additional_unique_sources_required": additional_sources,
-            "additional_visual_scene_groups_required": (
-                additional_scene_groups
-            ),
+            "additional_visual_scene_groups_required": (additional_scene_groups),
             "empty_positive_splits": empty_positive_splits,
-            "machine_candidates_pending_independent_approval": (
-                machine_candidate_count
-            ),
+            "machine_candidates_pending_independent_approval": (machine_candidate_count),
         },
         "recommended_next_batch": {
             "scope_kind": scope_kind,
-            "additional_distinct_images_for_current_registry": (
-                recommended_distinct_images
-            ),
+            "additional_distinct_images_for_current_registry": (recommended_distinct_images),
             "minimum_distinct_images_for_new_scoped_batch": max(
                 minimum_unique_sources,
                 len(positive_splits),
             ),
-            "maximum_supported_images": (
-                MAX_AUTOPILOT_BATCH_IMAGES
-            ),
+            "maximum_supported_images": (MAX_AUTOPILOT_BATCH_IMAGES),
             "avoid": [
                 "byte-identical files",
                 "crops or edits of the same source",
@@ -984,19 +949,13 @@ def _curation_readiness_remediation(
             "cross_split_leakage_audit",
         ],
         "required_actions": required_actions,
-        "external_benchmark_reference": dict(
-            CURATION_EXTERNAL_BENCHMARK_REFERENCE
-        ),
+        "external_benchmark_reference": dict(CURATION_EXTERNAL_BENCHMARK_REFERENCE),
     }
 
 
 def _readiness_axes(blockers: list[str]) -> dict[str, object]:
-    governance_blockers = [
-        code for code in blockers if code in CURATION_GOVERNANCE_BLOCKERS
-    ]
-    technical_blockers = [
-        code for code in blockers if code not in CURATION_GOVERNANCE_BLOCKERS
-    ]
+    governance_blockers = [code for code in blockers if code in CURATION_GOVERNANCE_BLOCKERS]
+    technical_blockers = [code for code in blockers if code not in CURATION_GOVERNANCE_BLOCKERS]
     return {
         "technical": {
             "status": "ready" if not technical_blockers else "blocked",
@@ -1021,11 +980,7 @@ def _drift_feature_vector(
         bgr = source_image
     else:
         raise ValueError("source image must be grayscale, BGR, or BGRA")
-    if (
-        final_mask.ndim != 2
-        or final_mask.shape != bgr.shape[:2]
-        or not final_mask.size
-    ):
+    if final_mask.ndim != 2 or final_mask.shape != bgr.shape[:2] or not final_mask.size:
         raise ValueError("final mask geometry does not match source image")
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
@@ -1040,11 +995,7 @@ def _drift_feature_vector(
     )[0].astype(np.float64)
     probabilities = histogram / max(1.0, float(histogram.sum()))
     nonzero = probabilities[probabilities > 0]
-    entropy = (
-        -float(np.sum(nonzero * np.log2(nonzero))) / math.log2(16)
-        if nonzero.size
-        else 0.0
-    )
+    entropy = -float(np.sum(nonzero * np.log2(nonzero))) / math.log2(16) if nonzero.size else 0.0
     height, width = gray.shape
     features = np.array(
         [
@@ -1085,19 +1036,11 @@ def _drift_two_sample_statistics(
     combined = np.vstack((current, reference)).astype(np.float64)
     deltas = combined[:, None, :] - combined[None, :, :]
     squared_distances = np.sum(deltas * deltas, axis=2)
-    off_diagonal = squared_distances[
-        np.triu_indices(len(combined), k=1)
-    ]
+    off_diagonal = squared_distances[np.triu_indices(len(combined), k=1)]
     positive_distances = off_diagonal[off_diagonal > 0]
-    bandwidth_squared = (
-        float(np.median(positive_distances))
-        if positive_distances.size
-        else 1.0
-    )
+    bandwidth_squared = float(np.median(positive_distances)) if positive_distances.size else 1.0
     bandwidth_squared = max(bandwidth_squared, 1e-12)
-    kernel = np.exp(
-        -squared_distances / (2.0 * bandwidth_squared)
-    )
+    kernel = np.exp(-squared_distances / (2.0 * bandwidth_squared))
     current_count = current.shape[0]
 
     def mmd_squared(indices: np.ndarray) -> float:
@@ -1119,29 +1062,19 @@ def _drift_two_sample_statistics(
             exceedance_count += 1
     p_value = (exceedance_count + 1) / (permutations + 1)
 
-    reference_deltas = (
-        reference[:, None, :] - reference[None, :, :]
-    )
-    reference_distances = np.sqrt(
-        np.mean(reference_deltas * reference_deltas, axis=2)
-    )
+    reference_deltas = reference[:, None, :] - reference[None, :, :]
+    reference_distances = np.sqrt(np.mean(reference_deltas * reference_deltas, axis=2))
     np.fill_diagonal(reference_distances, np.inf)
     reference_nearest = np.min(reference_distances, axis=1)
     reference_median = float(np.median(reference_nearest))
-    reference_mad = float(
-        np.median(np.abs(reference_nearest - reference_median))
-    )
+    reference_mad = float(np.median(np.abs(reference_nearest - reference_median)))
     novelty_threshold = max(
         0.05,
         reference_median + 3.0 * 1.4826 * reference_mad,
     )
     cross_distances = np.sqrt(
         np.mean(
-            (
-                current[:, None, :]
-                - reference[None, :, :]
-            )
-            ** 2,
+            (current[:, None, :] - reference[None, :, :]) ** 2,
             axis=2,
         )
     )
@@ -1184,9 +1117,7 @@ def _drift_two_sample_statistics(
             ),
             "reference_leave_one_out_mad": round(reference_mad, 8),
             "novelty_threshold": round(novelty_threshold, 8),
-            "current_nearest_distances": [
-                round(float(value), 8) for value in current_nearest
-            ],
+            "current_nearest_distances": [round(float(value), 8) for value in current_nearest],
             "novel_source_count": int(np.count_nonzero(novel)),
             "novel_source_ratio": round(float(np.mean(novel)), 8),
         },
@@ -1778,34 +1709,22 @@ class LocalMetrologyService:
         changed = added + removed
         if review_authority == "machine_heuristic" and changed:
             raise _input_error(
-                "machine_reviewed_candidate must preserve the immutable "
-                "proposal mask"
+                "machine_reviewed_candidate must preserve the immutable proposal mask"
             )
         algorithm_version = evidence.get("schema_version")
         review_guidance = evidence.get("review_guidance")
-        ranking = (
-            review_guidance.get("ranking")
-            if isinstance(review_guidance, dict)
-            else None
-        )
-        ranked_hotspots = (
-            ranking.get("ranked_hotspots")
-            if isinstance(ranking, dict)
-            else None
-        )
+        ranking = review_guidance.get("ranking") if isinstance(review_guidance, dict) else None
+        ranked_hotspots = ranking.get("ranked_hotspots") if isinstance(ranking, dict) else None
         available_hotspots = (
             [
                 hotspot
                 for hotspot in ranked_hotspots
-                if isinstance(hotspot, dict)
-                and isinstance(hotspot.get("hotspot_id"), str)
+                if isinstance(hotspot, dict) and isinstance(hotspot.get("hotspot_id"), str)
             ]
             if isinstance(ranked_hotspots, list)
             else []
         )
-        available_ids = [
-            str(hotspot["hotspot_id"]) for hotspot in available_hotspots
-        ]
+        available_ids = [str(hotspot["hotspot_id"]) for hotspot in available_hotspots]
         unknown_ids = sorted(set(reviewed_hotspot_ids) - set(available_ids))
         if unknown_ids:
             raise _input_error(
@@ -1819,9 +1738,7 @@ class LocalMetrologyService:
                 "hotspot_decisions contains IDs outside the current proposal: "
                 + ", ".join(unknown_decision_ids)
             )
-        unreviewed_decision_ids = sorted(
-            set(decision_ids) - set(reviewed_hotspot_ids)
-        )
+        unreviewed_decision_ids = sorted(set(decision_ids) - set(reviewed_hotspot_ids))
         if unreviewed_decision_ids:
             raise _input_error(
                 "hotspot_decisions require the same IDs in reviewed_hotspots: "
@@ -1832,8 +1749,7 @@ class LocalMetrologyService:
             hotspot_id for hotspot_id in available_ids if hotspot_id in reviewed_set
         ]
         total_priority = sum(
-            float(hotspot.get("priority_score", 0.0))
-            for hotspot in available_hotspots
+            float(hotspot.get("priority_score", 0.0)) for hotspot in available_hotspots
         )
         reviewed_priority = sum(
             float(hotspot.get("priority_score", 0.0))
@@ -1842,14 +1758,10 @@ class LocalMetrologyService:
         )
         ranked_count = len(available_ids)
         reviewed_count = len(reviewed_in_rank_order)
-        decisions_by_id = {
-            decision["hotspot_id"]: decision for decision in hotspot_decisions
-        }
+        decisions_by_id = {decision["hotspot_id"]: decision for decision in hotspot_decisions}
         if review_authority == "machine_heuristic":
             if set(reviewed_hotspot_ids) != set(available_ids):
-                raise _input_error(
-                    "machine_reviewed_candidate must inspect every ranked hotspot"
-                )
+                raise _input_error("machine_reviewed_candidate must inspect every ranked hotspot")
             if set(decisions_by_id) != set(available_ids):
                 raise _input_error(
                     "machine_reviewed_candidate must disposition every ranked hotspot"
@@ -1861,9 +1773,7 @@ class LocalMetrologyService:
                     if overlap >= AUTOPILOT_ACCEPT_OVERLAP
                     else "deferred_for_follow_up"
                 )
-                actual = decisions_by_id[str(hotspot["hotspot_id"])][
-                    "disposition"
-                ]
+                actual = decisions_by_id[str(hotspot["hotspot_id"])]["disposition"]
                 if actual != expected:
                     raise _input_error(
                         "machine_reviewed_candidate decision differs from "
@@ -1881,8 +1791,7 @@ class LocalMetrologyService:
         )
         disposition_counts = {
             disposition: sum(
-                decision["disposition"] == disposition
-                for decision in decisions_in_rank_order
+                decision["disposition"] == disposition for decision in decisions_in_rank_order
             )
             for disposition in sorted(HOTSPOT_DISPOSITIONS)
         }
@@ -1931,9 +1840,7 @@ class LocalMetrologyService:
                 else None
             ),
             "ranked_priority_mass_ratio": (
-                ranking.get("ranked_priority_mass_ratio")
-                if isinstance(ranking, dict)
-                else None
+                ranking.get("ranked_priority_mass_ratio") if isinstance(ranking, dict) else None
             ),
             "reviewed_hotspot_ids": reviewed_in_rank_order,
             "reviewed_hotspot_count": reviewed_count,
@@ -1944,17 +1851,13 @@ class LocalMetrologyService:
                 round(reviewed_count / ranked_count, 8) if ranked_count else None
             ),
             "ranked_priority_coverage_ratio": (
-                round(reviewed_priority / total_priority, 8)
-                if total_priority > 0
-                else None
+                round(reviewed_priority / total_priority, 8) if total_priority > 0 else None
             ),
             "ranked_decision_completion_ratio": (
                 round(decided_count / ranked_count, 8) if ranked_count else None
             ),
             "ranked_decision_priority_coverage_ratio": (
-                round(decided_priority / total_priority, 8)
-                if total_priority > 0
-                else None
+                round(decided_priority / total_priority, 8) if total_priority > 0 else None
             ),
             "interpretation": (
                 "This records which ranked sensitivity-disagreement regions the "
@@ -1996,19 +1899,13 @@ class LocalMetrologyService:
         safe_proposal_id = validate_run_name(proposal_id)
         proposal_dir = self.paths.metrology / "proposals" / safe_proposal_id
         try:
-            evidence = json.loads(
-                (proposal_dir / "evidence.json").read_text(encoding="utf-8")
-            )
+            evidence = json.loads((proposal_dir / "evidence.json").read_text(encoding="utf-8"))
             proposal_bytes = (proposal_dir / "proposal-mask.png").read_bytes()
-            disagreement_bytes = (
-                proposal_dir / "review-hotspots.png"
-            ).read_bytes()
+            disagreement_bytes = (proposal_dir / "review-hotspots.png").read_bytes()
             measurement_bytes = (output_dir / "measurement.json").read_bytes()
             measurement_payload = json.loads(measurement_bytes)
         except (OSError, json.JSONDecodeError) as error:
-            raise _input_error(
-                f"proposal {safe_proposal_id} cannot produce feedback"
-            ) from error
+            raise _input_error(f"proposal {safe_proposal_id} cannot produce feedback") from error
         proposal_image = cv2.imdecode(
             np.frombuffer(proposal_bytes, dtype=np.uint8),
             cv2.IMREAD_GRAYSCALE,
@@ -2025,32 +1922,16 @@ class LocalMetrologyService:
             or disagreement_image.shape != expected_shape
             or source_image.shape[:2] != expected_shape
         ):
-            raise _input_error(
-                f"proposal {safe_proposal_id} feedback layers do not align"
-            )
+            raise _input_error(f"proposal {safe_proposal_id} feedback layers do not align")
         source = evidence.get("source") if isinstance(evidence, dict) else None
         if not isinstance(source, dict) or source.get("sha256") != source_sha256:
-            raise _input_error(
-                f"proposal {safe_proposal_id} feedback source digest differs"
-            )
-        review_guidance = (
-            evidence.get("review_guidance") if isinstance(evidence, dict) else None
-        )
-        ranking = (
-            review_guidance.get("ranking")
-            if isinstance(review_guidance, dict)
-            else None
-        )
-        ranked_hotspots = (
-            ranking.get("ranked_hotspots") if isinstance(ranking, dict) else None
-        )
+            raise _input_error(f"proposal {safe_proposal_id} feedback source digest differs")
+        review_guidance = evidence.get("review_guidance") if isinstance(evidence, dict) else None
+        ranking = review_guidance.get("ranking") if isinstance(review_guidance, dict) else None
+        ranked_hotspots = ranking.get("ranked_hotspots") if isinstance(ranking, dict) else None
         if not isinstance(ranked_hotspots, list):
-            raise _input_error(
-                f"proposal {safe_proposal_id} has no ranked feedback targets"
-            )
-        decisions_by_id = {
-            decision["hotspot_id"]: decision for decision in hotspot_decisions
-        }
+            raise _input_error(f"proposal {safe_proposal_id} has no ranked feedback targets")
+        decisions_by_id = {decision["hotspot_id"]: decision for decision in hotspot_decisions}
         entries: dict[str, bytes] = {
             "README.txt": (
                 "UrbanVision-Risk active-learning feedback package\n"
@@ -2084,9 +1965,7 @@ class LocalMetrologyService:
             )
             source_crop = source_image[y0:y1, x0:x1]
             proposal_crop = proposal_image[y0:y1, x0:x1]
-            final_crop = np.where(final_mask[y0:y1, x0:x1], 255, 0).astype(
-                np.uint8
-            )
+            final_crop = np.where(final_mask[y0:y1, x0:x1], 255, 0).astype(np.uint8)
             disagreement_crop = disagreement_image[y0:y1, x0:x1]
             decision = decisions_by_id[hotspot_id]
             source_fingerprint = _difference_hash64(source_crop)
@@ -2143,11 +2022,7 @@ class LocalMetrologyService:
                     "rank": rank,
                     "disposition": decision["disposition"],
                     "decision_authority": review_authority,
-                    **(
-                        {"note": decision["note"]}
-                        if decision.get("note")
-                        else {}
-                    ),
+                    **({"note": decision["note"]} if decision.get("note") else {}),
                     "source_bounding_box": bounding_box,
                     "export_crop": {
                         "x": x0,
@@ -2160,9 +2035,7 @@ class LocalMetrologyService:
                     },
                     "priority_score": hotspot.get("priority_score"),
                     "disagreement_pixels": hotspot.get("disagreement_pixels"),
-                    "candidate_overlap_ratio": hotspot.get(
-                        "candidate_overlap_ratio"
-                    ),
+                    "candidate_overlap_ratio": hotspot.get("candidate_overlap_ratio"),
                     "source_roi_difference_hash64": source_fingerprint,
                     "quality_gate": quality_gate,
                     "files": file_evidence,
@@ -2170,17 +2043,13 @@ class LocalMetrologyService:
             )
         if len(manifest_items) != len(hotspot_decisions):
             missing = sorted(
-                set(decisions_by_id)
-                - {str(item["hotspot_id"]) for item in manifest_items}
+                set(decisions_by_id) - {str(item["hotspot_id"]) for item in manifest_items}
             )
             raise _input_error(
-                "active-learning feedback is missing ranked hotspots: "
-                + ", ".join(missing)
+                "active-learning feedback is missing ranked hotspots: " + ", ".join(missing)
             )
         disposition_counts = {
-            disposition: sum(
-                item["disposition"] == disposition for item in manifest_items
-            )
+            disposition: sum(item["disposition"] == disposition for item in manifest_items)
             for disposition in sorted(HOTSPOT_DISPOSITIONS)
         }
         quality_counts = {
@@ -2195,13 +2064,9 @@ class LocalMetrologyService:
         for item in manifest_items:
             fingerprint = str(item["source_roi_difference_hash64"])
             fingerprint_counts[fingerprint] = fingerprint_counts.get(fingerprint, 0) + 1
-        duplicate_fingerprint_groups = sum(
-            count > 1 for count in fingerprint_counts.values()
-        )
+        duplicate_fingerprint_groups = sum(count > 1 for count in fingerprint_counts.values())
         measurement_run = (
-            measurement_payload.get("run")
-            if isinstance(measurement_payload, dict)
-            else None
+            measurement_payload.get("run") if isinstance(measurement_payload, dict) else None
         )
         manifest = {
             "schema_version": "urbanvision-active-learning-feedback-v1.2.0",
@@ -2214,9 +2079,7 @@ class LocalMetrologyService:
                 else "operator_recorded"
             ),
             "created_at_utc": (
-                measurement_run.get("created_at_utc")
-                if isinstance(measurement_run, dict)
-                else None
+                measurement_run.get("created_at_utc") if isinstance(measurement_run, dict) else None
             ),
             "source_sha256": source_sha256,
             "measurement_sha256": _sha256(measurement_bytes),
@@ -2284,17 +2147,11 @@ class LocalMetrologyService:
         reviewed_hotspot_ids = _reviewed_hotspot_ids(reviewed_hotspots)
         parsed_hotspot_decisions = _hotspot_decisions(hotspot_decisions)
         if reviewed_hotspot_ids and review_state == "automatic_draft":
-            raise _input_error(
-                "automatic_draft cannot contain reviewed hotspot IDs"
-            )
+            raise _input_error("automatic_draft cannot contain reviewed hotspot IDs")
         if parsed_hotspot_decisions and review_state == "automatic_draft":
-            raise _input_error(
-                "automatic_draft cannot contain hotspot decisions"
-            )
+            raise _input_error("automatic_draft cannot contain hotspot decisions")
         if reviewed_hotspot_ids and not proposal_id:
-            raise _input_error(
-                "reviewed hotspot IDs require a proposal_id"
-            )
+            raise _input_error("reviewed hotspot IDs require a proposal_id")
         if parsed_hotspot_decisions and not proposal_id:
             raise _input_error("hotspot decisions require a proposal_id")
         source_image, source_shape = _decode_source(
@@ -2328,9 +2185,7 @@ class LocalMetrologyService:
                 "browser-mask.png",
             ),
             "sha256": _sha256(mask_content),
-            "normalized_binary_sha256": _sha256(
-                mask.astype(np.uint8).tobytes()
-            ),
+            "normalized_binary_sha256": _sha256(mask.astype(np.uint8).tobytes()),
             "foreground_pixels": int(np.count_nonzero(mask)),
             "origin": mask_origin,
         }
@@ -2415,8 +2270,7 @@ class LocalMetrologyService:
                         "manifest_sha256": manifest_sha256,
                         "items": [item for item in items if isinstance(item, dict)],
                         "feedback_url": (
-                            f"/api/metrology/runs/{run_id}/"
-                            f"{ACTIVE_LEARNING_FEEDBACK_ARTIFACT}"
+                            f"/api/metrology/runs/{run_id}/{ACTIVE_LEARNING_FEEDBACK_ARTIFACT}"
                         ),
                     }
                 )
@@ -2435,9 +2289,7 @@ class LocalMetrologyService:
         packages, invalid_package_count = self._feedback_packages()
         available_package_count = len(packages)
         returned_packages = packages[:limit]
-        disposition_counts = {
-            disposition: 0 for disposition in sorted(HOTSPOT_DISPOSITIONS)
-        }
+        disposition_counts = {disposition: 0 for disposition in sorted(HOTSPOT_DISPOSITIONS)}
         quality_counts = {
             "pass": 0,
             "warning": 0,
@@ -2467,9 +2319,7 @@ class LocalMetrologyService:
                 "deferred": 0,
                 "unknown": 0,
             }
-            package_dispositions = {
-                disposition: 0 for disposition in sorted(HOTSPOT_DISPOSITIONS)
-            }
+            package_dispositions = {disposition: 0 for disposition in sorted(HOTSPOT_DISPOSITIONS)}
             for item in package_items:
                 if not isinstance(item, dict):
                     continue
@@ -2485,20 +2335,12 @@ class LocalMetrologyService:
                     authority = "legacy_unknown"
                 review_authority_counts[str(authority)] += 1
                 disposition = item.get("disposition")
-                if (
-                    isinstance(disposition, str)
-                    and disposition in disposition_counts
-                ):
+                if isinstance(disposition, str) and disposition in disposition_counts:
                     disposition_counts[disposition] += 1
                     package_dispositions[disposition] += 1
                 gate = item.get("quality_gate")
-                quality_status = (
-                    gate.get("status") if isinstance(gate, dict) else "unknown"
-                )
-                if (
-                    not isinstance(quality_status, str)
-                    or quality_status not in quality_counts
-                ):
+                quality_status = gate.get("status") if isinstance(gate, dict) else "unknown"
+                if not isinstance(quality_status, str) or quality_status not in quality_counts:
                     quality_status = "unknown"
                 quality_counts[quality_status] += 1
                 package_quality[quality_status] += 1
@@ -2512,11 +2354,7 @@ class LocalMetrologyService:
                         }
                     )
             package_summaries.append(
-                {
-                    key: value
-                    for key, value in package.items()
-                    if key != "items"
-                }
+                {key: value for key, value in package.items() if key != "items"}
                 | {
                     "item_count": len(package_items),
                     "disposition_counts": package_dispositions,
@@ -2569,24 +2407,16 @@ class LocalMetrologyService:
         included_run_ids: list[str] | None = None,
         _record_prefix: str = "feedback-curation",
     ) -> dict[str, object]:
-        if (
-            isinstance(seed, bool)
-            or not isinstance(seed, int)
-            or not 0 <= seed <= 2_147_483_647
-        ):
+        if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= 2_147_483_647:
             raise _input_error(f"curation seed={seed!r}")
         if (
             isinstance(minimum_unique_sources, bool)
             or not isinstance(minimum_unique_sources, int)
             or not 1 <= minimum_unique_sources <= 10_000
         ):
-            raise _input_error(
-                f"minimum_unique_sources={minimum_unique_sources!r}"
-            )
+            raise _input_error(f"minimum_unique_sources={minimum_unique_sources!r}")
         if not isinstance(privacy_review_confirmed, bool):
-            raise _input_error(
-                f"privacy_review_confirmed={privacy_review_confirmed!r}"
-            )
+            raise _input_error(f"privacy_review_confirmed={privacy_review_confirmed!r}")
         if not isinstance(label_qa_confirmed, bool):
             raise _input_error(f"label_qa_confirmed={label_qa_confirmed!r}")
         if (
@@ -2594,37 +2424,26 @@ class LocalMetrologyService:
             or not isinstance(max_scene_hamming_distance, int)
             or not 0 <= max_scene_hamming_distance <= 16
         ):
-            raise _input_error(
-                f"max_scene_hamming_distance={max_scene_hamming_distance!r}"
-            )
+            raise _input_error(f"max_scene_hamming_distance={max_scene_hamming_distance!r}")
         ratios = _curation_ratios(train_ratio, val_ratio, test_ratio)
         packages, invalid_package_count = self._feedback_packages()
         safe_included_run_ids: list[str] | None = None
         if included_run_ids is not None:
             if len(included_run_ids) > MAX_AUTOPILOT_BATCH_IMAGES:
-                raise _input_error(
-                    "included_run_ids exceeds the autopilot batch limit"
-                )
+                raise _input_error("included_run_ids exceeds the autopilot batch limit")
             safe_included_run_ids = []
             for run_id in included_run_ids:
                 safe_id = validate_run_name(run_id)
                 if safe_id in safe_included_run_ids:
-                    raise _input_error(
-                        f"included_run_ids contains duplicate ID {safe_id}"
-                    )
+                    raise _input_error(f"included_run_ids contains duplicate ID {safe_id}")
                 safe_included_run_ids.append(safe_id)
             requested = set(safe_included_run_ids)
-            packages = [
-                package
-                for package in packages
-                if package["run_id"] in requested
-            ]
+            packages = [package for package in packages if package["run_id"] in requested]
             found = {str(package["run_id"]) for package in packages}
             missing = sorted(requested - found)
             if missing:
                 raise _input_error(
-                    "included_run_ids has no valid feedback package: "
-                    + ", ".join(missing)
+                    "included_run_ids has no valid feedback package: " + ", ".join(missing)
                 )
             invalid_package_count = 0
         inventory_truncated = len(packages) > MAX_FEEDBACK_CATALOG_PACKAGES
@@ -2669,14 +2488,9 @@ class LocalMetrologyService:
                 disposition = item.get("disposition")
                 quality_gate = item.get("quality_gate")
                 quality_status = (
-                    quality_gate.get("status")
-                    if isinstance(quality_gate, dict)
-                    else None
+                    quality_gate.get("status") if isinstance(quality_gate, dict) else None
                 )
-                if (
-                    quality_status == "deferred"
-                    or disposition == "deferred_for_follow_up"
-                ):
+                if quality_status == "deferred" or disposition == "deferred_for_follow_up":
                     exclusion_counts["deferred"] += 1
                     continue
                 if quality_status == "warning":
@@ -2698,10 +2512,7 @@ class LocalMetrologyService:
                     priority_score = math.nan
                 safe_files = _curation_file_evidence(files)
                 safe_source_box = (
-                    {
-                        key: source_box.get(key)
-                        for key in ("x", "y", "width", "height")
-                    }
+                    {key: source_box.get(key) for key in ("x", "y", "width", "height")}
                     if isinstance(source_box, dict)
                     else None
                 )
@@ -2769,8 +2580,7 @@ class LocalMetrologyService:
                         "proposal_id": package.get("proposal_id"),
                         "review_authority": (
                             item.get("decision_authority")
-                            if item.get("decision_authority")
-                            in set(REVIEW_AUTHORITIES.values())
+                            if item.get("decision_authority") in set(REVIEW_AUTHORITIES.values())
                             else package_authority
                         ),
                         "source_sha256": source_sha256,
@@ -2809,10 +2619,7 @@ class LocalMetrologyService:
                 [],
             ).append(candidate)
         review_authority_counts = {
-            authority: sum(
-                item["review_authority"] == authority
-                for item in deduplicated
-            )
+            authority: sum(item["review_authority"] == authority for item in deduplicated)
             for authority in (
                 "human_operator",
                 "machine_heuristic",
@@ -2820,15 +2627,9 @@ class LocalMetrologyService:
                 "legacy_unknown",
             )
         }
-        machine_only_selected_count = (
-            len(deduplicated)
-            - review_authority_counts["human_operator"]
-        )
+        machine_only_selected_count = len(deduplicated) - review_authority_counts["human_operator"]
         raw_source_fingerprints = {
-            source: {
-                str(item["source_roi_difference_hash64"])
-                for item in items
-            }
+            source: {str(item["source_roi_difference_hash64"]) for item in items}
             for source, items in source_groups.items()
         }
         truncated_scene_fingerprint_count = sum(
@@ -2840,9 +2641,7 @@ class LocalMetrologyService:
             for fingerprints in raw_source_fingerprints.values()
         )
         source_fingerprints = {
-            source: set(
-                sorted(fingerprints)[:MAX_SCENE_FINGERPRINTS_PER_SOURCE]
-            )
+            source: set(sorted(fingerprints)[:MAX_SCENE_FINGERPRINTS_PER_SOURCE])
             for source, fingerprints in raw_source_fingerprints.items()
         }
         scene_clustering = _near_duplicate_scene_groups(
@@ -2869,9 +2668,7 @@ class LocalMetrologyService:
             scene_groups.append(
                 {
                     **group,
-                    "item_count": len(
-                        scene_candidate_groups.get(scene_group_id, [])
-                    ),
+                    "item_count": len(scene_candidate_groups.get(scene_group_id, [])),
                 }
             )
         assigned = _assign_curation_groups(
@@ -2904,16 +2701,11 @@ class LocalMetrologyService:
                 "source_sha256s": sorted(sources),
                 "visual_scene_group_ids": sorted(scenes),
                 "disposition_counts": {
-                    disposition: sum(
-                        item["disposition"] == disposition for item in items
-                    )
+                    disposition: sum(item["disposition"] == disposition for item in items)
                     for disposition in sorted(HOTSPOT_DISPOSITIONS)
                 },
                 "review_authority_counts": {
-                    authority: sum(
-                        item["review_authority"] == authority
-                        for item in items
-                    )
+                    authority: sum(item["review_authority"] == authority for item in items)
                     for authority in (
                         "human_operator",
                         "machine_heuristic",
@@ -2933,25 +2725,17 @@ class LocalMetrologyService:
             "train_test": sorted(scene_sets["train"] & scene_sets["test"]),
             "val_test": sorted(scene_sets["val"] & scene_sets["test"]),
         }
-        leakage_passed = (
-            not any(source_overlaps.values())
-            and not any(scene_overlaps.values())
-        )
-        positive_split_count = sum(
-            ratios[split] > 0 for split in CURATION_SPLITS
-        )
+        leakage_passed = not any(source_overlaps.values()) and not any(scene_overlaps.values())
+        positive_split_count = sum(ratios[split] > 0 for split in CURATION_SPLITS)
         remediation = _curation_readiness_remediation(
             source_count=len(source_groups),
             scene_group_count=len(scene_groups),
             minimum_unique_sources=minimum_unique_sources,
             machine_candidate_count=machine_only_selected_count,
-            human_reviewed_count=review_authority_counts[
-                "human_operator"
-            ],
+            human_reviewed_count=review_authority_counts["human_operator"],
             ratios=ratios,
             split_item_counts={
-                split: int(split_payloads[split]["item_count"])
-                for split in CURATION_SPLITS
+                split: int(split_payloads[split]["item_count"]) for split in CURATION_SPLITS
             },
             privacy_review_confirmed=privacy_review_confirmed,
             label_qa_confirmed=label_qa_confirmed,
@@ -2993,9 +2777,7 @@ class LocalMetrologyService:
         multi_source_scene_group_count = sum(
             int(group["source_count"]) > 1 for group in scene_groups
         )
-        curation_id = validate_run_name(
-            self._record_id_factory(_record_prefix)
-        )
+        curation_id = validate_run_name(self._record_id_factory(_record_prefix))
         readiness_axes = _readiness_axes(blockers)
         technical_readiness = readiness_axes["technical"]
         governance_readiness = readiness_axes["governance"]
@@ -3048,9 +2830,7 @@ class LocalMetrologyService:
                 "unique_source_count": len(source_groups),
                 "visual_scene_group_count": len(scene_groups),
                 "review_authority_counts": review_authority_counts,
-                "machine_only_selected_count": (
-                    machine_only_selected_count
-                ),
+                "machine_only_selected_count": (machine_only_selected_count),
                 "exclusion_counts": exclusion_counts,
                 "duplicate_policy": (
                     "Retain the highest-priority deterministic representative "
@@ -3064,17 +2844,11 @@ class LocalMetrologyService:
                     "source-ROI difference hashes"
                 ),
                 "max_hamming_distance": max_scene_hamming_distance,
-                "fingerprints_per_source_limit": (
-                    MAX_SCENE_FINGERPRINTS_PER_SOURCE
-                ),
-                "truncated_fingerprint_count": (
-                    truncated_scene_fingerprint_count
-                ),
+                "fingerprints_per_source_limit": (MAX_SCENE_FINGERPRINTS_PER_SOURCE),
+                "truncated_fingerprint_count": (truncated_scene_fingerprint_count),
                 "truncated_source_count": truncated_scene_source_count,
                 "scene_group_count": len(scene_groups),
-                "multi_source_scene_group_count": (
-                    multi_source_scene_group_count
-                ),
+                "multi_source_scene_group_count": (multi_source_scene_group_count),
                 "near_duplicate_link_count": len(raw_scene_links),
                 "near_duplicate_links": raw_scene_links,
                 "groups": scene_groups,
@@ -3093,8 +2867,7 @@ class LocalMetrologyService:
                 "seed": seed,
                 "positive_ratio_split_count": positive_split_count,
                 "non_empty_positive_split_seeding_applied": (
-                    len(scene_candidate_groups)
-                    >= positive_split_count
+                    len(scene_candidate_groups) >= positive_split_count
                 ),
                 "targets_by_item_count": {
                     split: round(
@@ -3137,9 +2910,7 @@ class LocalMetrologyService:
         return {
             "local_only": True,
             "curation": payload,
-            "curation_url": (
-                f"/api/metrology/feedback-curations/{curation_id}.json"
-            ),
+            "curation_url": (f"/api/metrology/feedback-curations/{curation_id}.json"),
         }
 
     def create_feedback_snapshot_preflight(
@@ -3154,13 +2925,9 @@ class LocalMetrologyService:
             curation_bytes = curation_path.read_bytes()
             curation = json.loads(curation_bytes)
         except (OSError, json.JSONDecodeError) as error:
-            raise _input_error(
-                f"curation {safe_curation_id} cannot be read"
-            ) from error
+            raise _input_error(f"curation {safe_curation_id} cannot be read") from error
         if not isinstance(curation, dict):
-            raise _input_error(
-                f"curation {safe_curation_id} is not an object"
-            )
+            raise _input_error(f"curation {safe_curation_id} is not an object")
         blockers: list[str] = []
         findings: list[dict[str, str]] = []
         truncated_finding_count = 0
@@ -3194,16 +2961,8 @@ class LocalMetrologyService:
         }:
             add_blocker("unsupported_curation_schema")
         readiness = curation.get("readiness")
-        upstream_blockers = (
-            readiness.get("blockers")
-            if isinstance(readiness, dict)
-            else None
-        )
-        upstream_remediation = (
-            readiness.get("remediation")
-            if isinstance(readiness, dict)
-            else None
-        )
+        upstream_blockers = readiness.get("blockers") if isinstance(readiness, dict) else None
+        upstream_remediation = readiness.get("remediation") if isinstance(readiness, dict) else None
         upstream_technical_blockers: list[str] | None = None
         upstream_governance_blockers: list[str] | None = None
         if isinstance(readiness, dict):
@@ -3212,50 +2971,33 @@ class LocalMetrologyService:
             if isinstance(upstream_technical, dict) and isinstance(
                 upstream_technical.get("blockers"), list
             ):
-                upstream_technical_blockers = list(
-                    upstream_technical["blockers"]
-                )
+                upstream_technical_blockers = list(upstream_technical["blockers"])
             if isinstance(upstream_governance, dict) and isinstance(
                 upstream_governance.get("blockers"), list
             ):
-                upstream_governance_blockers = list(
-                    upstream_governance["blockers"]
-                )
+                upstream_governance_blockers = list(upstream_governance["blockers"])
         if isinstance(upstream_blockers, list):
             legacy_axes = _readiness_axes(upstream_blockers)
             if upstream_technical_blockers is None:
                 legacy_technical = legacy_axes["technical"]
                 if isinstance(legacy_technical, dict):
-                    upstream_technical_blockers = list(
-                        legacy_technical["blockers"]
-                    )
+                    upstream_technical_blockers = list(legacy_technical["blockers"])
             if upstream_governance_blockers is None:
                 legacy_governance = legacy_axes["governance"]
                 if isinstance(legacy_governance, dict):
-                    upstream_governance_blockers = list(
-                        legacy_governance["blockers"]
-                    )
+                    upstream_governance_blockers = list(legacy_governance["blockers"])
         if upstream_technical_blockers is None:
             add_blocker("upstream_curation_not_ready")
         elif upstream_technical_blockers:
             add_blocker("upstream_curation_technical_not_ready")
         if upstream_governance_blockers:
             add_blocker("upstream_curation_governance_blocked")
-        current_packages, current_invalid_package_count = (
-            self._feedback_packages()
-        )
-        current_packages_by_run = {
-            str(package["run_id"]): package
-            for package in current_packages
-        }
+        current_packages, current_invalid_package_count = self._feedback_packages()
+        current_packages_by_run = {str(package["run_id"]): package for package in current_packages}
         if current_invalid_package_count:
             add_blocker("invalid_feedback_packages_present")
         inventory = curation.get("inventory")
-        inventory_refs = (
-            inventory.get("manifests")
-            if isinstance(inventory, dict)
-            else None
-        )
+        inventory_refs = inventory.get("manifests") if isinstance(inventory, dict) else None
         expected_manifest_by_run: dict[str, str] = {}
         inventory_matches = True
         if not isinstance(inventory_refs, list):
@@ -3268,10 +3010,7 @@ class LocalMetrologyService:
                     continue
                 run_id = reference.get("run_id")
                 manifest_sha256 = reference.get("manifest_sha256")
-                if (
-                    not isinstance(run_id, str)
-                    or not _is_hex_digest(manifest_sha256, 64)
-                ):
+                if not isinstance(run_id, str) or not _is_hex_digest(manifest_sha256, 64):
                     inventory_matches = False
                     continue
                 try:
@@ -3279,15 +3018,9 @@ class LocalMetrologyService:
                 except ProjectError:
                     inventory_matches = False
                     continue
-                expected_manifest_by_run[safe_run_id] = str(
-                    manifest_sha256
-                )
+                expected_manifest_by_run[safe_run_id] = str(manifest_sha256)
                 current = current_packages_by_run.get(safe_run_id)
-                if (
-                    current is None
-                    or current.get("manifest_sha256")
-                    != manifest_sha256
-                ):
+                if current is None or current.get("manifest_sha256") != manifest_sha256:
                     inventory_matches = False
                     add_finding(
                         "manifest_missing_or_changed",
@@ -3297,33 +3030,21 @@ class LocalMetrologyService:
             add_blocker("feedback_inventory_changed")
         splits = curation.get("splits")
         if not isinstance(splits, dict):
-            raise _input_error(
-                f"curation {safe_curation_id} has no split payload"
-            )
+            raise _input_error(f"curation {safe_curation_id} has no split payload")
         requested_items: list[tuple[str, dict[str, object]]] = []
         for split in CURATION_SPLITS:
             split_payload = splits.get(split)
-            split_items = (
-                split_payload.get("items")
-                if isinstance(split_payload, dict)
-                else None
-            )
+            split_items = split_payload.get("items") if isinstance(split_payload, dict) else None
             if not isinstance(split_items, list):
                 add_blocker(f"invalid_{split}_split")
                 continue
-            requested_items.extend(
-                (split, item)
-                for item in split_items
-                if isinstance(item, dict)
-            )
+            requested_items.extend((split, item) for item in split_items if isinstance(item, dict))
             if any(not isinstance(item, dict) for item in split_items):
                 add_blocker("invalid_training_pairs")
         expected_pair_count = len(requested_items)
         if expected_pair_count > MAX_FEEDBACK_SNAPSHOT_ITEMS:
             add_blocker("snapshot_item_limit_exceeded")
-            requested_items = requested_items[
-                :MAX_FEEDBACK_SNAPSHOT_ITEMS
-            ]
+            requested_items = requested_items[:MAX_FEEDBACK_SNAPSHOT_ITEMS]
         requested_items.sort(
             key=lambda entry: (
                 CURATION_SPLITS.index(entry[0]),
@@ -3365,9 +3086,7 @@ class LocalMetrologyService:
                     add_finding("invalid_pair_identity")
                     continue
                 package = current_packages_by_run.get(safe_run_id)
-                expected_manifest = expected_manifest_by_run.get(
-                    safe_run_id
-                )
+                expected_manifest = expected_manifest_by_run.get(safe_run_id)
                 if (
                     package is None
                     or expected_manifest is None
@@ -3382,17 +3101,20 @@ class LocalMetrologyService:
                     )
                     continue
                 package_items = package.get("items")
-                current_item = next(
-                    (
-                        candidate
-                        for candidate in package_items
-                        if isinstance(candidate, dict)
-                        and candidate.get("hotspot_id")
-                        == safe_hotspot_id
-                        and candidate.get("rank") == rank
-                    ),
-                    None,
-                ) if isinstance(package_items, list) else None
+                current_item = (
+                    next(
+                        (
+                            candidate
+                            for candidate in package_items
+                            if isinstance(candidate, dict)
+                            and candidate.get("hotspot_id") == safe_hotspot_id
+                            and candidate.get("rank") == rank
+                        ),
+                        None,
+                    )
+                    if isinstance(package_items, list)
+                    else None
+                )
                 files = _curation_file_evidence(item.get("files"))
                 current_files = (
                     _curation_file_evidence(current_item.get("files"))
@@ -3400,9 +3122,7 @@ class LocalMetrologyService:
                     else None
                 )
                 source_sha256 = item.get("source_sha256")
-                visual_scene_group_id = item.get(
-                    "visual_scene_group_id"
-                )
+                visual_scene_group_id = item.get("visual_scene_group_id")
                 review_authority = item.get(
                     "review_authority",
                     "legacy_unknown",
@@ -3424,10 +3144,9 @@ class LocalMetrologyService:
                     or package.get("source_sha256") != source_sha256
                     or not _is_hex_digest(source_sha256, 64)
                     or not isinstance(visual_scene_group_id, str)
-                    or not visual_scene_group_id.startswith(
-                        "visual-scene-"
-                    )
-                    or review_authority not in {
+                    or not visual_scene_group_id.startswith("visual-scene-")
+                    or review_authority
+                    not in {
                         *REVIEW_AUTHORITIES.values(),
                         "legacy_unknown",
                     }
@@ -3443,14 +3162,10 @@ class LocalMetrologyService:
                 archive = archives.get(safe_run_id)
                 if archive is None:
                     package_path = (
-                        self.paths.metrology
-                        / safe_run_id
-                        / ACTIVE_LEARNING_FEEDBACK_ARTIFACT
+                        self.paths.metrology / safe_run_id / ACTIVE_LEARNING_FEEDBACK_ARTIFACT
                     )
                     try:
-                        archive = archive_stack.enter_context(
-                            zipfile.ZipFile(package_path)
-                        )
+                        archive = archive_stack.enter_context(zipfile.ZipFile(package_path))
                     except (OSError, zipfile.BadZipFile):
                         add_blocker("invalid_training_pairs")
                         add_finding(
@@ -3476,8 +3191,7 @@ class LocalMetrologyService:
                         continue
                     if (
                         member_info.file_size <= 0
-                        or member_info.file_size
-                        > MAX_FEEDBACK_SNAPSHOT_MEMBER_BYTES
+                        or member_info.file_size > MAX_FEEDBACK_SNAPSHOT_MEMBER_BYTES
                     ):
                         invalid_member = True
                         add_finding(
@@ -3489,13 +3203,8 @@ class LocalMetrologyService:
                 if invalid_member:
                     add_blocker("invalid_training_pairs")
                     continue
-                pair_bytes = sum(
-                    info.file_size for info in member_infos.values()
-                )
-                if (
-                    total_member_bytes + pair_bytes
-                    > MAX_FEEDBACK_SNAPSHOT_TOTAL_BYTES
-                ):
+                pair_bytes = sum(info.file_size for info in member_infos.values())
+                if total_member_bytes + pair_bytes > MAX_FEEDBACK_SNAPSHOT_TOTAL_BYTES:
                     read_budget_exceeded = True
                     add_blocker("snapshot_read_budget_exceeded")
                     continue
@@ -3546,9 +3255,7 @@ class LocalMetrologyService:
                         hotspot_id=safe_hotspot_id,
                     )
                     continue
-                mask_values = {
-                    int(value) for value in np.unique(final_mask)
-                }
+                mask_values = {int(value) for value in np.unique(final_mask)}
                 if not mask_values.issubset({0, 255}):
                     add_blocker("invalid_training_pairs")
                     add_finding(
@@ -3557,9 +3264,7 @@ class LocalMetrologyService:
                         hotspot_id=safe_hotspot_id,
                     )
                     continue
-                foreground_pixels = int(
-                    np.count_nonzero(final_mask == 255)
-                )
+                foreground_pixels = int(np.count_nonzero(final_mask == 255))
                 pair = {
                     "split": split,
                     "run_id": safe_run_id,
@@ -3594,9 +3299,7 @@ class LocalMetrologyService:
         for pair in verified_pairs:
             split = str(pair["split"])
             split_sources[split].add(str(pair["source_sha256"]))
-            split_scenes[split].add(
-                str(pair["visual_scene_group_id"])
-            )
+            split_scenes[split].add(str(pair["visual_scene_group_id"]))
             source_roi = pair["source_roi"]
             if isinstance(source_roi, dict):
                 digest = source_roi.get("sha256")
@@ -3606,35 +3309,21 @@ class LocalMetrologyService:
                         set(),
                     ).add(split)
         source_overlaps = {
-            "train_val": sorted(
-                split_sources["train"] & split_sources["val"]
-            ),
-            "train_test": sorted(
-                split_sources["train"] & split_sources["test"]
-            ),
-            "val_test": sorted(
-                split_sources["val"] & split_sources["test"]
-            ),
+            "train_val": sorted(split_sources["train"] & split_sources["val"]),
+            "train_test": sorted(split_sources["train"] & split_sources["test"]),
+            "val_test": sorted(split_sources["val"] & split_sources["test"]),
         }
         scene_overlaps = {
-            "train_val": sorted(
-                split_scenes["train"] & split_scenes["val"]
-            ),
-            "train_test": sorted(
-                split_scenes["train"] & split_scenes["test"]
-            ),
-            "val_test": sorted(
-                split_scenes["val"] & split_scenes["test"]
-            ),
+            "train_val": sorted(split_scenes["train"] & split_scenes["val"]),
+            "train_test": sorted(split_scenes["train"] & split_scenes["test"]),
+            "val_test": sorted(split_scenes["val"] & split_scenes["test"]),
         }
         source_content_overlaps = [
             {
                 "source_roi_sha256": digest,
                 "splits": sorted(split_names),
             }
-            for digest, split_names in sorted(
-                source_content_splits.items()
-            )
+            for digest, split_names in sorted(source_content_splits.items())
             if len(split_names) > 1
         ]
         if any(source_overlaps.values()):
@@ -3645,45 +3334,25 @@ class LocalMetrologyService:
             add_blocker("cross_split_source_content_duplicate")
         split_payloads: dict[str, dict[str, object]] = {}
         for split in CURATION_SPLITS:
-            pairs = [
-                pair
-                for pair in verified_pairs
-                if pair["split"] == split
-            ]
-            total_pixels = sum(
-                int(pair["width"]) * int(pair["height"])
-                for pair in pairs
-            )
-            foreground_pixels = sum(
-                int(pair["foreground_pixels"]) for pair in pairs
-            )
+            pairs = [pair for pair in verified_pairs if pair["split"] == split]
+            total_pixels = sum(int(pair["width"]) * int(pair["height"]) for pair in pairs)
+            foreground_pixels = sum(int(pair["foreground_pixels"]) for pair in pairs)
             split_payloads[split] = {
                 "pair_count": len(pairs),
                 "unique_source_count": len(split_sources[split]),
                 "visual_scene_group_count": len(split_scenes[split]),
-                "empty_mask_count": sum(
-                    int(pair["foreground_pixels"]) == 0
-                    for pair in pairs
-                ),
+                "empty_mask_count": sum(int(pair["foreground_pixels"]) == 0 for pair in pairs),
                 "total_pixels": total_pixels,
                 "foreground_pixels": foreground_pixels,
                 "foreground_ratio": (
-                    round(foreground_pixels / total_pixels, 8)
-                    if total_pixels
-                    else None
+                    round(foreground_pixels / total_pixels, 8) if total_pixels else None
                 ),
                 "disposition_counts": {
-                    disposition: sum(
-                        pair["disposition"] == disposition
-                        for pair in pairs
-                    )
+                    disposition: sum(pair["disposition"] == disposition for pair in pairs)
                     for disposition in sorted(HOTSPOT_DISPOSITIONS)
                 },
                 "review_authority_counts": {
-                    authority: sum(
-                        pair["review_authority"] == authority
-                        for pair in pairs
-                    )
+                    authority: sum(pair["review_authority"] == authority for pair in pairs)
                     for authority in (
                         "human_operator",
                         "machine_heuristic",
@@ -3699,32 +3368,22 @@ class LocalMetrologyService:
                 "run_id": pair["run_id"],
                 "hotspot_id": pair["hotspot_id"],
                 "source_sha256": pair["source_sha256"],
-                "visual_scene_group_id": pair[
-                    "visual_scene_group_id"
-                ],
+                "visual_scene_group_id": pair["visual_scene_group_id"],
                 "source_roi_sha256": pair["source_roi"]["sha256"],
                 "final_mask_sha256": pair["final_mask"]["sha256"],
                 "review_authority": pair["review_authority"],
             }
             for pair in verified_pairs
         ]
-        snapshot_id = validate_run_name(
-            self._record_id_factory(_record_prefix)
-        )
+        snapshot_id = validate_run_name(self._record_id_factory(_record_prefix))
         snapshot_governance_blockers = [
-            code
-            for code in blockers
-            if code == "upstream_curation_governance_blocked"
+            code for code in blockers if code == "upstream_curation_governance_blocked"
         ]
         snapshot_technical_blockers = [
-            code
-            for code in blockers
-            if code != "upstream_curation_governance_blocked"
+            code for code in blockers if code != "upstream_curation_governance_blocked"
         ]
         payload: dict[str, object] = {
-            "schema_version": (
-                "urbanvision-feedback-snapshot-preflight-v1.2.0"
-            ),
+            "schema_version": ("urbanvision-feedback-snapshot-preflight-v1.2.0"),
             "snapshot_id": snapshot_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "local_only": True,
@@ -3734,42 +3393,27 @@ class LocalMetrologyService:
                 else (
                     "integrity_verified_governance_blocked"
                     if snapshot_governance_blockers
-                    else (
-                        "verified_candidate_snapshot_requires_"
-                        "training_approval"
-                    )
+                    else ("verified_candidate_snapshot_requires_training_approval")
                 )
             ),
             "training_authorized": False,
             "curation_binding": {
                 "curation_id": safe_curation_id,
                 "curation_sha256": _sha256(curation_bytes),
-                "curation_url": (
-                    f"/api/metrology/feedback-curations/"
-                    f"{safe_curation_id}.json"
-                ),
+                "curation_url": (f"/api/metrology/feedback-curations/{safe_curation_id}.json"),
             },
             "integrity": {
                 "inventory_matches": inventory_matches,
-                "current_invalid_package_count": (
-                    current_invalid_package_count
-                ),
+                "current_invalid_package_count": (current_invalid_package_count),
                 "expected_pair_count": expected_pair_count,
                 "verified_pair_count": len(verified_pairs),
-                "invalid_pair_count": (
-                    expected_pair_count - len(verified_pairs)
-                ),
+                "invalid_pair_count": (expected_pair_count - len(verified_pairs)),
                 "member_bytes_read": total_member_bytes,
                 "source_overlaps": source_overlaps,
                 "visual_scene_group_overlaps": scene_overlaps,
-                "source_roi_content_overlaps": (
-                    source_content_overlaps
-                ),
+                "source_roi_content_overlaps": (source_content_overlaps),
                 "review_authority_counts": {
-                    authority: sum(
-                        pair["review_authority"] == authority
-                        for pair in verified_pairs
-                    )
+                    authority: sum(pair["review_authority"] == authority for pair in verified_pairs)
                     for authority in (
                         "human_operator",
                         "machine_heuristic",
@@ -3781,9 +3425,7 @@ class LocalMetrologyService:
                 "truncated_finding_count": truncated_finding_count,
             },
             "merkle": {
-                "root_sha256": _canonical_merkle_root(
-                    merkle_records
-                ),
+                "root_sha256": _canonical_merkle_root(merkle_records),
                 "leaf_count": len(merkle_records),
                 "scheme": (
                     "sorted canonical JSON leaves; SHA-256 0x00 leaf "
@@ -3805,32 +3447,20 @@ class LocalMetrologyService:
             "readiness": {
                 "blockers": blockers,
                 "technical": {
-                    "status": (
-                        "ready"
-                        if not snapshot_technical_blockers
-                        else "blocked"
-                    ),
+                    "status": ("ready" if not snapshot_technical_blockers else "blocked"),
                     "blockers": snapshot_technical_blockers,
                 },
                 "governance": {
-                    "status": (
-                        "ready"
-                        if not snapshot_governance_blockers
-                        else "blocked"
-                    ),
+                    "status": ("ready" if not snapshot_governance_blockers else "blocked"),
                     "blockers": snapshot_governance_blockers,
                     "upstream_blockers": upstream_governance_blockers,
                 },
                 "requires_separate_training_approval": True,
                 "upstream_curation_blockers": (
-                    upstream_blockers
-                    if isinstance(upstream_blockers, list)
-                    else None
+                    upstream_blockers if isinstance(upstream_blockers, list) else None
                 ),
                 "remediation": (
-                    upstream_remediation
-                    if isinstance(upstream_remediation, dict)
-                    else None
+                    upstream_remediation if isinstance(upstream_remediation, dict) else None
                 ),
             },
             "claim_boundary": (
@@ -3841,19 +3471,13 @@ class LocalMetrologyService:
                 "performance evidence"
             ),
         }
-        path = (
-            self.paths.metrology
-            / "snapshots"
-            / f"{snapshot_id}.json"
-        )
+        path = self.paths.metrology / "snapshots" / f"{snapshot_id}.json"
         with self._write_lock:
             self._write_json_exclusive(path, payload)
         return {
             "local_only": True,
             "snapshot": payload,
-            "snapshot_url": (
-                f"/api/metrology/feedback-snapshots/{snapshot_id}.json"
-            ),
+            "snapshot_url": (f"/api/metrology/feedback-snapshots/{snapshot_id}.json"),
         }
 
     def _curation_source_feature_records(
@@ -3868,32 +3492,21 @@ class LocalMetrologyService:
         source_items: dict[str, list[dict[str, object]]] = {}
         for split in CURATION_SPLITS:
             split_payload = splits.get(split)
-            items = (
-                split_payload.get("items")
-                if isinstance(split_payload, dict)
-                else None
-            )
+            items = split_payload.get("items") if isinstance(split_payload, dict) else None
             if not isinstance(items, list):
-                raise _input_error(
-                    f"drift curation split {split} has invalid items"
-                )
+                raise _input_error(f"drift curation split {split} has invalid items")
             for item in items:
                 if not isinstance(item, dict):
                     continue
                 source_sha256 = item.get("source_sha256")
-                if (
-                    not _is_hex_digest(source_sha256, 64)
-                    or source_sha256 in excluded_sources
-                ):
+                if not _is_hex_digest(source_sha256, 64) or source_sha256 in excluded_sources:
                     continue
                 source_items.setdefault(
                     str(source_sha256),
                     [],
                 ).append(item)
         packages, invalid_package_count = self._feedback_packages()
-        packages_by_run = {
-            str(package["run_id"]): package for package in packages
-        }
+        packages_by_run = {str(package["run_id"]): package for package in packages}
         records: list[dict[str, object]] = []
         invalid_item_count = 0
         truncated_roi_count = 0
@@ -3929,8 +3542,7 @@ class LocalMetrologyService:
                     if (
                         package is None
                         or package.get("source_sha256") != source_sha256
-                        or package.get("manifest_sha256")
-                        != manifest_sha256
+                        or package.get("manifest_sha256") != manifest_sha256
                         or files is None
                     ):
                         invalid_item_count += 1
@@ -3938,14 +3550,10 @@ class LocalMetrologyService:
                     archive = archives.get(safe_run_id)
                     if archive is None:
                         package_path = (
-                            self.paths.metrology
-                            / safe_run_id
-                            / ACTIVE_LEARNING_FEEDBACK_ARTIFACT
+                            self.paths.metrology / safe_run_id / ACTIVE_LEARNING_FEEDBACK_ARTIFACT
                         )
                         try:
-                            archive = archive_stack.enter_context(
-                                zipfile.ZipFile(package_path)
-                            )
+                            archive = archive_stack.enter_context(zipfile.ZipFile(package_path))
                         except (OSError, zipfile.BadZipFile):
                             invalid_item_count += 1
                             continue
@@ -3958,23 +3566,15 @@ class LocalMetrologyService:
                             invalid_item_count += 1
                             member_infos = {}
                             break
-                        if (
-                            info.file_size <= 0
-                            or info.file_size > MAX_DRIFT_MEMBER_BYTES
-                        ):
+                        if info.file_size <= 0 or info.file_size > MAX_DRIFT_MEMBER_BYTES:
                             invalid_item_count += 1
                             member_infos = {}
                             break
                         member_infos[role] = info
                     if len(member_infos) != 2:
                         continue
-                    pair_bytes = sum(
-                        info.file_size for info in member_infos.values()
-                    )
-                    if (
-                        total_member_bytes + pair_bytes
-                        > MAX_DRIFT_TOTAL_BYTES
-                    ):
+                    pair_bytes = sum(info.file_size for info in member_infos.values())
+                    if total_member_bytes + pair_bytes > MAX_DRIFT_TOTAL_BYTES:
                         read_budget_exceeded = True
                         break
                     total_member_bytes += pair_bytes
@@ -4016,9 +3616,7 @@ class LocalMetrologyService:
                         or final_mask is None
                         or source_image.shape[:2] != final_mask.shape
                         or final_mask.size > MAX_FEEDBACK_CROP_PIXELS
-                        or not {
-                            int(value) for value in np.unique(final_mask)
-                        }.issubset({0, 255})
+                        or not {int(value) for value in np.unique(final_mask)}.issubset({0, 255})
                     ):
                         invalid_item_count += 1
                         continue
@@ -4031,9 +3629,7 @@ class LocalMetrologyService:
                         invalid_item_count += 1
                         continue
                     feature_vectors.append(feature_vector)
-                    evidence_digests.append(
-                        str(files["source_roi"]["sha256"])
-                    )
+                    evidence_digests.append(str(files["source_roi"]["sha256"]))
                 if feature_vectors:
                     source_feature = np.mean(
                         np.vstack(feature_vectors),
@@ -4043,13 +3639,8 @@ class LocalMetrologyService:
                         {
                             "source_sha256": source_sha256,
                             "roi_count": len(feature_vectors),
-                            "source_roi_sha256s": sorted(
-                                evidence_digests
-                            ),
-                            "feature_vector": [
-                                round(float(value), 8)
-                                for value in source_feature
-                            ],
+                            "source_roi_sha256s": sorted(evidence_digests),
+                            "feature_vector": [round(float(value), 8) for value in source_feature],
                         }
                     )
                 if read_budget_exceeded:
@@ -4075,9 +3666,7 @@ class LocalMetrologyService:
         safe_current_id = validate_run_name(current_curation_id)
         safe_cumulative_id = validate_run_name(cumulative_curation_id)
         if safe_current_id == safe_cumulative_id:
-            raise _input_error(
-                "drift audit requires distinct current and cumulative plans"
-            )
+            raise _input_error("drift audit requires distinct current and cumulative plans")
 
         def read_curation(
             curation_id: str,
@@ -4087,29 +3676,20 @@ class LocalMetrologyService:
                 content = path.read_bytes()
                 loaded = json.loads(content)
             except (OSError, json.JSONDecodeError) as error:
-                raise _input_error(
-                    f"drift curation {curation_id} cannot be read"
-                ) from error
+                raise _input_error(f"drift curation {curation_id} cannot be read") from error
             if (
                 not isinstance(loaded, dict)
-                or loaded.get("schema_version")
-                != "urbanvision-feedback-curation-v2.3.0"
+                or loaded.get("schema_version") != "urbanvision-feedback-curation-v2.3.0"
             ):
-                raise _input_error(
-                    f"drift curation {curation_id} has unsupported schema"
-                )
+                raise _input_error(f"drift curation {curation_id} has unsupported schema")
             return content, loaded
 
         current_bytes, current_curation = read_curation(safe_current_id)
-        cumulative_bytes, cumulative_curation = read_curation(
-            safe_cumulative_id
-        )
+        cumulative_bytes, cumulative_curation = read_curation(safe_cumulative_id)
         current_configuration = current_curation.get("configuration")
         cumulative_configuration = cumulative_curation.get("configuration")
         current_scope = (
-            current_configuration.get("scope")
-            if isinstance(current_configuration, dict)
-            else None
+            current_configuration.get("scope") if isinstance(current_configuration, dict) else None
         )
         cumulative_scope = (
             cumulative_configuration.get("scope")
@@ -4122,9 +3702,7 @@ class LocalMetrologyService:
             or not isinstance(cumulative_scope, dict)
             or cumulative_scope.get("kind") != "all_local_feedback"
         ):
-            raise _input_error(
-                "drift audit scope binding is invalid"
-            )
+            raise _input_error("drift audit scope binding is invalid")
         current_splits = current_curation.get("splits")
         if not isinstance(current_splits, dict):
             raise _input_error("current drift curation has invalid splits")
@@ -4138,9 +3716,7 @@ class LocalMetrologyService:
             )
             if _is_hex_digest(source, 64)
         )
-        current_features = self._curation_source_feature_records(
-            current_curation
-        )
+        current_features = self._curation_source_feature_records(current_curation)
         reference_features = self._curation_source_feature_records(
             cumulative_curation,
             excluded_sources=current_sources,
@@ -4148,10 +3724,7 @@ class LocalMetrologyService:
         blockers: list[str] = []
         if current_features["source_count"] < DRIFT_MIN_CURRENT_SOURCES:
             blockers.append("insufficient_current_sources_for_drift")
-        if (
-            reference_features["source_count"]
-            < DRIFT_MIN_REFERENCE_SOURCES
-        ):
+        if reference_features["source_count"] < DRIFT_MIN_REFERENCE_SOURCES:
             blockers.append("insufficient_reference_sources_for_drift")
         if (
             current_features["invalid_item_count"]
@@ -4160,33 +3733,22 @@ class LocalMetrologyService:
             or reference_features["invalid_package_count"]
         ):
             blockers.append("invalid_drift_feature_inputs")
-        if (
-            current_features["read_budget_exceeded"]
-            or reference_features["read_budget_exceeded"]
-        ):
+        if current_features["read_budget_exceeded"] or reference_features["read_budget_exceeded"]:
             blockers.append("drift_read_budget_exceeded")
         statistics: dict[str, object] | None = None
         shift_detected: bool | None = None
         coverage_warning: bool | None = None
         permutation_seed = int(
-            hashlib.sha256(
-                current_bytes + cumulative_bytes
-            ).hexdigest()[:8],
+            hashlib.sha256(current_bytes + cumulative_bytes).hexdigest()[:8],
             16,
         )
         if not blockers:
             current_matrix = np.asarray(
-                [
-                    record["feature_vector"]
-                    for record in current_features["records"]
-                ],
+                [record["feature_vector"] for record in current_features["records"]],
                 dtype=np.float64,
             )
             reference_matrix = np.asarray(
-                [
-                    record["feature_vector"]
-                    for record in reference_features["records"]
-                ],
+                [record["feature_vector"] for record in reference_features["records"]],
                 dtype=np.float64,
             )
             statistics = _drift_two_sample_statistics(
@@ -4198,12 +3760,9 @@ class LocalMetrologyService:
             shift_detected = float(statistics["p_value"]) <= 0.05
             coverage = statistics.get("coverage")
             coverage_warning = (
-                isinstance(coverage, dict)
-                and float(coverage["novel_source_ratio"]) >= 0.25
+                isinstance(coverage, dict) and float(coverage["novel_source_ratio"]) >= 0.25
             )
-        drift_id = validate_run_name(
-            self._record_id_factory(_record_prefix)
-        )
+        drift_id = validate_run_name(self._record_id_factory(_record_prefix))
         payload: dict[str, object] = {
             "schema_version": "urbanvision-feedback-drift-audit-v1.0.0",
             "drift_id": drift_id,
@@ -4228,17 +3787,12 @@ class LocalMetrologyService:
                 "historical_reference": {
                     "curation_id": safe_cumulative_id,
                     "curation_sha256": _sha256(cumulative_bytes),
-                    "scope": (
-                        "all_local_feedback_excluding_current_source_sha256s"
-                    ),
+                    "scope": ("all_local_feedback_excluding_current_source_sha256s"),
                 },
             },
             "feature_space": {
                 "names": list(DRIFT_FEATURE_NAMES),
-                "aggregation": (
-                    "mean of at most 8 verified ROI feature vectors "
-                    "per exact source"
-                ),
+                "aggregation": ("mean of at most 8 verified ROI feature vectors per exact source"),
                 "normalization": "each bounded to [0,1]",
                 "representation": (
                     "auditable image, texture, edge, geometry, and mask "
@@ -4256,9 +3810,7 @@ class LocalMetrologyService:
                 "alpha": 0.05,
                 "novel_source_ratio_threshold": 0.25,
                 "minimum_current_sources": DRIFT_MIN_CURRENT_SOURCES,
-                "minimum_reference_sources": (
-                    DRIFT_MIN_REFERENCE_SOURCES
-                ),
+                "minimum_reference_sources": (DRIFT_MIN_REFERENCE_SOURCES),
             },
             "readiness": {
                 "blockers": blockers,
@@ -4286,16 +3838,12 @@ class LocalMetrologyService:
                         "hash/846c260d715e5b854ffad5f70a516c88-"
                         "Abstract.html"
                     ),
-                    "role": (
-                        "Dataset-shift detection and fail-loudly framing"
-                    ),
+                    "role": ("Dataset-shift detection and fail-loudly framing"),
                 },
                 {
                     "name": "NIST AI RMF Measure",
                     "url": "https://airc.nist.gov/airmf-resources/playbook/measure/",
-                    "role": (
-                        "Operational monitoring and shift-warning boundary"
-                    ),
+                    "role": ("Operational monitoring and shift-warning boundary"),
                 },
             ],
             "claim_boundary": (
@@ -4305,20 +3853,13 @@ class LocalMetrologyService:
                 "training authorization. Small samples force abstention"
             ),
         }
-        path = (
-            self.paths.metrology
-            / "drift-audits"
-            / f"{drift_id}.json"
-        )
+        path = self.paths.metrology / "drift-audits" / f"{drift_id}.json"
         with self._write_lock:
             self._write_json_exclusive(path, payload)
         return {
             "local_only": True,
             "drift_audit": payload,
-            "drift_audit_url": (
-                f"/api/metrology/feedback-drift-audits/"
-                f"{drift_id}.json"
-            ),
+            "drift_audit_url": (f"/api/metrology/feedback-drift-audits/{drift_id}.json"),
         }
 
     def finalize_autopilot_batch(
@@ -4360,44 +3901,27 @@ class LocalMetrologyService:
             measurement_bytes, measurement = self._measurement_bytes(run_id)
             run = measurement.get("run")
             if not isinstance(run, dict) or run.get("output_name") != run_id:
-                raise _input_error(
-                    f"autopilot batch run {run_id} has mismatched identity"
-                )
-            input_evidence = (
-                run.get("input_evidence")
-                if isinstance(run, dict)
-                else None
-            )
+                raise _input_error(f"autopilot batch run {run_id} has mismatched identity")
+            input_evidence = run.get("input_evidence") if isinstance(run, dict) else None
             if (
                 not isinstance(input_evidence, dict)
-                or input_evidence.get("review_state")
-                != "machine_reviewed_candidate"
-                or input_evidence.get("review_authority")
-                != "machine_heuristic"
+                or input_evidence.get("review_state") != "machine_reviewed_candidate"
+                or input_evidence.get("review_authority") != "machine_heuristic"
             ):
                 raise _input_error(
-                    f"autopilot batch run {run_id} is not a "
-                    "machine-reviewed candidate"
+                    f"autopilot batch run {run_id} is not a machine-reviewed candidate"
                 )
             source = input_evidence.get("source")
-            source_sha256 = (
-                source.get("sha256")
-                if isinstance(source, dict)
-                else None
-            )
+            source_sha256 = source.get("sha256") if isinstance(source, dict) else None
             if not _is_hex_digest(source_sha256, 64):
-                raise _input_error(
-                    f"autopilot batch run {run_id} has invalid source evidence"
-                )
+                raise _input_error(f"autopilot batch run {run_id} has invalid source evidence")
             normalized_source_sha256 = str(source_sha256).lower()
             if (
                 browser_source_digests is not None
-                and browser_source_digests[index]
-                != normalized_source_sha256
+                and browser_source_digests[index] != normalized_source_sha256
             ):
                 raise _input_error(
-                    f"autopilot batch run {run_id} does not match its "
-                    "browser source digest"
+                    f"autopilot batch run {run_id} does not match its browser source digest"
                 )
             duplicate_run_id = source_run_ids.get(normalized_source_sha256)
             if duplicate_run_id is not None:
@@ -4410,39 +3934,26 @@ class LocalMetrologyService:
             arbitration_sha256: str | None = None
             if safe_arbitration_ids is not None:
                 arbitration_id = safe_arbitration_ids[index]
-                arbitration_path = self.evidence_arbitration_path(
-                    arbitration_id
-                )
+                arbitration_path = self.evidence_arbitration_path(arbitration_id)
                 try:
                     arbitration_bytes = arbitration_path.read_bytes()
                     loaded_arbitration = json.loads(arbitration_bytes)
                 except (OSError, json.JSONDecodeError) as error:
-                    raise _input_error(
-                        "autopilot batch arbitration record is malformed"
-                    ) from error
+                    raise _input_error("autopilot batch arbitration record is malformed") from error
                 if not isinstance(loaded_arbitration, dict):
-                    raise _input_error(
-                        "autopilot batch arbitration is not an object"
-                    )
-                arbitration_metrology = loaded_arbitration.get(
-                    "metrology"
-                )
-                arbitration_binding = loaded_arbitration.get(
-                    "source_binding"
-                )
+                    raise _input_error("autopilot batch arbitration is not an object")
+                arbitration_metrology = loaded_arbitration.get("metrology")
+                arbitration_binding = loaded_arbitration.get("source_binding")
                 arbitration_decision = loaded_arbitration.get("decision")
                 if (
                     loaded_arbitration.get("schema_version")
                     != "urbanvision-cross-channel-arbitration-v1.0.0"
-                    or loaded_arbitration.get("arbitration_id")
-                    != arbitration_id
+                    or loaded_arbitration.get("arbitration_id") != arbitration_id
                     or not isinstance(arbitration_metrology, dict)
                     or arbitration_metrology.get("run_id") != run_id
-                    or arbitration_metrology.get("measurement_sha256")
-                    != _sha256(measurement_bytes)
+                    or arbitration_metrology.get("measurement_sha256") != _sha256(measurement_bytes)
                     or not isinstance(arbitration_binding, dict)
-                    or arbitration_binding.get("source_sha256")
-                    != normalized_source_sha256
+                    or arbitration_binding.get("source_sha256") != normalized_source_sha256
                     or not isinstance(arbitration_decision, dict)
                     or not isinstance(
                         arbitration_decision.get("evidence_state"),
@@ -4454,31 +3965,20 @@ class LocalMetrologyService:
                     )
                 ):
                     raise _input_error(
-                        f"autopilot batch arbitration {arbitration_id} "
-                        f"does not bind run {run_id}"
+                        f"autopilot batch arbitration {arbitration_id} does not bind run {run_id}"
                     )
                 try:
-                    current_mask_bytes = (
-                        self.paths.metrology / run_id / "mask.png"
-                    ).read_bytes()
+                    current_mask_bytes = (self.paths.metrology / run_id / "mask.png").read_bytes()
                 except OSError as error:
-                    raise _input_error(
-                        f"autopilot batch mask for {run_id} is missing"
-                    ) from error
-                if arbitration_metrology.get("mask_sha256") != _sha256(
-                    current_mask_bytes
-                ):
+                    raise _input_error(f"autopilot batch mask for {run_id} is missing") from error
+                if arbitration_metrology.get("mask_sha256") != _sha256(current_mask_bytes):
                     raise _input_error(
                         f"autopilot batch arbitration {arbitration_id} "
                         f"mask digest does not match run {run_id}"
                     )
                 arbitration_record = loaded_arbitration
                 arbitration_sha256 = _sha256(arbitration_bytes)
-            feedback_path = (
-                self.paths.metrology
-                / run_id
-                / ACTIVE_LEARNING_FEEDBACK_ARTIFACT
-            )
+            feedback_path = self.paths.metrology / run_id / ACTIVE_LEARNING_FEEDBACK_ARTIFACT
             feedback_exported = feedback_path.is_file()
             if feedback_exported:
                 feedback_run_ids.append(run_id)
@@ -4490,20 +3990,10 @@ class LocalMetrologyService:
                     "feedback_exported": feedback_exported,
                     "arbitration": (
                         {
-                            "arbitration_id": (
-                                arbitration_record["arbitration_id"]
-                            ),
+                            "arbitration_id": (arbitration_record["arbitration_id"]),
                             "record_sha256": arbitration_sha256,
-                            "evidence_state": (
-                                arbitration_record["decision"][
-                                    "evidence_state"
-                                ]
-                            ),
-                            "review_required": (
-                                arbitration_record["decision"][
-                                    "review_required"
-                                ]
-                            ),
+                            "evidence_state": (arbitration_record["decision"]["evidence_state"]),
+                            "review_required": (arbitration_record["decision"]["review_required"]),
                         }
                         if arbitration_record is not None
                         else None
@@ -4525,9 +4015,7 @@ class LocalMetrologyService:
         curation_id = curation.get("curation_id")
         if not isinstance(curation_id, str):
             raise RuntimeError("autopilot curation has no ID")
-        snapshot_result = self.create_feedback_snapshot_preflight(
-            curation_id
-        )
+        snapshot_result = self.create_feedback_snapshot_preflight(curation_id)
         snapshot = snapshot_result["snapshot"]
         if not isinstance(snapshot, dict):
             raise RuntimeError("autopilot snapshot did not return a record")
@@ -4541,58 +4029,40 @@ class LocalMetrologyService:
         )
         cumulative_curation = cumulative_curation_result["curation"]
         if not isinstance(cumulative_curation, dict):
-            raise RuntimeError(
-                "cumulative autopilot curation did not return a record"
-            )
+            raise RuntimeError("cumulative autopilot curation did not return a record")
         cumulative_curation_id = cumulative_curation.get("curation_id")
         if not isinstance(cumulative_curation_id, str):
             raise RuntimeError("cumulative autopilot curation has no ID")
-        cumulative_snapshot_result = (
-            self.create_feedback_snapshot_preflight(
-                cumulative_curation_id,
-                _record_prefix="cumulative-snapshot",
-            )
+        cumulative_snapshot_result = self.create_feedback_snapshot_preflight(
+            cumulative_curation_id,
+            _record_prefix="cumulative-snapshot",
         )
         cumulative_snapshot = cumulative_snapshot_result["snapshot"]
         if not isinstance(cumulative_snapshot, dict):
-            raise RuntimeError(
-                "cumulative autopilot snapshot did not return a record"
-            )
+            raise RuntimeError("cumulative autopilot snapshot did not return a record")
         drift_result = self.create_feedback_drift_audit(
             current_curation_id=curation_id,
             cumulative_curation_id=cumulative_curation_id,
         )
         drift_audit = drift_result["drift_audit"]
         if not isinstance(drift_audit, dict):
-            raise RuntimeError(
-                "autopilot drift audit did not return a record"
-            )
-        batch_id = validate_run_name(
-            self._record_id_factory("autopilot-batch")
-        )
+            raise RuntimeError("autopilot drift audit did not return a record")
+        batch_id = validate_run_name(self._record_id_factory("autopilot-batch"))
         snapshot_blockers = snapshot.get("readiness")
         blocker_codes = (
-            snapshot_blockers.get("blockers")
-            if isinstance(snapshot_blockers, dict)
-            else []
+            snapshot_blockers.get("blockers") if isinstance(snapshot_blockers, dict) else []
         )
         scoped_technical = (
-            snapshot_blockers.get("technical")
-            if isinstance(snapshot_blockers, dict)
-            else None
+            snapshot_blockers.get("technical") if isinstance(snapshot_blockers, dict) else None
         )
         scoped_governance = (
-            snapshot_blockers.get("governance")
-            if isinstance(snapshot_blockers, dict)
-            else None
+            snapshot_blockers.get("governance") if isinstance(snapshot_blockers, dict) else None
         )
         scoped_technical_blocked = (
-            isinstance(scoped_technical, dict)
-            and scoped_technical.get("status") == "blocked"
+            isinstance(scoped_technical, dict) and scoped_technical.get("status") == "blocked"
         )
         scoped_governance_blocked = (
-            isinstance(scoped_governance, dict)
-            and scoped_governance.get("status") == "blocked"
+            isinstance(scoped_governance, dict) and scoped_governance.get("status") == "blocked"
         )
         cumulative_readiness = cumulative_curation.get("readiness")
         cumulative_selection = cumulative_curation.get("selection")
@@ -4604,7 +4074,7 @@ class LocalMetrologyService:
         if not isinstance(cumulative_splits, dict):
             raise RuntimeError("cumulative splits are not an object")
         payload: dict[str, object] = {
-            "schema_version": "urbanvision-autopilot-batch-v1.4.0",
+            "schema_version": "urbanvision-autopilot-batch-v1.5.0",
             "batch_id": batch_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "local_only": True,
@@ -4624,21 +4094,15 @@ class LocalMetrologyService:
             "source_integrity": {
                 "unique_source_count": len(source_run_ids),
                 "browser_digest_match_count": (
-                    len(browser_source_digests)
-                    if browser_source_digests is not None
-                    else None
+                    len(browser_source_digests) if browser_source_digests is not None else None
                 ),
                 "server_duplicate_source_rejection": True,
             },
             "cross_channel_arbitration": {
                 "bound_count": (
-                    len(safe_arbitration_ids)
-                    if safe_arbitration_ids is not None
-                    else 0
+                    len(safe_arbitration_ids) if safe_arbitration_ids is not None else 0
                 ),
-                "all_completed_runs_bound": (
-                    safe_arbitration_ids is not None
-                ),
+                "all_completed_runs_bound": (safe_arbitration_ids is not None),
             },
             "runs": run_records,
             "governance": {
@@ -4658,15 +4122,9 @@ class LocalMetrologyService:
                 "curation_url": cumulative_curation_result["curation_url"],
                 "snapshot_id": cumulative_snapshot.get("snapshot_id"),
                 "snapshot_url": cumulative_snapshot_result["snapshot_url"],
-                "selected_item_count": cumulative_selection.get(
-                    "selected_item_count"
-                ),
-                "unique_source_count": cumulative_selection.get(
-                    "unique_source_count"
-                ),
-                "visual_scene_group_count": cumulative_selection.get(
-                    "visual_scene_group_count"
-                ),
+                "selected_item_count": cumulative_selection.get("selected_item_count"),
+                "unique_source_count": cumulative_selection.get("unique_source_count"),
+                "visual_scene_group_count": cumulative_selection.get("visual_scene_group_count"),
                 "split_item_counts": {
                     split: (
                         cumulative_splits[split].get("item_count")
@@ -4688,15 +4146,18 @@ class LocalMetrologyService:
                 "decision": drift_audit.get("decision"),
                 "monitoring_only": True,
             },
+            "transparency_policy": {
+                "entry_created_after_batch_persistence": True,
+                "artifact_count": 6,
+                "verification": "full_local_chain_and_bound_artifact_bytes",
+                "external_notarization": False,
+            },
             "configuration": {
                 "seed": seed,
                 "minimum_unique_sources": minimum_unique_sources,
-                "max_scene_hamming_distance": (
-                    max_scene_hamming_distance
-                ),
+                "max_scene_hamming_distance": (max_scene_hamming_distance),
                 "execution": (
-                    "browser serial queue; per-image detection and proposal "
-                    "may run concurrently"
+                    "browser serial queue; per-image detection and proposal may run concurrently"
                 ),
                 "self_healing": {
                     "content_sha256_deduplication": True,
@@ -4714,33 +4175,395 @@ class LocalMetrologyService:
                 "calibration, or a road-safety conclusion"
             ),
         }
-        path = (
-            self.paths.metrology
-            / "autopilot-batches"
-            / f"{batch_id}.json"
-        )
+        path = self.paths.metrology / "autopilot-batches" / f"{batch_id}.json"
         with self._write_lock:
             self._write_json_exclusive(path, payload)
+        transparency_result = self._append_transparency_entry(
+            artifacts=[
+                {
+                    "role": "current_batch_curation",
+                    "kind": "feedback_curation",
+                    "record_id": curation_id,
+                },
+                {
+                    "role": "current_batch_snapshot",
+                    "kind": "feedback_snapshot",
+                    "record_id": snapshot.get("snapshot_id"),
+                },
+                {
+                    "role": "cumulative_curation",
+                    "kind": "feedback_curation",
+                    "record_id": cumulative_curation_id,
+                },
+                {
+                    "role": "cumulative_snapshot",
+                    "kind": "feedback_snapshot",
+                    "record_id": cumulative_snapshot.get("snapshot_id"),
+                },
+                {
+                    "role": "drift_audit",
+                    "kind": "feedback_drift_audit",
+                    "record_id": drift_audit.get("drift_id"),
+                },
+                {
+                    "role": "autopilot_batch",
+                    "kind": "autopilot_batch",
+                    "record_id": batch_id,
+                },
+            ]
+        )
         return {
             "local_only": True,
             "batch": payload,
-            "batch_url": (
-                f"/api/metrology/autopilot-batches/{batch_id}.json"
-            ),
+            "batch_url": (f"/api/metrology/autopilot-batches/{batch_id}.json"),
             "curation": curation,
             "curation_url": curation_result["curation_url"],
             "snapshot": snapshot,
             "snapshot_url": snapshot_result["snapshot_url"],
             "cumulative_curation": cumulative_curation,
-            "cumulative_curation_url": (
-                cumulative_curation_result["curation_url"]
-            ),
+            "cumulative_curation_url": (cumulative_curation_result["curation_url"]),
             "cumulative_snapshot": cumulative_snapshot,
-            "cumulative_snapshot_url": (
-                cumulative_snapshot_result["snapshot_url"]
-            ),
+            "cumulative_snapshot_url": (cumulative_snapshot_result["snapshot_url"]),
             "drift_audit": drift_audit,
             "drift_audit_url": drift_result["drift_audit_url"],
+            **transparency_result,
+        }
+
+    def _transparency_artifact_path(
+        self,
+        *,
+        kind: object,
+        record_id: object,
+    ) -> tuple[Path, str]:
+        if not isinstance(kind, str) or kind not in TRANSPARENCY_ARTIFACT_KINDS:
+            raise _input_error(f"transparency artifact kind={kind!r}")
+        if not isinstance(record_id, str):
+            raise _input_error("transparency artifact has no record ID")
+        safe_id = validate_run_name(record_id)
+        directory, url_template = TRANSPARENCY_ARTIFACT_KINDS[kind]
+        return (
+            self.paths.metrology / directory / f"{safe_id}.json",
+            url_template.format(record_id=safe_id),
+        )
+
+    def _verify_transparency_log_locked(self) -> dict[str, object]:
+        directory = self.paths.metrology / "transparency-log"
+        paths = sorted(directory.glob("*.json")) if directory.is_dir() else []
+        findings: list[dict[str, object]] = []
+        truncated_finding_count = 0
+
+        def add_finding(code: str, **context: object) -> None:
+            nonlocal truncated_finding_count
+            finding = {"code": code, **context}
+            if len(findings) < MAX_TRANSPARENCY_FINDINGS:
+                findings.append(finding)
+            else:
+                truncated_finding_count += 1
+
+        if len(paths) > MAX_TRANSPARENCY_ENTRIES:
+            add_finding(
+                "entry_limit_exceeded",
+                observed_count=len(paths),
+                maximum_count=MAX_TRANSPARENCY_ENTRIES,
+            )
+            paths = paths[:MAX_TRANSPARENCY_ENTRIES]
+
+        records: list[tuple[int, Path, dict[str, object]]] = []
+        for path in paths:
+            try:
+                loaded = json.loads(path.read_bytes())
+            except (OSError, json.JSONDecodeError):
+                add_finding("entry_unreadable_or_malformed", filename=path.name)
+                continue
+            if not isinstance(loaded, dict):
+                add_finding("entry_not_an_object", filename=path.name)
+                continue
+            entry_id = loaded.get("entry_id")
+            sequence = loaded.get("sequence")
+            if not isinstance(entry_id, str) or path.name != f"{entry_id}.json":
+                add_finding(
+                    "entry_filename_identity_mismatch",
+                    filename=path.name,
+                    entry_id=entry_id,
+                )
+            if isinstance(sequence, bool) or not isinstance(sequence, int):
+                add_finding(
+                    "entry_sequence_invalid",
+                    filename=path.name,
+                    entry_id=entry_id,
+                )
+                continue
+            records.append((sequence, path, loaded))
+
+        records.sort(key=lambda item: (item[0], item[1].name))
+        previous_chain_sha256: str | None = None
+        expected_sequence = 1
+        seen_sequences: set[int] = set()
+        verified_entry_count = 0
+        head: dict[str, object] | None = None
+        for sequence, _path, record in records:
+            entry_id = record.get("entry_id")
+            sequence_valid = sequence == expected_sequence and sequence not in seen_sequences
+            if sequence in seen_sequences:
+                add_finding(
+                    "duplicate_sequence",
+                    sequence=sequence,
+                    entry_id=entry_id,
+                )
+            seen_sequences.add(sequence)
+            if sequence != expected_sequence:
+                add_finding(
+                    "sequence_gap_or_reordering",
+                    expected_sequence=expected_sequence,
+                    observed_sequence=sequence,
+                    entry_id=entry_id,
+                )
+            expected_sequence = max(expected_sequence, sequence + 1)
+            if record.get("schema_version") != "urbanvision-transparency-entry-v1.0.0":
+                add_finding(
+                    "entry_schema_invalid",
+                    sequence=sequence,
+                    entry_id=entry_id,
+                )
+            if record.get("previous_chain_sha256") != previous_chain_sha256:
+                add_finding(
+                    "previous_chain_mismatch",
+                    sequence=sequence,
+                    entry_id=entry_id,
+                )
+            claimed_chain_sha256 = record.get("chain_sha256")
+            unsigned_record = {key: value for key, value in record.items() if key != "chain_sha256"}
+            computed_chain_sha256 = _transparency_chain_sha256(unsigned_record)
+            if claimed_chain_sha256 != computed_chain_sha256:
+                add_finding(
+                    "entry_chain_digest_mismatch",
+                    sequence=sequence,
+                    entry_id=entry_id,
+                )
+            artifacts = record.get("artifacts")
+            artifact_valid = (
+                isinstance(artifacts, list)
+                and len(artifacts) == len(TRANSPARENCY_REQUIRED_ROLES)
+                and record.get("artifact_count") == len(TRANSPARENCY_REQUIRED_ROLES)
+            )
+            if not artifact_valid:
+                add_finding(
+                    "artifact_inventory_invalid",
+                    sequence=sequence,
+                    entry_id=entry_id,
+                )
+                artifacts = []
+            seen_roles: set[str] = set()
+            for artifact in artifacts:
+                if not isinstance(artifact, dict):
+                    add_finding(
+                        "artifact_record_invalid",
+                        sequence=sequence,
+                        entry_id=entry_id,
+                    )
+                    artifact_valid = False
+                    continue
+                role = artifact.get("role")
+                if not isinstance(role, str) or role in seen_roles:
+                    add_finding(
+                        "artifact_role_invalid_or_duplicate",
+                        sequence=sequence,
+                        entry_id=entry_id,
+                        role=role,
+                    )
+                    artifact_valid = False
+                else:
+                    seen_roles.add(role)
+                    if artifact.get("kind") != TRANSPARENCY_ROLE_KINDS.get(role):
+                        add_finding(
+                            "artifact_role_kind_mismatch",
+                            sequence=sequence,
+                            entry_id=entry_id,
+                            role=role,
+                        )
+                        artifact_valid = False
+                try:
+                    artifact_path, expected_url = self._transparency_artifact_path(
+                        kind=artifact.get("kind"),
+                        record_id=artifact.get("record_id"),
+                    )
+                except (ProjectError, ValueError):
+                    add_finding(
+                        "artifact_reference_invalid",
+                        sequence=sequence,
+                        entry_id=entry_id,
+                        role=role,
+                    )
+                    artifact_valid = False
+                    continue
+                if artifact.get("url") != expected_url:
+                    add_finding(
+                        "artifact_url_mismatch",
+                        sequence=sequence,
+                        entry_id=entry_id,
+                        role=role,
+                    )
+                    artifact_valid = False
+                try:
+                    artifact_bytes = artifact_path.read_bytes()
+                except OSError:
+                    add_finding(
+                        "artifact_missing_or_unreadable",
+                        sequence=sequence,
+                        entry_id=entry_id,
+                        role=role,
+                        record_id=artifact.get("record_id"),
+                    )
+                    artifact_valid = False
+                    continue
+                if artifact.get("sha256") != _sha256(artifact_bytes):
+                    add_finding(
+                        "artifact_digest_mismatch",
+                        sequence=sequence,
+                        entry_id=entry_id,
+                        role=role,
+                        record_id=artifact.get("record_id"),
+                    )
+                    artifact_valid = False
+            if seen_roles != TRANSPARENCY_REQUIRED_ROLES:
+                add_finding(
+                    "artifact_roles_incomplete_or_unknown",
+                    sequence=sequence,
+                    entry_id=entry_id,
+                )
+                artifact_valid = False
+            entry_valid = (
+                sequence_valid
+                and record.get("schema_version") == "urbanvision-transparency-entry-v1.0.0"
+                and claimed_chain_sha256 == computed_chain_sha256
+                and artifact_valid
+                and record.get("previous_chain_sha256") == previous_chain_sha256
+            )
+            if entry_valid:
+                verified_entry_count += 1
+            if isinstance(claimed_chain_sha256, str):
+                previous_chain_sha256 = claimed_chain_sha256
+            else:
+                previous_chain_sha256 = None
+            head = {
+                "entry_id": entry_id,
+                "sequence": sequence,
+                "chain_sha256": claimed_chain_sha256,
+            }
+
+        return {
+            "local_only": True,
+            "status": "verified" if not findings else "invalid",
+            "entry_count": len(paths),
+            "verified_entry_count": verified_entry_count,
+            "head": head,
+            "findings": findings,
+            "truncated_finding_count": truncated_finding_count,
+            "claim_boundary": (
+                "This verification detects mutation, loss, identity changes, "
+                "sequence gaps, and broken links in the local ledger and its "
+                "bound artifacts. An attacker controlling the whole local "
+                "disk can rewrite or truncate the ledger; no external "
+                "timestamp or notarization is claimed"
+            ),
+        }
+
+    def verify_transparency_log(self) -> dict[str, object]:
+        with self._write_lock:
+            return self._verify_transparency_log_locked()
+
+    def _append_transparency_entry(
+        self,
+        *,
+        artifacts: list[dict[str, object]],
+    ) -> dict[str, object]:
+        roles = {
+            artifact.get("role") for artifact in artifacts if isinstance(artifact.get("role"), str)
+        }
+        if (
+            len(artifacts) != len(TRANSPARENCY_REQUIRED_ROLES)
+            or roles != TRANSPARENCY_REQUIRED_ROLES
+            or any(
+                artifact.get("kind") != TRANSPARENCY_ROLE_KINDS.get(str(artifact.get("role")))
+                for artifact in artifacts
+            )
+        ):
+            raise _input_error("transparency entry requires the complete artifact role set")
+        with self._write_lock:
+            prior_verification = self._verify_transparency_log_locked()
+            if prior_verification["status"] != "verified":
+                raise ProjectError(
+                    "E409",
+                    "透明度账本验证失败，拒绝追加",
+                    "Transparency-log verification failed; append refused",
+                    "先检查验证结果并恢复被修改或缺失的本地工件",
+                    "Inspect verification findings and restore changed or missing artifacts",
+                    json.dumps(
+                        prior_verification["findings"],
+                        ensure_ascii=False,
+                    ),
+                )
+            head = prior_verification.get("head")
+            previous_chain_sha256 = head.get("chain_sha256") if isinstance(head, dict) else None
+            normalized_artifacts: list[dict[str, object]] = []
+            for artifact in artifacts:
+                role = artifact.get("role")
+                if not isinstance(role, str):
+                    raise _input_error("transparency artifact has no role")
+                path, url = self._transparency_artifact_path(
+                    kind=artifact.get("kind"),
+                    record_id=artifact.get("record_id"),
+                )
+                try:
+                    raw = path.read_bytes()
+                except OSError as error:
+                    raise ProjectError(
+                        "E201",
+                        "透明度账本引用的工件不存在",
+                        "A transparency-ledger artifact is missing",
+                        "重新生成完整自动巡检批次",
+                        "Regenerate the complete autopilot batch",
+                        str(artifact.get("record_id")),
+                    ) from error
+                normalized_artifacts.append(
+                    {
+                        "role": role,
+                        "kind": artifact["kind"],
+                        "record_id": artifact["record_id"],
+                        "sha256": _sha256(raw),
+                        "url": url,
+                    }
+                )
+            normalized_artifacts.sort(key=lambda item: (str(item["role"]), str(item["record_id"])))
+            entry_id = validate_run_name(self._record_id_factory("transparency-entry"))
+            unsigned_entry: dict[str, object] = {
+                "schema_version": "urbanvision-transparency-entry-v1.0.0",
+                "entry_id": entry_id,
+                "sequence": int(prior_verification["entry_count"]) + 1,
+                "created_at_utc": datetime.now(UTC).isoformat(),
+                "previous_chain_sha256": previous_chain_sha256,
+                "artifacts": normalized_artifacts,
+                "artifact_count": len(normalized_artifacts),
+                "local_only": True,
+                "claim_boundary": (
+                    "This local hash chain is tamper-evident, not immutable "
+                    "against an attacker who controls the entire disk. It "
+                    "does not provide an external timestamp or notarization"
+                ),
+            }
+            entry = {
+                **unsigned_entry,
+                "chain_sha256": _transparency_chain_sha256(unsigned_entry),
+            }
+            path = self.paths.metrology / "transparency-log" / f"{entry_id}.json"
+            self._write_json_exclusive(path, entry)
+            verification = self._verify_transparency_log_locked()
+            if verification["status"] != "verified":
+                raise RuntimeError("new transparency entry failed immediate verification")
+        return {
+            "transparency_entry": entry,
+            "transparency_entry_url": (f"/api/metrology/transparency-log/{entry_id}.json"),
+            "transparency_verification": verification,
         }
 
     def create_evidence_arbitration(
@@ -4753,11 +4576,7 @@ class LocalMetrologyService:
         safe_inspection_run = validate_run_name(inspection_run_name)
         safe_inspection_id = validate_run_name(inspection_id)
         safe_metrology_run_id = validate_run_name(metrology_run_id)
-        inspection_dir = (
-            self.paths.inspections
-            / safe_inspection_run
-            / safe_inspection_id
-        )
+        inspection_dir = self.paths.inspections / safe_inspection_run / safe_inspection_id
 
         def read_json_record(
             path: Path,
@@ -4771,9 +4590,7 @@ class LocalMetrologyService:
                     f"evidence arbitration {label} is missing or malformed"
                 ) from error
             if not isinstance(payload, dict):
-                raise _input_error(
-                    f"evidence arbitration {label} is not an object"
-                )
+                raise _input_error(f"evidence arbitration {label} is not an object")
             return content, payload
 
         manifest_bytes, manifest = read_json_record(
@@ -4788,9 +4605,7 @@ class LocalMetrologyService:
             inspection_dir / "risk.json",
             "risk",
         )
-        measurement_bytes, measurement = self._measurement_bytes(
-            safe_metrology_run_id
-        )
+        measurement_bytes, measurement = self._measurement_bytes(safe_metrology_run_id)
         measurement_run = measurement.get("run")
         if (
             manifest.get("inspection_id") != safe_inspection_id
@@ -4798,67 +4613,37 @@ class LocalMetrologyService:
             or not isinstance(measurement_run, dict)
             or measurement_run.get("output_name") != safe_metrology_run_id
         ):
-            raise _input_error(
-                "evidence arbitration record identity does not match"
-            )
+            raise _input_error("evidence arbitration record identity does not match")
         expected_hashes = {
             "prediction_json_sha256": _sha256(prediction_bytes),
             "risk_json_sha256": _sha256(risk_bytes),
         }
-        if any(
-            manifest.get(key) != digest
-            for key, digest in expected_hashes.items()
-        ):
-            raise _input_error(
-                "evidence arbitration inspection hashes do not match"
-            )
+        if any(manifest.get(key) != digest for key, digest in expected_hashes.items()):
+            raise _input_error("evidence arbitration inspection hashes do not match")
         source_sha256 = manifest.get("source_upload_sha256")
         input_evidence = measurement_run.get("input_evidence")
         metrology_source = (
-            input_evidence.get("source")
-            if isinstance(input_evidence, dict)
-            else None
+            input_evidence.get("source") if isinstance(input_evidence, dict) else None
         )
         metrology_source_sha256 = (
-            metrology_source.get("sha256")
-            if isinstance(metrology_source, dict)
-            else None
+            metrology_source.get("sha256") if isinstance(metrology_source, dict) else None
         )
-        if (
-            not _is_hex_digest(source_sha256, 64)
-            or source_sha256 != metrology_source_sha256
-        ):
-            raise _input_error(
-                "evidence arbitration source SHA-256 does not match"
-            )
-        mask_path = (
-            self.paths.metrology / safe_metrology_run_id / "mask.png"
-        )
+        if not _is_hex_digest(source_sha256, 64) or source_sha256 != metrology_source_sha256:
+            raise _input_error("evidence arbitration source SHA-256 does not match")
+        mask_path = self.paths.metrology / safe_metrology_run_id / "mask.png"
         try:
             mask_bytes = mask_path.read_bytes()
         except OSError as error:
-            raise _input_error(
-                "evidence arbitration metrology mask is missing"
-            ) from error
+            raise _input_error("evidence arbitration metrology mask is missing") from error
         mask = cv2.imdecode(
             np.frombuffer(mask_bytes, dtype=np.uint8),
             cv2.IMREAD_GRAYSCALE,
         )
         if mask is None or mask.ndim != 2:
-            raise _input_error(
-                "evidence arbitration metrology mask is invalid"
-            )
+            raise _input_error("evidence arbitration metrology mask is invalid")
         dimensions = prediction.get("image_dimensions")
-        width = (
-            dimensions.get("width")
-            if isinstance(dimensions, dict)
-            else None
-        )
-        height = (
-            dimensions.get("height")
-            if isinstance(dimensions, dict)
-            else None
-        )
+        width = dimensions.get("width") if isinstance(dimensions, dict) else None
+        height = dimensions.get("height") if isinstance(dimensions, dict) else None
         if (
             isinstance(width, bool)
             or isinstance(height, bool)
@@ -4868,19 +4653,11 @@ class LocalMetrologyService:
             or height <= 0
             or mask.shape != (height, width)
         ):
-            raise _input_error(
-                "evidence arbitration image dimensions do not match"
-            )
+            raise _input_error("evidence arbitration image dimensions do not match")
         foreground = mask >= 128
         proposal_pixels = int(np.count_nonzero(foreground))
-        mask_evidence = (
-            input_evidence.get("mask")
-            if isinstance(input_evidence, dict)
-            else None
-        )
-        normalized_mask_sha256 = _sha256(
-            foreground.astype(np.uint8).tobytes()
-        )
+        mask_evidence = input_evidence.get("mask") if isinstance(input_evidence, dict) else None
+        normalized_mask_sha256 = _sha256(foreground.astype(np.uint8).tobytes())
         if (
             not isinstance(mask_evidence, dict)
             or mask_evidence.get("foreground_pixels") != proposal_pixels
@@ -4888,25 +4665,18 @@ class LocalMetrologyService:
                 mask_evidence.get("normalized_binary_sha256"),
                 64,
             )
-            or mask_evidence.get("normalized_binary_sha256")
-            != normalized_mask_sha256
+            or mask_evidence.get("normalized_binary_sha256") != normalized_mask_sha256
         ):
-            raise _input_error(
-                "evidence arbitration mask evidence does not match"
-            )
+            raise _input_error("evidence arbitration mask evidence does not match")
 
         detections = prediction.get("detections")
         if not isinstance(detections, list):
-            raise _input_error(
-                "evidence arbitration detections are invalid"
-            )
+            raise _input_error("evidence arbitration detections are invalid")
         semantic_union = np.zeros(mask.shape, dtype=bool)
         semantic_detection_count = 0
         for detection in detections:
             if not isinstance(detection, dict):
-                raise _input_error(
-                    "evidence arbitration contains an invalid detection"
-                )
+                raise _input_error("evidence arbitration contains an invalid detection")
             if detection.get("code") not in ARBITRATION_CRACK_CODES:
                 continue
             box = detection.get("bbox_xyxy")
@@ -4920,33 +4690,23 @@ class LocalMetrologyService:
                     for value in box
                 )
             ):
-                raise _input_error(
-                    "evidence arbitration crack box is invalid"
-                )
+                raise _input_error("evidence arbitration crack box is invalid")
             x1 = max(0, min(width, math.floor(float(box[0]))))
             y1 = max(0, min(height, math.floor(float(box[1]))))
             x2 = max(0, min(width, math.ceil(float(box[2]))))
             y2 = max(0, min(height, math.ceil(float(box[3]))))
             if x2 <= x1 or y2 <= y1:
-                raise _input_error(
-                    "evidence arbitration crack box is degenerate"
-                )
+                raise _input_error("evidence arbitration crack box is degenerate")
             semantic_union[y1:y2, x1:x2] = True
             semantic_detection_count += 1
 
         total_pixels = int(mask.size)
         semantic_box_pixels = int(np.count_nonzero(semantic_union))
-        overlap_pixels = int(
-            np.count_nonzero(foreground & semantic_union)
-        )
+        overlap_pixels = int(np.count_nonzero(foreground & semantic_union))
         proposal_coverage = proposal_pixels / total_pixels
-        proposal_supported_ratio = (
-            overlap_pixels / proposal_pixels if proposal_pixels else 0.0
-        )
+        proposal_supported_ratio = overlap_pixels / proposal_pixels if proposal_pixels else 0.0
         semantic_region_supported_ratio = (
-            overlap_pixels / semantic_box_pixels
-            if semantic_box_pixels
-            else 0.0
+            overlap_pixels / semantic_box_pixels if semantic_box_pixels else 0.0
         )
         proposal_significant = (
             proposal_pixels >= ARBITRATION_MIN_PROPOSAL_PIXELS
@@ -4960,13 +4720,9 @@ class LocalMetrologyService:
         )
 
         upstream_review_required = (
-            risk.get("decision_status") == "review_required"
-            or risk.get("review_required") is True
+            risk.get("decision_status") == "review_required" or risk.get("review_required") is True
         )
-        review_required = (
-            upstream_review_required
-            or evidence_state != "cross_channel_supported"
-        )
+        review_required = upstream_review_required or evidence_state != "cross_channel_supported"
         recommendations = {
             "proposal_only_semantic_miss": {
                 "zh": (
@@ -4980,10 +4736,7 @@ class LocalMetrologyService:
                 ),
             },
             "detector_only_semantic_evidence": {
-                "zh": (
-                    "YOLO 返回裂缝框，但独立分割没有显著像素支持；"
-                    "需要复核潜在误检或分割失败。"
-                ),
+                "zh": ("YOLO 返回裂缝框，但独立分割没有显著像素支持；需要复核潜在误检或分割失败。"),
                 "en": (
                     "YOLO returned crack boxes without significant independent "
                     "segmentation support. Review possible false detection or "
@@ -5002,10 +4755,7 @@ class LocalMetrologyService:
                 ),
             },
             "spatial_disagreement": {
-                "zh": (
-                    "两个通道都发现候选，但空间重叠不足；"
-                    "系统拒绝合并结论并要求复核。"
-                ),
+                "zh": ("两个通道都发现候选，但空间重叠不足；系统拒绝合并结论并要求复核。"),
                 "en": (
                     "Both channels found candidates but spatial overlap is "
                     "insufficient. The system refuses to fuse the conclusion "
@@ -5013,10 +4763,7 @@ class LocalMetrologyService:
                 ),
             },
             "inconclusive_no_positive_evidence": {
-                "zh": (
-                    "两个通道都没有足够正证据；这不等于道路无缺陷，"
-                    "维护分数保持隐藏。"
-                ),
+                "zh": ("两个通道都没有足够正证据；这不等于道路无缺陷，维护分数保持隐藏。"),
                 "en": (
                     "Neither channel produced sufficient positive evidence. "
                     "This does not prove a defect-free road, so the score "
@@ -5024,13 +4771,9 @@ class LocalMetrologyService:
                 ),
             },
         }
-        arbitration_id = validate_run_name(
-            self._record_id_factory("evidence-arbitration")
-        )
+        arbitration_id = validate_run_name(self._record_id_factory("evidence-arbitration"))
         payload: dict[str, object] = {
-            "schema_version": (
-                "urbanvision-cross-channel-arbitration-v1.0.0"
-            ),
+            "schema_version": ("urbanvision-cross-channel-arbitration-v1.0.0"),
             "arbitration_id": arbitration_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "local_only": True,
@@ -5045,13 +4788,9 @@ class LocalMetrologyService:
                 "run_id": safe_metrology_run_id,
                 "measurement_sha256": _sha256(measurement_bytes),
                 "mask_sha256": _sha256(mask_bytes),
-                "normalized_binary_mask_sha256": (
-                    normalized_mask_sha256
-                ),
+                "normalized_binary_mask_sha256": (normalized_mask_sha256),
                 "review_state": (
-                    input_evidence.get("review_state")
-                    if isinstance(input_evidence, dict)
-                    else None
+                    input_evidence.get("review_state") if isinstance(input_evidence, dict) else None
                 ),
                 "review_authority": (
                     input_evidence.get("review_authority")
@@ -5066,9 +4805,7 @@ class LocalMetrologyService:
             "metrics": {
                 "image_width": width,
                 "image_height": height,
-                "semantic_crack_detection_count": (
-                    semantic_detection_count
-                ),
+                "semantic_crack_detection_count": (semantic_detection_count),
                 "proposal_foreground_pixels": proposal_pixels,
                 "proposal_coverage_ratio": round(
                     proposal_coverage,
@@ -5098,15 +4835,9 @@ class LocalMetrologyService:
             },
             "policy": {
                 "crack_codes": sorted(ARBITRATION_CRACK_CODES),
-                "minimum_proposal_pixels": (
-                    ARBITRATION_MIN_PROPOSAL_PIXELS
-                ),
-                "minimum_proposal_coverage_ratio": (
-                    ARBITRATION_MIN_PROPOSAL_COVERAGE
-                ),
-                "minimum_supported_proposal_ratio": (
-                    ARBITRATION_MIN_SUPPORTED_PROPOSAL_RATIO
-                ),
+                "minimum_proposal_pixels": (ARBITRATION_MIN_PROPOSAL_PIXELS),
+                "minimum_proposal_coverage_ratio": (ARBITRATION_MIN_PROPOSAL_COVERAGE),
+                "minimum_supported_proposal_ratio": (ARBITRATION_MIN_SUPPORTED_PROPOSAL_RATIO),
                 "method": (
                     "deterministic spatial evidence arbitration; ratios are "
                     "not learned probabilities or calibrated confidence"
@@ -5120,19 +4851,13 @@ class LocalMetrologyService:
                 "signal, not proof that either channel is correct"
             ),
         }
-        path = (
-            self.paths.metrology
-            / "arbitrations"
-            / f"{arbitration_id}.json"
-        )
+        path = self.paths.metrology / "arbitrations" / f"{arbitration_id}.json"
         with self._write_lock:
             self._write_json_exclusive(path, payload)
         return {
             "local_only": True,
             "arbitration": payload,
-            "arbitration_url": (
-                f"/api/evidence/arbitrations/{arbitration_id}.json"
-            ),
+            "arbitration_url": (f"/api/evidence/arbitrations/{arbitration_id}.json"),
         }
 
     def demo(self) -> dict[str, object]:
@@ -5471,11 +5196,7 @@ class LocalMetrologyService:
 
     def evidence_arbitration_path(self, arbitration_id: str) -> Path:
         safe_id = validate_run_name(arbitration_id)
-        path = (
-            self.paths.metrology
-            / "arbitrations"
-            / f"{safe_id}.json"
-        )
+        path = self.paths.metrology / "arbitrations" / f"{safe_id}.json"
         if not path.is_file():
             raise ProjectError(
                 "E201",
@@ -5532,11 +5253,7 @@ class LocalMetrologyService:
 
     def feedback_drift_audit_path(self, drift_id: str) -> Path:
         safe_id = validate_run_name(drift_id)
-        path = (
-            self.paths.metrology
-            / "drift-audits"
-            / f"{safe_id}.json"
-        )
+        path = self.paths.metrology / "drift-audits" / f"{safe_id}.json"
         if not path.is_file():
             raise ProjectError(
                 "E201",
@@ -5550,11 +5267,7 @@ class LocalMetrologyService:
 
     def autopilot_batch_path(self, batch_id: str) -> Path:
         safe_id = validate_run_name(batch_id)
-        path = (
-            self.paths.metrology
-            / "autopilot-batches"
-            / f"{safe_id}.json"
-        )
+        path = self.paths.metrology / "autopilot-batches" / f"{safe_id}.json"
         if not path.is_file():
             raise ProjectError(
                 "E201",
@@ -5562,6 +5275,20 @@ class LocalMetrologyService:
                 "The autopilot batch record does not exist",
                 "检查批次编号，或重新运行批量自动巡检",
                 "Check the batch ID or rerun batch autopilot",
+                safe_id,
+            )
+        return path
+
+    def transparency_entry_path(self, entry_id: str) -> Path:
+        safe_id = validate_run_name(entry_id)
+        path = self.paths.metrology / "transparency-log" / f"{safe_id}.json"
+        if not path.is_file():
+            raise ProjectError(
+                "E201",
+                "透明度账本记录不存在",
+                "The transparency-ledger entry does not exist",
+                "检查记录编号，或重新运行批量自动巡检",
+                "Check the entry ID or rerun batch autopilot",
                 safe_id,
             )
         return path

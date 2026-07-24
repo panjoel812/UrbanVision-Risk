@@ -162,9 +162,7 @@ class MetrologyStub:
                 "status": "not_training_ready",
                 "training_authorized": False,
             },
-            "curation_url": (
-                "/api/metrology/feedback-curations/feedback-curation-001.json"
-            ),
+            "curation_url": ("/api/metrology/feedback-curations/feedback-curation-001.json"),
         }
 
     def feedback_curation_path(self, curation_id: str) -> Path:
@@ -184,10 +182,7 @@ class MetrologyStub:
                 "status": "not_snapshot_ready",
                 "training_authorized": False,
             },
-            "snapshot_url": (
-                "/api/metrology/feedback-snapshots/"
-                "feedback-snapshot-001.json"
-            ),
+            "snapshot_url": ("/api/metrology/feedback-snapshots/feedback-snapshot-001.json"),
         }
 
     def feedback_snapshot_path(self, snapshot_id: str) -> Path:
@@ -204,28 +199,19 @@ class MetrologyStub:
                 "status": "completed_with_governance_blockers",
                 "training_authorized": False,
             },
-            "batch_url": (
-                "/api/metrology/autopilot-batches/"
-                "autopilot-batch-001.json"
-            ),
+            "batch_url": ("/api/metrology/autopilot-batches/autopilot-batch-001.json"),
             "curation": {
                 "curation_id": "feedback-curation-001",
                 "status": "not_training_ready",
                 "training_authorized": False,
             },
-            "curation_url": (
-                "/api/metrology/feedback-curations/"
-                "feedback-curation-001.json"
-            ),
+            "curation_url": ("/api/metrology/feedback-curations/feedback-curation-001.json"),
             "snapshot": {
                 "snapshot_id": "feedback-snapshot-001",
                 "status": "not_snapshot_ready",
                 "training_authorized": False,
             },
-            "snapshot_url": (
-                "/api/metrology/feedback-snapshots/"
-                "feedback-snapshot-001.json"
-            ),
+            "snapshot_url": ("/api/metrology/feedback-snapshots/feedback-snapshot-001.json"),
             "drift_audit": {
                 "drift_id": "feedback-drift-001",
                 "status": "insufficient_or_invalid_evidence",
@@ -241,15 +227,31 @@ class MetrologyStub:
                 },
                 "readiness": {
                     "status": "blocked",
-                    "blockers": [
-                        "insufficient_reference_sources_for_drift"
-                    ],
+                    "blockers": ["insufficient_reference_sources_for_drift"],
                 },
             },
-            "drift_audit_url": (
-                "/api/metrology/feedback-drift-audits/"
-                "feedback-drift-001.json"
+            "drift_audit_url": ("/api/metrology/feedback-drift-audits/feedback-drift-001.json"),
+            "transparency_entry": {
+                "entry_id": "transparency-entry-001",
+                "sequence": 1,
+                "artifact_count": 6,
+                "previous_chain_sha256": None,
+                "chain_sha256": "b" * 64,
+            },
+            "transparency_entry_url": (
+                "/api/metrology/transparency-log/transparency-entry-001.json"
             ),
+            "transparency_verification": {
+                "status": "verified",
+                "entry_count": 1,
+                "verified_entry_count": 1,
+                "head": {
+                    "entry_id": "transparency-entry-001",
+                    "sequence": 1,
+                    "chain_sha256": "b" * 64,
+                },
+                "findings": [],
+            },
         }
 
     def feedback_drift_audit_path(self, drift_id: str) -> Path:
@@ -259,6 +261,26 @@ class MetrologyStub:
 
     def autopilot_batch_path(self, batch_id: str) -> Path:
         if batch_id != "autopilot-batch-001":
+            raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
+        return self.artifact
+
+    def verify_transparency_log(self) -> dict[str, object]:
+        return {
+            "local_only": True,
+            "status": "verified",
+            "entry_count": 1,
+            "verified_entry_count": 1,
+            "head": {
+                "entry_id": "transparency-entry-001",
+                "sequence": 1,
+                "chain_sha256": "b" * 64,
+            },
+            "findings": [],
+            "truncated_finding_count": 0,
+        }
+
+    def transparency_entry_path(self, entry_id: str) -> Path:
+        if entry_id != "transparency-entry-001":
             raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
         return self.artifact
 
@@ -277,10 +299,7 @@ class MetrologyStub:
                 },
                 "training_authorized": False,
             },
-            "arbitration_url": (
-                "/api/evidence/arbitrations/"
-                "evidence-arbitration-001.json"
-            ),
+            "arbitration_url": ("/api/evidence/arbitrations/evidence-arbitration-001.json"),
         }
 
     def evidence_arbitration_path(self, arbitration_id: str) -> Path:
@@ -412,14 +431,14 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "generateProposalAndDraft" in response.text
     assert 'id="autopilot-toggle"' in response.text
     assert (
-        'id="source-input" type="file" '
-        'accept="image/jpeg,image/png,image/webp" multiple'
+        'id="source-input" type="file" accept="image/jpeg,image/png,image/webp" multiple'
     ) in response.text
     assert 'id="batch-panel"' in response.text
     assert 'id="batch-list"' in response.text
     assert 'id="batch-result"' in response.text
     assert 'id="cumulative-result"' in response.text
     assert 'id="drift-result"' in response.text
+    assert 'id="transparency-result"' in response.text
     assert 'id="arbitration-panel"' in response.text
     assert 'id="evidence-arbitration"' in response.text
     assert "applyAutopilotDecisions" in response.text
@@ -429,7 +448,7 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "finalizeAutopilotBatch" in response.text
     assert "/api/metrology/autopilot-batches/finalize" in response.text
     assert "fileSha256" in response.text
-    assert 'globalThis.crypto.subtle.digest(' in response.text
+    assert "globalThis.crypto.subtle.digest(" in response.text
     assert "MAX_BATCH_ATTEMPTS = 2" in response.text
     assert 'setBatchItemState(index, "hashing")' in response.text
     assert 'setBatchItemState(index, "duplicate"' in response.text
@@ -437,11 +456,13 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert '"retry_count"' in response.text
     assert "runEvidenceArbitration" in response.text
     assert "renderEvidenceArbitration" in response.text
-    assert "v5.8 · Fail-loudly dataset shift monitoring" in response.text
+    assert "v5.9 · Tamper-evident transparency ledger" in response.text
     assert "readinessRemediationLines" in response.text
     assert "readinessAxisLines" in response.text
     assert "renderCumulativeReadiness" in response.text
     assert "renderDriftAudit" in response.text
+    assert "renderTransparencyLog" in response.text
+    assert "/api/metrology/transparency-log" in response.text
     assert "MMD²" in response.text
     assert "跨会话累计台账已自动刷新" in response.text
     assert "全新独立批次至少选择" in response.text
@@ -502,8 +523,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
             "proposal_id": "proposal-001",
             "reviewed_hotspots": '["hotspot-001"]',
             "hotspot_decisions": (
-                '[{"hotspot_id":"hotspot-001",'
-                '"disposition":"accepted_as_proposed"}]'
+                '[{"hotspot_id":"hotspot-001","disposition":"accepted_as_proposed"}]'
             ),
         },
     )
@@ -545,15 +565,15 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["dual_axis_training_readiness"] is True
     assert health.json()["automatic_dataset_shift_monitoring"] is True
     assert health.json()["mmd_permutation_drift_audit"] is True
+    assert health.json()["tamper_evident_transparency_log"] is True
+    assert health.json()["full_chain_artifact_verification"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
     client, metrology = _client(tmp_path)
 
     artifact = client.get("/api/metrology/runs/metrology-web-001/overlay.jpg")
-    feedback = client.get(
-        "/api/metrology/runs/metrology-web-001/active-learning-feedback.zip"
-    )
+    feedback = client.get("/api/metrology/runs/metrology-web-001/active-learning-feedback.zip")
     missing_form = client.post("/api/metrology/analyze")
     metrology.failure = ProjectError(
         "E506",
@@ -602,8 +622,7 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
         },
     )
     feedback_snapshot = client.post(
-        "/api/metrology/feedback-curations/"
-        "feedback-curation-001/snapshot-preflight"
+        "/api/metrology/feedback-curations/feedback-curation-001/snapshot-preflight"
     )
     autopilot_batch = client.post(
         "/api/metrology/autopilot-batches/finalize",
@@ -649,22 +668,15 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
         },
     )
     downloaded_plan = client.get("/api/metrology/runs/metrology-web-001/plans/maintenance-001.json")
-    downloaded_curation = client.get(
-        "/api/metrology/feedback-curations/feedback-curation-001.json"
+    downloaded_curation = client.get("/api/metrology/feedback-curations/feedback-curation-001.json")
+    downloaded_snapshot = client.get("/api/metrology/feedback-snapshots/feedback-snapshot-001.json")
+    downloaded_drift = client.get("/api/metrology/feedback-drift-audits/feedback-drift-001.json")
+    downloaded_batch = client.get("/api/metrology/autopilot-batches/autopilot-batch-001.json")
+    transparency_verification = client.get("/api/metrology/transparency-log")
+    downloaded_transparency_entry = client.get(
+        "/api/metrology/transparency-log/transparency-entry-001.json"
     )
-    downloaded_snapshot = client.get(
-        "/api/metrology/feedback-snapshots/feedback-snapshot-001.json"
-    )
-    downloaded_drift = client.get(
-        "/api/metrology/feedback-drift-audits/"
-        "feedback-drift-001.json"
-    )
-    downloaded_batch = client.get(
-        "/api/metrology/autopilot-batches/autopilot-batch-001.json"
-    )
-    downloaded_arbitration = client.get(
-        "/api/evidence/arbitrations/evidence-arbitration-001.json"
-    )
+    downloaded_arbitration = client.get("/api/evidence/arbitrations/evidence-arbitration-001.json")
     downloaded_comparison = client.get("/api/metrology/comparisons/comparison-001.json")
     downloaded_change_map = client.get("/api/metrology/comparisons/comparison-001/change-map.png")
 
@@ -737,10 +749,12 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     assert downloaded_drift.headers["content-type"] == "application/json"
     assert downloaded_batch.status_code == 200
     assert downloaded_batch.headers["content-type"] == "application/json"
+    assert transparency_verification.status_code == 200
+    assert transparency_verification.json()["status"] == "verified"
+    assert downloaded_transparency_entry.status_code == 200
+    assert downloaded_transparency_entry.headers["content-type"] == ("application/json")
     assert downloaded_arbitration.status_code == 200
-    assert downloaded_arbitration.headers["content-type"] == (
-        "application/json"
-    )
+    assert downloaded_arbitration.headers["content-type"] == ("application/json")
     assert downloaded_comparison.status_code == 200
     assert downloaded_comparison.headers["content-type"] == "application/json"
     assert downloaded_change_map.status_code == 200
@@ -756,9 +770,7 @@ def test_local_proposal_api_contract(tmp_path: Path) -> None:
         data={"sensitivity": "0.65"},
     )
     mask = client.get("/api/metrology/proposals/proposal-001/proposal-mask.png")
-    hotspots = client.get(
-        "/api/metrology/proposals/proposal-001/review-hotspots.png"
-    )
+    hotspots = client.get("/api/metrology/proposals/proposal-001/review-hotspots.png")
     evidence = client.get("/api/metrology/proposals/proposal-001/evidence.json")
 
     assert proposal.status_code == 200

@@ -1,10 +1,10 @@
 # Portfolio and Interview Guide / 简历与面试表达
 
-## What makes v5.8 different / v5.8 的差异化
+## What makes v5.9 different / v5.9 的差异化
 
-Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v5.8 additionally treats dataset shift as a first-class production failure mode. Every batch is compared with history through source-balanced, hash-verified visual features, deterministic MMD permutation testing, interpretable feature attribution, and novelty coverage. Small samples trigger abstention. The v5.7 stateful cumulative registry, dual-axis governance, and cross-method selective-prediction layer remain intact.
+Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v5.9 additionally treats evidence provenance as an executable invariant. Every completed batch commits six governance artifacts to a canonical, domain-separated SHA-256 chain and re-verifies both the chain and the live artifact bytes. The system identifies mutation, loss, sequence gaps, and broken links, while honestly excluding external notarization from its claim. v5.8 source-balanced MMD shift monitoring, small-sample abstention, the stateful cumulative registry, and the cross-method selective-prediction layer remain intact.
 
-许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v5.8 进一步把数据漂移作为一等生产故障：每个批次都会通过来源平衡、摘要验证的视觉特征、确定性 MMD 置换检验、可解释特征归因和新颖覆盖率与历史比较；小样本会触发拒答。v5.7 有状态累计台账和双轴治理继续保留。
+许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v5.9 进一步把证据来源变成可执行不变量：每个已完成批次都会把六类治理工件提交到规范化、带域分离的 SHA-256 链，并重新验证链条与当前工件字节；系统可以定位改写、缺失、序列缺口和断链，同时诚实排除外部公证能力。v5.8 的来源平衡 MMD 漂移监测、小样本拒答、有状态累计台账和跨方法选择性预测继续保留。
 
 ## Resume bullets / 简历要点
 
@@ -91,7 +91,8 @@ Be prepared to explain these decisions:
 5. Start the app in default `consensus` mode, select several mixed images, and show that the queue continues when one item fails.
 6. Show a proposal-only image and explain why `proposal_only_semantic_miss` withholds the score rather than auto-assigning D00/D10/D20.
 7. Open `urbanvision-cross-channel-arbitration-v1.0.0` and explain source binding, semantic-box rasterization, proposal-supported ratio, selective abstention, and why agreement is not ground truth.
-8. Open the resulting `urbanvision-autopilot-batch-v1.4.0` JSON and show that every completed run binds its arbitration record, exact-batch governance, the cumulative registry, and distribution monitoring.
+8. Open the resulting `urbanvision-autopilot-batch-v1.5.0` JSON and show that every completed run binds its arbitration record, exact-batch governance, the cumulative registry, and distribution monitoring.
+9. Open `GET /api/metrology/transparency-log`, show the verified chain head, alter one temporary artifact in a test fixture, and demonstrate the precise `artifact_digest_mismatch` failure.
 9. Open `urbanvision-feedback-curation-v2.3.0` and show non-empty split seeding, the exact cumulative deficit, and separate `readiness.technical` / `readiness.governance` states.
 10. Open `urbanvision-feedback-drift-audit-v1.0.0`; explain source exclusion, MMD, permutation p-value, novelty coverage, and why insufficient samples produce abstention.
 11. Open `/api/review-queue?limit=20` and connect detection uncertainty to human review.

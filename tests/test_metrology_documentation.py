@@ -6,9 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     guide = (ROOT / "docs" / "metrology-field-guide.md").read_text(encoding="utf-8")
-    template = (ROOT / "docs" / "field-experiment-template.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "docs" / "field-experiment-template.md").read_text(encoding="utf-8")
     portfolio = (ROOT / "docs" / "portfolio-guide.md").read_text(encoding="utf-8")
 
     commands = (
@@ -84,7 +82,7 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "local_proposal_machine_reviewed_candidate" in guide
     assert "Resilient batch autopilot" in guide
     assert "POST /api/metrology/autopilot-batches/finalize" in guide
-    assert "urbanvision-autopilot-batch-v1.4.0" in guide
+    assert "urbanvision-autopilot-batch-v1.5.0" in guide
     assert "omits original filenames and absolute paths" in guide
     assert "up to 100 images" in portfolio
     assert "per-item failure isolation" in portfolio
@@ -96,7 +94,7 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "server_duplicate_source_rejection" in guide
     assert "content-aware self-healing control plane" in portfolio
     assert "内容感知自愈控制平面" in portfolio
-    assert "Version 5.8 adds automatic dataset-shift" in readme
+    assert "Version 5.9 adds a tamper-evident transparency ledger" in readme
     assert "Cross-channel selective prediction" in guide
     assert "POST /api/evidence/arbitrate" in guide
     assert "source_upload_sha256" in guide
@@ -121,6 +119,12 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "insufficient_or_invalid_evidence" in guide
     assert "source-balanced verified ROI features" in portfolio
     assert "small-sample abstention" in portfolio
+    assert "urbanvision-transparency-entry-v1.0.0" in guide
+    assert "GET /api/metrology/transparency-log" in guide
+    assert "domain-separated canonical JSON" in guide
+    assert "artifact_digest_mismatch" in guide
+    assert "external timestamp" in guide
+    assert "evidence provenance as an executable invariant" in portfolio
     assert "readiness.remediation" in guide
     assert "seven additional independent sources" in guide
     assert "CC BY-SA 4.0" in guide

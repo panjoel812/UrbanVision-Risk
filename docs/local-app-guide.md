@@ -1,10 +1,10 @@
-# UrbanVision-Risk v5.8 Dataset-Shift Monitoring App / 数据漂移监测本地应用指南
+# UrbanVision-Risk v5.9 Transparency-Ledger App / 防篡改透明度账本本地应用指南
 
 ## Finished product / 最终产品
 
-**English:** v5.8 automatically compares each batch with its historical local baseline through bounded visual features, a deterministic MMD permutation test, and nearest-neighbor coverage. It abstains when sample evidence is insufficient. v5.7 cumulative dual-axis readiness, batch-scoped evidence, YOLO × segmentation arbitration, content-aware self-healing, and bounded Apple MPS execution remain active.
+**English:** v5.9 automatically commits six governance artifacts from each completed batch to a canonical SHA-256 hash chain, then re-verifies the entire chain and the original artifact bytes. Any local mutation, missing artifact, identity mismatch, sequence gap, or broken predecessor link fails loudly. v5.8 dataset-shift monitoring and all earlier bounded Apple MPS controls remain active.
 
-**中文：** v5.8 会通过有界视觉特征、确定性 MMD 置换检验和最近邻覆盖率，自动比较每个批次与本机历史基线；样本证据不足时会拒答。v5.7 累计双轴就绪、本批次证据、YOLO × 分割仲裁、内容感知自愈和 Apple MPS 有界执行继续生效。
+**中文：** v5.9 会把每个已完成批次的六类治理工件自动提交到规范化 SHA-256 哈希链，并重新验证完整链条与工件原始字节；本机改写、工件缺失、身份错位、序列缺口或前序断链都会主动失败。v5.8 数据漂移监测及此前所有 Apple MPS 有界控制继续生效。
 
 It uses no AWS, Azure, Google Cloud, paid API, remote model, CDN, analytics, or telemetry. After dependencies and the model are present, the complete workflow can run without internet access.
 
@@ -77,17 +77,31 @@ Version 5.3 turns that single-image path into a **resilient batch autopilot**. K
 
 v5.3 把单图路径扩展为 **弹性批量自动驾驶**。保持自动驾驶开启，在一次文件选择中最多选择 100 张图片，即可观察每项依次进入等待、运行、完成或失败状态。浏览器刻意一次只处理一张图片，从而限制 Apple MPS 内存；但该图片内部的检测与候选仍并发执行。某一项发生异常时只会在当前队列中记录，不会取消后续图片。
 
-After the queue ends, `POST /api/metrology/autopilot-batches/finalize` sends only successful run IDs to the service. The service reloads and revalidates every measurement, creates immutable batch-scoped and cumulative curation/snapshot records, then automatically compares the current sources with historical sources. The immutable `urbanvision-autopilot-batch-v1.4.0` binds `governance`, `cumulative_registry`, and `distribution_monitoring`. Historical samples never enter the current-batch evidence, and current source digests are excluded from the drift reference.
+After the queue ends, `POST /api/metrology/autopilot-batches/finalize` sends only successful run IDs to the service. The service reloads and revalidates every measurement, creates immutable batch-scoped and cumulative curation/snapshot records, then automatically compares the current sources with historical sources. The immutable `urbanvision-autopilot-batch-v1.5.0` binds `governance`, `cumulative_registry`, `distribution_monitoring`, and its transparency policy. Historical samples never enter the current-batch evidence, and current source digests are excluded from the drift reference.
 
-队列结束后，`POST /api/metrology/autopilot-batches/finalize` 只把成功运行编号交给服务端。服务端重新读取并复核每份量测，生成本批次与累计策划/快照，再自动比较当前来源和历史来源。`urbanvision-autopilot-batch-v1.4.0` 会绑定 `governance`、`cumulative_registry` 与 `distribution_monitoring`；历史样本不会进入本批次证据，当前来源摘要也会从漂移参考基线中排除。
+队列结束后，`POST /api/metrology/autopilot-batches/finalize` 只把成功运行编号交给服务端。服务端重新读取并复核每份量测，生成本批次与累计策划/快照，再自动比较当前来源和历史来源。`urbanvision-autopilot-batch-v1.5.0` 会绑定 `governance`、`cumulative_registry`、`distribution_monitoring` 与透明度策略；历史样本不会进入本批次证据，当前来源摘要也会从漂移参考基线中排除。
 
 Version 5.4 adds two independent deduplication boundaries. The browser hashes each eligible file with `crypto.subtle.digest("SHA-256", ...)`, retains the first occurrence, and marks later byte-identical selections as `duplicate`. The service does not trust that decision: it compares each browser digest with the SHA-256 already preserved in `measurement.json`, rejects repeated server-side source evidence, and verifies that completed + failed + duplicate counts equal the selected count.
 
 v5.4 增加两道相互独立的去重边界。浏览器使用 `crypto.subtle.digest("SHA-256", ...)` 计算每个合格文件的摘要，只保留第一次出现的内容，后续完全相同文件标记为 `duplicate`。服务端不会盲信浏览器：它把浏览器摘要与 `measurement.json` 已保存的 SHA-256 逐项比较，拒绝服务端重复来源，并验证完成数 + 失败数 + 去重数必须等于选择总数。
 
-Only `pipeline_incomplete` and `unexpected_error` are retryable, with `MAX_BATCH_ATTEMPTS = 2`. Unsupported format, over 15 MiB, decode failure, and over 20 megapixels are deterministic failures and are not retried. The `urbanvision-autopilot-batch-v1.4.0` ledger records validated aggregate counts, retry policy, digest-match count, arbitration bindings, dual-scope governance, and drift-audit references without persisting the live queue's filenames.
+Only `pipeline_incomplete` and `unexpected_error` are retryable, with `MAX_BATCH_ATTEMPTS = 2`. Unsupported format, over 15 MiB, decode failure, and over 20 megapixels are deterministic failures and are not retried. The `urbanvision-autopilot-batch-v1.5.0` record stores validated aggregate counts, retry policy, digest-match count, arbitration bindings, dual-scope governance, and drift-audit references without persisting the live queue's filenames.
 
-只有 `pipeline_incomplete` 与 `unexpected_error` 可以重试，且 `MAX_BATCH_ATTEMPTS = 2`。格式不支持、超过 15 MiB、解码失败或超过 2000 万像素属于确定性失败，不会重试。`urbanvision-autopilot-batch-v1.4.0` 账本记录已校验汇总数、重试策略、摘要匹配数、仲裁绑定、双范围治理和漂移审计引用，但不会保存页面队列里的文件名。
+只有 `pipeline_incomplete` 与 `unexpected_error` 可以重试，且 `MAX_BATCH_ATTEMPTS = 2`。格式不支持、超过 15 MiB、解码失败或超过 2000 万像素属于确定性失败，不会重试。`urbanvision-autopilot-batch-v1.5.0` 记录已校验汇总数、重试策略、摘要匹配数、仲裁绑定、双范围治理和漂移审计引用，但不会保存页面队列里的文件名。
+
+### Tamper-evident transparency log / 防篡改透明度账本
+
+After the batch record is safely persisted, the service hashes the actual bytes of six records: current-batch curation, current-batch snapshot, cumulative curation, cumulative snapshot, drift audit, and autopilot batch. `urbanvision-transparency-entry-v1.0.0` stores their privacy-minimized IDs, loopback URLs, SHA-256 digests, a contiguous sequence, and the preceding chain digest. Its own `chain_sha256` is computed from domain-separated canonical JSON.
+
+批次记录安全落盘后，服务会读取并哈希六份记录的真实字节：本批次策划、本批次快照、累计策划、累计快照、漂移审计和自动驾驶批次。`urbanvision-transparency-entry-v1.0.0` 保存隐私最小化编号、回环地址、SHA-256 摘要、连续序号和上一条链摘要；自身 `chain_sha256` 由带域分离的规范化 JSON 计算。
+
+`GET /api/metrology/transparency-log` performs full verification on demand. It checks schema, filename-to-ID binding, sequence continuity, predecessor links, entry digests, the exact six-role inventory, safe derived URLs, artifact existence, and current artifact bytes. A failed existing chain refuses later appends. The page shows the verified head and direct links to both the entry and live verification.
+
+`GET /api/metrology/transparency-log` 会按需执行完整验证：检查模式、文件名—编号绑定、序列连续性、前序链接、记录摘要、精确六角色清单、安全派生 URL、工件存在性与当前字节。已有链验证失败时，系统拒绝继续追加；网页会显示已验证链头，并提供记录下载和实时验证入口。
+
+This is intentionally described as **tamper-evident**, not absolutely immutable. Someone who controls the entire local disk could rewrite or truncate every entry and artifact consistently. No external timestamp, remote transparency service, trusted hardware, or notarization is claimed.
+
+该功能有意称为“可发现篡改”，而不是“绝对不可变”。控制整块本机磁盘的人仍可能一致地重写或截断全部记录与工件；项目不声称外部时间戳、远程透明度服务、可信硬件或公证。
 
 Version 5.5 adds **YOLO × segmentation evidence arbitration** automatically after both parallel channels finish. `POST /api/evidence/arbitrate` reloads the immutable inspection manifest, prediction, risk, measurement, and final mask. It rejects a mismatched upload SHA-256, changed JSON hash, run identity mismatch, dimension mismatch, or mask-evidence mismatch before comparing pixels.
 

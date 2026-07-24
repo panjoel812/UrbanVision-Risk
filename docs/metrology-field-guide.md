@@ -1,4 +1,4 @@
-# UrbanVision-Risk v5.8 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v5.9 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -183,9 +183,9 @@ The browser defers governance during the queue and submits only successful metro
 
 浏览器在队列期间暂缓治理，只把成功量测编号提交给 `POST /api/metrology/autopilot-batches/finalize`。服务端重新读取每份不可变 `measurement.json`，强制要求 `machine_reviewed_candidate` 与 `machine_heuristic`，并拒绝重复编号、缺失运行或非机器记录。策划仅限该明确运行集合的反馈包，防止不相关历史包混入本批次。
 
-The immutable `urbanvision-autopilot-batch-v1.4.0` record binds measurement SHA-256, source SHA-256, cross-channel arbitration, feedback presence, configuration, two governance scopes, and the automatic distribution-monitoring record. `governance` references the exact batch; `cumulative_registry` references all-session local curation and snapshot; `distribution_monitoring` references the current-versus-history audit. It deliberately omits original filenames and absolute paths.
+The immutable `urbanvision-autopilot-batch-v1.5.0` record binds measurement SHA-256, source SHA-256, cross-channel arbitration, feedback presence, configuration, two governance scopes, the automatic distribution-monitoring record, and the transparency policy. `governance` references the exact batch; `cumulative_registry` references all-session local curation and snapshot; `distribution_monitoring` references the current-versus-history audit. It deliberately omits original filenames and absolute paths.
 
-不可覆盖的 `urbanvision-autopilot-batch-v1.4.0` 记录绑定量测 SHA-256、来源 SHA-256、双通道仲裁、反馈是否存在、配置、两个治理范围和自动分布监测记录：`governance` 仅引用当前批次，`cumulative_registry` 引用跨会话累计策划与快照，`distribution_monitoring` 引用当前批次与历史基线的审计。记录有意省略原文件名与绝对路径。
+不可覆盖的 `urbanvision-autopilot-batch-v1.5.0` 记录绑定量测 SHA-256、来源 SHA-256、双通道仲裁、反馈是否存在、配置、两个治理范围、自动分布监测记录与透明度策略：`governance` 仅引用当前批次，`cumulative_registry` 引用跨会话累计策划与快照，`distribution_monitoring` 引用当前批次与历史基线的审计。记录有意省略原文件名与绝对路径。
 
 ### Content-aware self-healing / 内容感知自愈
 
@@ -292,6 +292,20 @@ The minimum evidence is three current and five historical independent sources. B
 MMD detects a difference in the monitored feature distribution, not why it changed or whether model error increased. This monitor cannot prove concept drift, label quality, field validity, or road danger, and it never authorizes training.
 
 MMD 只能检测受监测特征分布的差异，不能解释变化原因或证明模型误差上升。该监测器不能证明概念漂移、标签质量、现场有效性或道路危险，也绝不会授权训练。
+
+### Tamper-evident transparency ledger / 防篡改透明度账本
+
+After an `urbanvision-autopilot-batch-v1.5.0` file is persisted, v5.9 reads the exact bytes of six records: current-batch curation and snapshot, cumulative curation and snapshot, drift audit, and batch record. The generated `urbanvision-transparency-entry-v1.0.0` sorts those roles deterministically and stores each derived loopback URL and SHA-256 digest. It also stores a one-based contiguous sequence and `previous_chain_sha256`; `chain_sha256` hashes domain-separated canonical JSON with the chain field excluded.
+
+`urbanvision-autopilot-batch-v1.5.0` 落盘后，v5.9 会读取六份记录的精确字节：本批次策划与快照、累计策划与快照、漂移审计和批次记录。生成的 `urbanvision-transparency-entry-v1.0.0` 会确定性排序这些角色，保存安全派生的回环 URL 与各自 SHA-256 摘要；同时保存从 1 开始的连续序号和 `previous_chain_sha256`，而 `chain_sha256` 对排除自身链字段、带域分离的规范化 JSON 进行哈希。
+
+`GET /api/metrology/transparency-log` never trusts stored claims alone. It reloads all entry files, checks filename identity, schema, sequence, predecessor links, role completeness, URLs, and canonical chain hashes, then rehashes every referenced artifact. Findings are bounded and machine-readable, including `artifact_digest_mismatch`, `artifact_missing_or_unreadable`, `sequence_gap_or_reordering`, and `previous_chain_mismatch`. A non-verified chain blocks future appends.
+
+`GET /api/metrology/transparency-log` 不会只相信记录中的自报信息。它会重新加载所有记录，检查文件名身份、模式、序号、前序链接、角色完整性、URL 与规范链哈希，再重新哈希每个引用工件。结果有界且机器可读，包括 `artifact_digest_mismatch`、`artifact_missing_or_unreadable`、`sequence_gap_or_reordering` 和 `previous_chain_mismatch`；未通过验证的已有链会阻止后续追加。
+
+The security boundary matters: this local chain is tamper-evident for ordinary accidental or partial modification, not immutable against a party controlling the complete disk. Full-history rewriting and tail truncation require an external trusted checkpoint to prevent; v5.9 claims no remote log, external timestamp, trusted hardware, or notarization.
+
+安全边界很重要：这条本机链能发现普通误改或局部篡改，但无法对抗控制整块磁盘的一方。防止整段历史重写和尾部截断需要外部可信检查点；v5.9 不声称远程日志、外部时间戳、可信硬件或公证。
 
 ### Visual-scene leakage firewall / 视觉场景泄漏防火墙
 

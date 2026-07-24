@@ -289,9 +289,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v5.8 · Fail-loudly dataset shift monitoring</p>
+        <p class="eyebrow">v5.9 · Tamper-evident transparency ledger</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>v5.8 会自动比较当前批次与跨会话历史基线，使用确定性 MMD 置换检验和最近邻覆盖率主动暴露分布变化；样本不足时明确拒绝下结论。累计双轴就绪、本批次不可变证据、YOLO × 分割仲裁与训练防火墙继续保留。</span><span data-en class="hidden-lang">v5.8 automatically compares the current batch with the cross-session historical baseline using a deterministic MMD permutation test and nearest-neighbor coverage. It abstains when samples are insufficient. Cumulative dual-axis readiness, immutable batch evidence, YOLO × segmentation arbitration, and the training firewall remain active.</span></p>
+        <p class="hero-copy"><span data-zh>v5.9 会把每次自动巡检的六类治理工件写入规范化 SHA-256 哈希链，并在每次追加前后重新验证完整历史与原始工件字节；任意改写、缺失、换序或断链都会明确报错。v5.8 的 MMD 数据漂移审计、累计双轴就绪、YOLO × 分割仲裁与训练防火墙继续保留。</span><span data-en class="hidden-lang">v5.9 binds six governance artifacts from every autopilot batch into a canonical SHA-256 hash chain, re-verifying the complete history and original artifact bytes before and after each append. Mutation, loss, sequence gaps, and broken links fail loudly. The v5.8 MMD shift audit, cumulative dual-axis readiness, YOLO × segmentation arbitration, and training firewall remain active.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -322,13 +322,14 @@ METROLOGY_HTML = """<!doctype html>
             <span id="stage-draft" class="pipeline-stage"><span data-zh>像素量测草稿</span><span data-en class="hidden-lang">Pixel draft</span></span>
             <span id="stage-review" class="pipeline-stage"><span data-zh>机器保存 + 治理</span><span data-en class="hidden-lang">Machine save + governance</span></span>
           </div>
-          <label class="autopilot-control"><input id="autopilot-toggle" type="checkbox" checked><span><span data-zh>自动驾驶开启：自动处置热点、保存机器候选、生成防泄漏策划并验证 Merkle 快照；人工可随时覆盖修正。</span><span data-en class="hidden-lang">Autopilot on: disposition hotspots, save the machine candidate, build leakage-safe curation, and verify the Merkle snapshot automatically. A human can override it at any time.</span></span></label>
+          <label class="autopilot-control"><input id="autopilot-toggle" type="checkbox" checked><span><span data-zh>自动驾驶开启：自动处置热点、保存机器候选、生成防泄漏策划、验证 Merkle 快照，并把六类治理工件写入防篡改哈希链；人工可随时覆盖修正。</span><span data-en class="hidden-lang">Autopilot on: disposition hotspots, save the machine candidate, build leakage-safe curation, verify the Merkle snapshot, and bind six governance artifacts into a tamper-evident hash chain. A human can override it at any time.</span></span></label>
           <section id="batch-panel" class="batch-panel hidden" aria-live="polite">
             <div class="batch-head"><strong><span data-zh>批量自动驾驶队列</span><span data-en class="hidden-lang">Batch-autopilot queue</span></strong><span id="batch-summary" class="batch-summary">—</span></div>
             <div id="batch-list" class="batch-list"></div>
             <div id="batch-result" class="utility-result hidden"></div>
             <div id="cumulative-result" class="utility-result hidden"></div>
             <div id="drift-result" class="utility-result hidden"></div>
+            <div id="transparency-result" class="utility-result hidden"></div>
           </section>
         </div>
 
@@ -542,7 +543,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v5.8 · Fail-Loudly Dataset Shift Monitoring · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v5.9 · Tamper-Evident Transparency Ledger · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -2664,6 +2665,7 @@ METROLOGY_HTML = """<!doctype html>
         );
         renderCumulativeReadiness(payload);
         renderDriftAudit(payload);
+        renderTransparencyLog(payload);
       }
 
       function renderCumulativeReadiness(payload) {
@@ -2780,6 +2782,47 @@ METROLOGY_HTML = """<!doctype html>
             decision.distribution_shift_detected || decision.coverage_warning
           )
         );
+      }
+
+      function renderTransparencyLog(payload) {
+        const entry = payload.transparency_entry;
+        const verification = payload.transparency_verification;
+        if (!entry || !verification) return;
+        const head = verification.head || {};
+        const findings = Array.isArray(verification.findings)
+          ? verification.findings
+          : [];
+        const verified = verification.status === "verified";
+        const previous = entry.previous_chain_sha256
+          ? `${String(entry.previous_chain_sha256).slice(0, 16)}…`
+          : (language === "zh" ? "创世记录（无上一条）" : "genesis (no predecessor)");
+        renderUtilityResult(
+          byId("transparency-result"),
+          verified
+            ? (language === "zh" ? "防篡改透明度账本已验证" : "Tamper-evident transparency log verified")
+            : (language === "zh" ? "透明度账本完整性失败" : "Transparency-log integrity failed"),
+          [
+            `${language === "zh" ? "序号" : "Sequence"}: ${Number(entry.sequence || 0)} · ${language === "zh" ? "绑定工件" : "bound artifacts"}: ${Number(entry.artifact_count || 0)}`,
+            `${language === "zh" ? "上一条哈希" : "Previous hash"}: ${previous}`,
+            `${language === "zh" ? "当前链哈希" : "Current chain hash"}: ${String(entry.chain_sha256 || "").slice(0, 24)}…`,
+            `${language === "zh" ? "全链验证" : "Full-chain verification"}: ${verified ? (language === "zh" ? "通过" : "passed") : (language === "zh" ? "失败" : "failed")} · ${Number(verification.verified_entry_count || 0)}/${Number(verification.entry_count || 0)}`,
+            `${language === "zh" ? "验证头" : "Verified head"}: #${Number(head.sequence || 0)} · ${findings.length ? findings.map((item) => item.code).join(", ") : (language === "zh" ? "无异常" : "no findings")}`,
+            language === "zh"
+              ? "边界: 本机哈希链能发现改写、缺失与断链，但控制整块磁盘的攻击者仍可重写或截断全部历史；这里不声称外部时间戳或公证。"
+              : "Boundary: the local hash chain detects mutation, loss, and broken links, but an attacker controlling the entire disk could rewrite or truncate all history; no external timestamp or notarization is claimed."
+          ],
+          payload.transparency_entry_url,
+          !verified
+        );
+        const verificationLink = document.createElement("a");
+        verificationLink.className = "download-link";
+        verificationLink.href = "/api/metrology/transparency-log";
+        verificationLink.target = "_blank";
+        verificationLink.rel = "noopener";
+        verificationLink.textContent = language === "zh"
+          ? "实时验证完整哈希链"
+          : "Verify the full hash chain now";
+        byId("transparency-result").appendChild(verificationLink);
       }
 
       async function finalizeAutopilotBatch(completedItems, accounting) {

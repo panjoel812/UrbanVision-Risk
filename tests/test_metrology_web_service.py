@@ -28,6 +28,7 @@ from urbanvision_risk.app.metrology_service import (
     _feedback_quality_gate,
     _fingerprint_hamming_distance,
     _near_duplicate_scene_groups,
+    _transparency_chain_sha256,
 )
 from urbanvision_risk.errors import ProjectError
 from urbanvision_risk.paths import get_paths
@@ -70,10 +71,13 @@ def test_autopilot_batch_run_ids_are_bounded_unique_and_path_safe() -> None:
             _autopilot_batch_run_ids(value)
 
     digests = ["1" * 64, "2" * 64]
-    assert _autopilot_batch_source_digests(
-        json.dumps(digests),
-        run_count=2,
-    ) == digests
+    assert (
+        _autopilot_batch_source_digests(
+            json.dumps(digests),
+            run_count=2,
+        )
+        == digests
+    )
     with pytest.raises(ProjectError):
         _autopilot_batch_source_digests(
             json.dumps([digests[0], digests[0]]),
@@ -94,14 +98,17 @@ def test_autopilot_batch_run_ids_are_bounded_unique_and_path_safe() -> None:
             run_count=2,
         )
 
-    assert _autopilot_batch_accounting(
-        run_count=2,
-        selected_count=5,
-        failed_count=2,
-        duplicate_count=1,
-        retry_count=2,
-        max_attempts=2,
-    )["accounting_validated"] is True
+    assert (
+        _autopilot_batch_accounting(
+            run_count=2,
+            selected_count=5,
+            failed_count=2,
+            duplicate_count=1,
+            retry_count=2,
+            max_attempts=2,
+        )["accounting_validated"]
+        is True
+    )
     with pytest.raises(ProjectError):
         _autopilot_batch_accounting(
             run_count=2,
@@ -111,6 +118,90 @@ def test_autopilot_batch_run_ids_are_bounded_unique_and_path_safe() -> None:
             retry_count=0,
             max_attempts=2,
         )
+
+
+def test_transparency_chain_hash_is_canonical_and_domain_separated() -> None:
+    left = {"sequence": 1, "artifacts": [{"b": 2, "a": 1}]}
+    right = {"artifacts": [{"a": 1, "b": 2}], "sequence": 1}
+
+    assert _transparency_chain_sha256(left) == (_transparency_chain_sha256(right))
+    assert (
+        _transparency_chain_sha256(left)
+        != hashlib.sha256(json.dumps(left, sort_keys=True).encode()).hexdigest()
+    )
+
+
+def test_transparency_log_links_multiple_entries_and_rehashes_artifacts(
+    tmp_path: Path,
+) -> None:
+    entry_ids = iter(["transparency-entry-001", "transparency-entry-002"])
+    service = LocalMetrologyService(
+        paths=get_paths(tmp_path),
+        record_id_factory=lambda _prefix: next(entry_ids),
+    )
+    artifacts = [
+        {
+            "role": "current_batch_curation",
+            "kind": "feedback_curation",
+            "record_id": "curation-current-001",
+        },
+        {
+            "role": "current_batch_snapshot",
+            "kind": "feedback_snapshot",
+            "record_id": "snapshot-current-001",
+        },
+        {
+            "role": "cumulative_curation",
+            "kind": "feedback_curation",
+            "record_id": "curation-cumulative-001",
+        },
+        {
+            "role": "cumulative_snapshot",
+            "kind": "feedback_snapshot",
+            "record_id": "snapshot-cumulative-001",
+        },
+        {
+            "role": "drift_audit",
+            "kind": "feedback_drift_audit",
+            "record_id": "drift-001",
+        },
+        {
+            "role": "autopilot_batch",
+            "kind": "autopilot_batch",
+            "record_id": "batch-001",
+        },
+    ]
+    directories = {
+        "feedback_curation": "curations",
+        "feedback_snapshot": "snapshots",
+        "feedback_drift_audit": "drift-audits",
+        "autopilot_batch": "autopilot-batches",
+    }
+    for artifact in artifacts:
+        path = (
+            service.paths.metrology
+            / directories[str(artifact["kind"])]
+            / f"{artifact['record_id']}.json"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"record_id": artifact["record_id"]}),
+            encoding="utf-8",
+        )
+
+    first = service._append_transparency_entry(artifacts=artifacts)
+    second = service._append_transparency_entry(artifacts=artifacts)
+
+    assert first["transparency_entry"]["sequence"] == 1
+    assert second["transparency_entry"]["sequence"] == 2
+    assert (
+        second["transparency_entry"]["previous_chain_sha256"]
+        == (first["transparency_entry"]["chain_sha256"])
+    )
+    verification = service.verify_transparency_log()
+    assert verification["status"] == "verified"
+    assert verification["entry_count"] == 2
+    assert verification["verified_entry_count"] == 2
 
 
 @pytest.mark.parametrize(
@@ -129,11 +220,14 @@ def test_cross_channel_evidence_state_is_policy_bounded(
     support: float,
     expected: str,
 ) -> None:
-    assert _cross_channel_evidence_state(
-        proposal_significant=proposal,
-        semantic_positive=semantic,
-        proposal_supported_ratio=support,
-    ) == expected
+    assert (
+        _cross_channel_evidence_state(
+            proposal_significant=proposal,
+            semantic_positive=semantic,
+            proposal_supported_ratio=support,
+        )
+        == expected
+    )
 
 
 def test_active_learning_feedback_layers_are_size_bounded() -> None:
@@ -149,9 +243,7 @@ def test_active_learning_feedback_layers_are_size_bounded() -> None:
         disagreement,
     )
 
-    exported_source, exported_proposal, exported_final, exported_disagreement, scale = (
-        exported
-    )
+    exported_source, exported_proposal, exported_final, exported_disagreement, scale = exported
     assert scale < 1
     assert exported_source.shape[0] * exported_source.shape[1] <= 512_000
     assert exported_proposal.shape == exported_source.shape[:2]
@@ -171,10 +263,7 @@ def test_active_learning_feedback_zip_is_deterministic_and_sorted() -> None:
     assert first == second
     with zipfile.ZipFile(io.BytesIO(first)) as archive:
         assert archive.namelist() == sorted(entries)
-        assert all(
-            info.date_time == (1980, 1, 1, 0, 0, 0)
-            for info in archive.infolist()
-        )
+        assert all(info.date_time == (1980, 1, 1, 0, 0, 0) for info in archive.infolist())
 
 
 def test_feedback_quality_gate_and_fingerprint_are_deterministic() -> None:
@@ -202,9 +291,7 @@ def test_feedback_quality_gate_and_fingerprint_are_deterministic() -> None:
 
     assert accepted["status"] == "pass"
     assert inconsistent["status"] == "warning"
-    assert inconsistent["warning_codes"] == [
-        "addition_disposition_without_added_pixels"
-    ]
+    assert inconsistent["warning_codes"] == ["addition_disposition_without_added_pixels"]
     assert corrected["status"] == "pass"
     assert corrected["removed_pixels"] == 100
     gradient = np.tile(np.arange(40, dtype=np.uint8), (40, 1))
@@ -296,9 +383,11 @@ def test_feedback_curation_repairs_empty_splits_and_reports_exact_deficits() -> 
 
     assigned = _assign_curation_groups(groups, ratios, seed=42)
 
-    assert {
-        split: len(items) for split, items in assigned.items()
-    } == {"train": 40, "val": 20, "test": 7}
+    assert {split: len(items) for split, items in assigned.items()} == {
+        "train": 40,
+        "val": 20,
+        "test": 7,
+    }
     remediation = _curation_readiness_remediation(
         source_count=3,
         scene_group_count=3,
@@ -306,9 +395,7 @@ def test_feedback_curation_repairs_empty_splits_and_reports_exact_deficits() -> 
         machine_candidate_count=67,
         human_reviewed_count=0,
         ratios=ratios,
-        split_item_counts={
-            split: len(items) for split, items in assigned.items()
-        },
+        split_item_counts={split: len(items) for split, items in assigned.items()},
         privacy_review_confirmed=True,
         label_qa_confirmed=True,
         scope_kind="explicit_autopilot_batch",
@@ -319,15 +406,14 @@ def test_feedback_curation_repairs_empty_splits_and_reports_exact_deficits() -> 
         "empty_positive_splits": [],
         "machine_candidates_pending_independent_approval": 67,
     }
-    assert remediation["recommended_next_batch"][
-        "additional_distinct_images_for_current_registry"
-    ] == 7
-    assert remediation["recommended_next_batch"][
-        "minimum_distinct_images_for_new_scoped_batch"
-    ] == 10
-    assert remediation["external_benchmark_reference"][
-        "data_license"
-    ] == "CC-BY-SA-4.0"
+    assert (
+        remediation["recommended_next_batch"]["additional_distinct_images_for_current_registry"]
+        == 7
+    )
+    assert (
+        remediation["recommended_next_batch"]["minimum_distinct_images_for_new_scoped_batch"] == 10
+    )
+    assert remediation["external_benchmark_reference"]["data_license"] == "CC-BY-SA-4.0"
     two_way = _assign_curation_groups(
         groups,
         {"train": 0.8, "val": 0.2, "test": 0.0},
@@ -354,17 +440,16 @@ def test_visual_scene_clustering_is_deterministic_transitive_and_auditable() -> 
     second = _near_duplicate_scene_groups(fingerprints, max_hamming_distance=1)
 
     assert first == second
-    assert _fingerprint_hamming_distance(
-        "0000000000000000",
-        "0000000000000003",
-    ) == 2
+    assert (
+        _fingerprint_hamming_distance(
+            "0000000000000000",
+            "0000000000000003",
+        )
+        == 2
+    )
     assert len(first["groups"]) == 2
-    assert first["source_to_scene_group"][source_a] == (
-        first["source_to_scene_group"][source_c]
-    )
-    assert first["source_to_scene_group"][source_d] != (
-        first["source_to_scene_group"][source_a]
-    )
+    assert first["source_to_scene_group"][source_a] == (first["source_to_scene_group"][source_c])
+    assert first["source_to_scene_group"][source_d] != (first["source_to_scene_group"][source_a])
     assert [link["hamming_distance"] for link in first["links"]] == [1, 1]
     with pytest.raises(ProjectError, match="max_scene_hamming_distance"):
         _near_duplicate_scene_groups(fingerprints, max_hamming_distance=17)
@@ -427,9 +512,7 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
             "source_roi": _encode_image(source_roi),
             "proposal_mask": _encode_image(final_mask),
             "final_mask": _encode_image(final_mask),
-            "disagreement_layer": _encode_image(
-                np.zeros_like(final_mask)
-            ),
+            "disagreement_layer": _encode_image(np.zeros_like(final_mask)),
         }
         files = {
             role: {
@@ -473,17 +556,10 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
                 }
             ],
         }
-        entries = {
-            evidence["path"]: role_contents[role]
-            for role, evidence in files.items()
-        }
-        entries["manifest.json"] = (
-            json.dumps(manifest, sort_keys=True) + "\n"
-        ).encode()
+        entries = {evidence["path"]: role_contents[role] for role, evidence in files.items()}
+        entries["manifest.json"] = (json.dumps(manifest, sort_keys=True) + "\n").encode()
         archive_entries_by_run[run_id] = entries
-        (run_dir / feedback_name).write_bytes(
-            _deterministic_zip_bytes(entries)
-        )
+        (run_dir / feedback_name).write_bytes(_deterministic_zip_bytes(entries))
     service = LocalMetrologyService(
         paths=paths,
         record_id_factory=lambda prefix: f"{prefix}-governed-001",
@@ -498,9 +574,7 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
     curation = result["curation"]
 
     assert curation["status"] == "candidate_plan_requires_training_approval"
-    assert curation["schema_version"] == (
-        "urbanvision-feedback-curation-v2.3.0"
-    )
+    assert curation["schema_version"] == ("urbanvision-feedback-curation-v2.3.0")
     assert curation["training_authorized"] is False
     assert curation["readiness"]["blockers"] == []
     assert curation["readiness"]["technical"] == {
@@ -511,26 +585,17 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
         "status": "ready",
         "blockers": [],
     }
-    assert curation["allocation"][
-        "non_empty_positive_split_seeding_applied"
-    ] is True
-    assert curation["readiness"]["remediation"]["deficits"][
-        "empty_positive_splits"
-    ] == []
+    assert curation["allocation"]["non_empty_positive_split_seeding_applied"] is True
+    assert curation["readiness"]["remediation"]["deficits"]["empty_positive_splits"] == []
     assert curation["selection"]["selected_item_count"] == 10
     assert curation["selection"]["visual_scene_group_count"] == 9
     assert curation["selection"]["machine_only_selected_count"] == 0
-    assert curation["selection"]["review_authority_counts"][
-        "human_operator"
-    ] == 10
+    assert curation["selection"]["review_authority_counts"]["human_operator"] == 10
     assert curation["visual_scene_clustering"]["near_duplicate_link_count"] == 1
     assert curation["visual_scene_clustering"]["scene_group_count"] == 9
-    assert curation["visual_scene_clustering"][
-        "multi_source_scene_group_count"
-    ] == 1
+    assert curation["visual_scene_clustering"]["multi_source_scene_group_count"] == 1
     assert {
-        split: curation["splits"][split]["item_count"]
-        for split in ("train", "val", "test")
+        split: curation["splits"][split]["item_count"] for split in ("train", "val", "test")
     } == {"train": 8, "val": 1, "test": 1}
     assert curation["leakage_audit"]["passed"] is True
     assert curation["leakage_audit"]["visual_scene_group_overlaps"] == {
@@ -544,39 +609,26 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
         for source in split_payload["source_sha256s"]
     }
     assert split_by_source[f"{1:064x}"] == split_by_source[f"{2:064x}"]
-    snapshot_result = service.create_feedback_snapshot_preflight(
-        "feedback-curation-governed-001"
-    )
+    snapshot_result = service.create_feedback_snapshot_preflight("feedback-curation-governed-001")
     snapshot = snapshot_result["snapshot"]
-    assert snapshot["status"] == (
-        "verified_candidate_snapshot_requires_training_approval"
-    )
-    assert snapshot["schema_version"] == (
-        "urbanvision-feedback-snapshot-preflight-v1.2.0"
-    )
+    assert snapshot["status"] == ("verified_candidate_snapshot_requires_training_approval")
+    assert snapshot["schema_version"] == ("urbanvision-feedback-snapshot-preflight-v1.2.0")
     assert snapshot["training_authorized"] is False
     assert snapshot["readiness"]["blockers"] == []
     assert snapshot["readiness"]["technical"]["status"] == "ready"
     assert snapshot["readiness"]["governance"]["status"] == "ready"
-    assert snapshot["readiness"]["remediation"] == (
-        curation["readiness"]["remediation"]
-    )
+    assert snapshot["readiness"]["remediation"] == (curation["readiness"]["remediation"])
     assert snapshot["integrity"]["inventory_matches"] is True
     assert snapshot["integrity"]["expected_pair_count"] == 10
     assert snapshot["integrity"]["verified_pair_count"] == 10
     assert snapshot["integrity"]["invalid_pair_count"] == 0
-    assert snapshot["integrity"]["review_authority_counts"][
-        "human_operator"
-    ] == 10
+    assert snapshot["integrity"]["review_authority_counts"]["human_operator"] == 10
     assert snapshot["merkle"]["leaf_count"] == 10
     assert len(snapshot["merkle"]["root_sha256"]) == 64
     assert {
-        split: snapshot["splits"][split]["pair_count"]
-        for split in ("train", "val", "test")
+        split: snapshot["splits"][split]["pair_count"] for split in ("train", "val", "test")
     } == {"train": 8, "val": 1, "test": 1}
-    snapshot_path = service.feedback_snapshot_path(
-        "feedback-snapshot-governed-001"
-    )
+    snapshot_path = service.feedback_snapshot_path("feedback-snapshot-governed-001")
     assert snapshot_path.is_file()
     assert "/Users/" not in snapshot_path.read_text(encoding="utf-8")
 
@@ -591,9 +643,7 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
         _record_prefix="drift-current-curation",
     )
     drift_result = service.create_feedback_drift_audit(
-        current_curation_id=current_drift_curation_result["curation"][
-            "curation_id"
-        ],
+        current_curation_id=current_drift_curation_result["curation"]["curation_id"],
         cumulative_curation_id=curation["curation_id"],
         _record_prefix="feedback-drift",
     )
@@ -604,38 +654,30 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
     }
     assert drift_audit["readiness"]["blockers"] == []
     assert drift_audit["samples"]["current"]["source_count"] == 3
-    assert drift_audit["samples"]["historical_reference"][
-        "source_count"
-    ] == 7
+    assert drift_audit["samples"]["historical_reference"]["source_count"] == 7
     assert drift_audit["statistics"] is not None
     assert 0 < drift_audit["statistics"]["p_value"] <= 1
     assert drift_audit["statistics"]["permutation_count"] == 199
     assert drift_audit["training_authorized"] is False
-    drift_path = service.feedback_drift_audit_path(
-        "feedback-drift-governed-001"
-    )
+    drift_path = service.feedback_drift_audit_path("feedback-drift-governed-001")
     assert drift_path.is_file()
     assert "/Users/" not in drift_path.read_text(encoding="utf-8")
 
     tampered_run_id = "feedback-source-000"
     tampered_entries = dict(archive_entries_by_run[tampered_run_id])
-    tampered_source_path = (
-        "items/01-hotspot-000/source_roi.png"
-    )
+    tampered_source_path = "items/01-hotspot-000/source_roi.png"
     tampered_entries[tampered_source_path] = _encode_image(
         np.full((48, 36, 3), 250, dtype=np.uint8)
     )
-    (
-        paths.metrology / tampered_run_id / feedback_name
-    ).write_bytes(_deterministic_zip_bytes(tampered_entries))
+    (paths.metrology / tampered_run_id / feedback_name).write_bytes(
+        _deterministic_zip_bytes(tampered_entries)
+    )
     tampered_service = LocalMetrologyService(
         paths=paths,
         record_id_factory=lambda prefix: f"{prefix}-tampered-001",
     )
-    tampered_result = (
-        tampered_service.create_feedback_snapshot_preflight(
-            "feedback-curation-governed-001"
-        )
+    tampered_result = tampered_service.create_feedback_snapshot_preflight(
+        "feedback-curation-governed-001"
     )
     tampered_snapshot = tampered_result["snapshot"]
     assert tampered_snapshot["status"] == "not_snapshot_ready"
@@ -645,8 +687,7 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
     }
     assert tampered_snapshot["integrity"]["verified_pair_count"] == 9
     assert "source_roi_digest_mismatch" in {
-        finding["code"]
-        for finding in tampered_snapshot["integrity"]["findings"]
+        finding["code"] for finding in tampered_snapshot["integrity"]["findings"]
     }
 
 
@@ -978,9 +1019,7 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
         hotspot_decisions=json.dumps(decisions),
     )
 
-    revision = result["measurement"]["run"]["input_evidence"]["mask"][
-        "proposal_revision"
-    ]
+    revision = result["measurement"]["run"]["input_evidence"]["mask"]["proposal_revision"]
     review = revision["hotspot_review"]
     assert review["status"] == "partial"
     assert review["reviewed_hotspot_ids"] == reviewed_ids
@@ -1011,19 +1050,13 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
         names = set(archive.namelist())
         manifest_bytes = archive.read("manifest.json")
         manifest = json.loads(manifest_bytes)
-        assert manifest["schema_version"] == (
-            "urbanvision-active-learning-feedback-v1.2.0"
-        )
+        assert manifest["schema_version"] == ("urbanvision-active-learning-feedback-v1.2.0")
         assert manifest["review_authority"] == "human_operator"
         assert manifest["decision_policy"] == "operator_recorded"
         assert manifest["item_count"] == 2
         assert manifest["source_sha256"] == proposal["evidence"]["source"]["sha256"]
-        measurement_bytes = (
-            feedback_path.parent / "measurement.json"
-        ).read_bytes()
-        assert manifest["measurement_sha256"] == hashlib.sha256(
-            measurement_bytes
-        ).hexdigest()
+        measurement_bytes = (feedback_path.parent / "measurement.json").read_bytes()
+        assert manifest["measurement_sha256"] == hashlib.sha256(measurement_bytes).hexdigest()
         assert manifest["items"][0]["disposition"] == "accepted_as_proposed"
         assert manifest["items"][0]["note"] == "No correction required"
         assert manifest["items"][0]["quality_gate"]["status"] == "pass"
@@ -1038,13 +1071,8 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
             for file_evidence in item["files"].values():
                 path = file_evidence["path"]
                 assert path in names
-                assert hashlib.sha256(archive.read(path)).hexdigest() == (
-                    file_evidence["sha256"]
-                )
-        assert all(
-            info.date_time == (1980, 1, 1, 0, 0, 0)
-            for info in archive.infolist()
-        )
+                assert hashlib.sha256(archive.read(path)).hexdigest() == (file_evidence["sha256"])
+        assert all(info.date_time == (1980, 1, 1, 0, 0, 0) for info in archive.infolist())
         assert "/Users/" not in manifest_bytes.decode("utf-8")
     duplicate_manifest = {
         "schema_version": manifest["schema_version"],
@@ -1059,11 +1087,7 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
     duplicate_dir.mkdir()
     (duplicate_dir / feedback_name).write_bytes(
         _deterministic_zip_bytes(
-            {
-                "manifest.json": (
-                    json.dumps(duplicate_manifest, sort_keys=True) + "\n"
-                ).encode()
-            }
+            {"manifest.json": (json.dumps(duplicate_manifest, sort_keys=True) + "\n").encode()}
         )
     )
     corrupt_dir = feedback_path.parent.parent / "corrupt-feedback-001"
@@ -1125,13 +1149,9 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
         "privacy_review_pending",
         "label_qa_pending",
     }
-    curation_path = service.feedback_curation_path(
-        "feedback-curation-ranked-001"
-    )
+    curation_path = service.feedback_curation_path("feedback-curation-ranked-001")
     assert curation_path.is_file()
-    assert curation_result["curation_url"].endswith(
-        "/feedback-curation-ranked-001.json"
-    )
+    assert curation_result["curation_url"].endswith("/feedback-curation-ranked-001.json")
     assert "/Users/" not in curation_path.read_text(encoding="utf-8")
     assert feedback_path.is_file()
     assert (duplicate_dir / feedback_name).is_file()
@@ -1153,9 +1173,7 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
         sensitivity=0.55,
     )
     proposal_id = proposal["proposal_id"]
-    hotspots = proposal["evidence"]["review_guidance"]["ranking"][
-        "ranked_hotspots"
-    ]
+    hotspots = proposal["evidence"]["review_guidance"]["ranking"]["ranked_hotspots"]
     hotspot_ids = [hotspot["hotspot_id"] for hotspot in hotspots]
     decisions = [
         {
@@ -1191,18 +1209,16 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
     input_evidence = result["measurement"]["run"]["input_evidence"]
     assert input_evidence["review_state"] == "machine_reviewed_candidate"
     assert input_evidence["review_authority"] == "machine_heuristic"
-    assert len(
-        input_evidence["mask"]["normalized_binary_sha256"]
-    ) == 64
-    assert input_evidence["mask"]["origin"] == (
-        "local_proposal_machine_reviewed_candidate"
+    assert len(input_evidence["mask"]["normalized_binary_sha256"]) == 64
+    assert input_evidence["mask"]["origin"] == ("local_proposal_machine_reviewed_candidate")
+    assert (
+        input_evidence["mask"]["proposal_revision"]["hotspot_review"]["review_authority"]
+        == "machine_heuristic"
     )
-    assert input_evidence["mask"]["proposal_revision"]["hotspot_review"][
-        "review_authority"
-    ] == "machine_heuristic"
-    assert input_evidence["mask"]["proposal_revision"]["hotspot_review"][
-        "decision_policy"
-    ] == "candidate_overlap_ratio>=0.10_accept_else_defer"
+    assert (
+        input_evidence["mask"]["proposal_revision"]["hotspot_review"]["decision_policy"]
+        == "candidate_overlap_ratio>=0.10_accept_else_defer"
+    )
     feedback_path = service.artifact_path(
         result["run_id"],
         "active-learning-feedback.zip",
@@ -1210,15 +1226,9 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
     with zipfile.ZipFile(feedback_path) as archive:
         manifest = json.loads(archive.read("manifest.json"))
     assert manifest["review_authority"] == "machine_heuristic"
-    assert manifest["decision_policy"] == (
-        "candidate_overlap_ratio>=0.10_accept_else_defer"
-    )
-    assert {
-        item["decision_authority"] for item in manifest["items"]
-    } == {"machine_heuristic"}
-    assert {
-        item["disposition"] for item in manifest["items"]
-    } >= {
+    assert manifest["decision_policy"] == ("candidate_overlap_ratio>=0.10_accept_else_defer")
+    assert {item["decision_authority"] for item in manifest["items"]} == {"machine_heuristic"}
+    assert {item["disposition"] for item in manifest["items"]} >= {
         "accepted_as_proposed",
         "deferred_for_follow_up",
     }
@@ -1238,15 +1248,11 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
         "review_required": True,
         "risk_score": 0.0,
     }
-    prediction_bytes = (
-        json.dumps(prediction, sort_keys=True) + "\n"
-    ).encode()
+    prediction_bytes = (json.dumps(prediction, sort_keys=True) + "\n").encode()
     risk_bytes = (json.dumps(risk, sort_keys=True) + "\n").encode()
     inspection_run_name = "china-repair-mps-003"
     inspection_id = "inspection-machine-001"
-    inspection_dir = (
-        service.paths.inspections / inspection_run_name / inspection_id
-    )
+    inspection_dir = service.paths.inspections / inspection_run_name / inspection_id
     inspection_dir.mkdir(parents=True)
     (inspection_dir / "prediction.json").write_bytes(prediction_bytes)
     (inspection_dir / "risk.json").write_bytes(risk_bytes)
@@ -1256,12 +1262,8 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
                 "inspection_id": inspection_id,
                 "run_name": inspection_run_name,
                 "source_upload_sha256": input_evidence["source"]["sha256"],
-                "prediction_json_sha256": hashlib.sha256(
-                    prediction_bytes
-                ).hexdigest(),
-                "risk_json_sha256": hashlib.sha256(
-                    risk_bytes
-                ).hexdigest(),
+                "prediction_json_sha256": hashlib.sha256(prediction_bytes).hexdigest(),
+                "risk_json_sha256": hashlib.sha256(risk_bytes).hexdigest(),
             },
             sort_keys=True,
         ),
@@ -1273,16 +1275,10 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
         metrology_run_id=result["run_id"],
     )
     arbitration = arbitration_result["arbitration"]
-    assert arbitration["schema_version"] == (
-        "urbanvision-cross-channel-arbitration-v1.0.0"
-    )
-    assert arbitration["decision"]["evidence_state"] == (
-        "proposal_only_semantic_miss"
-    )
+    assert arbitration["schema_version"] == ("urbanvision-cross-channel-arbitration-v1.0.0")
+    assert arbitration["decision"]["evidence_state"] == ("proposal_only_semantic_miss")
     assert arbitration["decision"]["review_required"] is True
-    assert arbitration["decision"]["risk_score_display"] == (
-        "withheld_pending_review"
-    )
+    assert arbitration["decision"]["risk_score_display"] == ("withheld_pending_review")
     assert arbitration["source_binding"] == {
         "source_sha256": input_evidence["source"]["sha256"],
         "inspection_metrology_match": True,
@@ -1365,33 +1361,21 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
         _record_prefix="governance-only-curation",
     )
     governance_only = governance_only_result["curation"]
-    assert governance_only["status"] == (
-        "technical_data_ready_governance_blocked"
-    )
+    assert governance_only["status"] == ("technical_data_ready_governance_blocked")
     assert governance_only["readiness"]["technical"]["status"] == "ready"
     assert governance_only["readiness"]["governance"]["status"] == "blocked"
-    governance_snapshot_result = (
-        service.create_feedback_snapshot_preflight(
-            governance_only["curation_id"],
-            _record_prefix="governance-only-snapshot",
-        )
+    governance_snapshot_result = service.create_feedback_snapshot_preflight(
+        governance_only["curation_id"],
+        _record_prefix="governance-only-snapshot",
     )
     governance_snapshot = governance_snapshot_result["snapshot"]
-    assert governance_snapshot["status"] == (
-        "integrity_verified_governance_blocked"
-    )
+    assert governance_snapshot["status"] == ("integrity_verified_governance_blocked")
     assert governance_snapshot["readiness"]["technical"]["status"] == "ready"
-    assert governance_snapshot["readiness"]["governance"]["status"] == (
-        "blocked"
-    )
+    assert governance_snapshot["readiness"]["governance"]["status"] == ("blocked")
 
     with zipfile.ZipFile(feedback_path) as archive:
-        historical_entries = {
-            name: archive.read(name) for name in archive.namelist()
-        }
-    historical_manifest = json.loads(
-        json.dumps(manifest, sort_keys=True)
-    )
+        historical_entries = {name: archive.read(name) for name in archive.namelist()}
+    historical_manifest = json.loads(json.dumps(manifest, sort_keys=True))
     historical_manifest["run_id"] = "historical-feedback-001"
     historical_manifest["source_sha256"] = "f" * 64
     for item in historical_manifest["items"]:
@@ -1399,9 +1383,7 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
             item["source_roi_difference_hash64"],
             16,
         )
-        item["source_roi_difference_hash64"] = (
-            f"{fingerprint ^ 0x00FF00FF00FF00FF:016x}"
-        )
+        item["source_roi_difference_hash64"] = f"{fingerprint ^ 0x00FF00FF00FF00FF:016x}"
         source_roi_evidence = item["files"]["source_roi"]
         original_source_roi = cv2.imdecode(
             np.frombuffer(
@@ -1411,21 +1393,13 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
             cv2.IMREAD_COLOR,
         )
         assert original_source_roi is not None
-        historical_source_roi = _encode_image(
-            np.full_like(original_source_roi, 173)
-        )
-        historical_entries[source_roi_evidence["path"]] = (
-            historical_source_roi
-        )
-        source_roi_evidence["sha256"] = hashlib.sha256(
-            historical_source_roi
-        ).hexdigest()
+        historical_source_roi = _encode_image(np.full_like(original_source_roi, 173))
+        historical_entries[source_roi_evidence["path"]] = historical_source_roi
+        source_roi_evidence["sha256"] = hashlib.sha256(historical_source_roi).hexdigest()
     historical_entries["manifest.json"] = (
         json.dumps(historical_manifest, sort_keys=True) + "\n"
     ).encode()
-    historical_dir = (
-        service.paths.metrology / "historical-feedback-001"
-    )
+    historical_dir = service.paths.metrology / "historical-feedback-001"
     historical_dir.mkdir()
     (historical_dir / "active-learning-feedback.zip").write_bytes(
         _deterministic_zip_bytes(historical_entries)
@@ -1444,19 +1418,18 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
     )
     curation = batch_result["curation"]
     assert curation["selection"]["machine_only_selected_count"] >= 1
-    assert curation["selection"]["review_authority_counts"][
-        "machine_heuristic"
-    ] == curation["selection"]["machine_only_selected_count"]
-    assert "machine_labels_require_human_approval" in (
-        curation["readiness"]["blockers"]
+    assert (
+        curation["selection"]["review_authority_counts"]["machine_heuristic"]
+        == curation["selection"]["machine_only_selected_count"]
     )
+    assert "machine_labels_require_human_approval" in (curation["readiness"]["blockers"])
     assert curation["training_authorized"] is False
     assert curation["configuration"]["scope"] == {
         "kind": "explicit_autopilot_batch",
         "run_ids": [result["run_id"]],
     }
     batch = batch_result["batch"]
-    assert batch["schema_version"] == "urbanvision-autopilot-batch-v1.4.0"
+    assert batch["schema_version"] == "urbanvision-autopilot-batch-v1.5.0"
     assert batch["status"] == "completed_with_technical_constraints"
     assert batch["run_count"] == 1
     assert batch["feedback_run_count"] == 1
@@ -1480,52 +1453,34 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
         "bound_count": 1,
         "all_completed_runs_bound": True,
     }
-    assert batch["runs"][0]["arbitration"]["arbitration_id"] == (
-        arbitration_id
-    )
-    assert batch["runs"][0]["arbitration"]["evidence_state"] == (
-        "proposal_only_semantic_miss"
-    )
+    assert batch["runs"][0]["arbitration"]["arbitration_id"] == (arbitration_id)
+    assert batch["runs"][0]["arbitration"]["evidence_state"] == ("proposal_only_semantic_miss")
     assert batch["runs"][0]["run_id"] == result["run_id"]
     assert batch["runs"][0]["feedback_exported"] is True
-    assert batch["governance"]["curation_id"] == (
-        "feedback-curation-machine-001"
-    )
-    assert batch["governance"]["snapshot_id"] == (
-        "feedback-snapshot-machine-001"
-    )
+    assert batch["governance"]["curation_id"] == ("feedback-curation-machine-001")
+    assert batch["governance"]["snapshot_id"] == ("feedback-snapshot-machine-001")
     assert batch["governance"]["technical"]["status"] == "blocked"
     assert batch["governance"]["governance"]["status"] == "blocked"
     assert batch["cumulative_registry"]["automatically_refreshed"] is True
-    assert batch["cumulative_registry"]["scope"] == (
-        "all_local_feedback_across_sessions"
-    )
-    assert batch["cumulative_registry"]["curation_id"] == (
-        "cumulative-curation-machine-001"
-    )
-    assert batch["cumulative_registry"]["snapshot_id"] == (
-        "cumulative-snapshot-machine-001"
-    )
+    assert batch["cumulative_registry"]["scope"] == ("all_local_feedback_across_sessions")
+    assert batch["cumulative_registry"]["curation_id"] == ("cumulative-curation-machine-001")
+    assert batch["cumulative_registry"]["snapshot_id"] == ("cumulative-snapshot-machine-001")
     assert batch["cumulative_registry"]["unique_source_count"] == 2
-    assert batch["cumulative_registry"]["unique_source_count"] > (
-        batch["source_integrity"]["unique_source_count"]
+    assert (
+        batch["cumulative_registry"]["unique_source_count"]
+        > (batch["source_integrity"]["unique_source_count"])
     )
     assert batch_result["cumulative_curation"]["configuration"]["scope"] == {
         "kind": "all_local_feedback"
     }
-    assert batch_result["cumulative_curation"]["readiness"]["technical"][
-        "status"
-    ] == "blocked"
-    assert batch_result["cumulative_curation"]["readiness"]["governance"][
-        "status"
-    ] == "blocked"
-    assert batch_result["cumulative_snapshot"]["curation_binding"][
-        "curation_id"
-    ] == "cumulative-curation-machine-001"
-    drift_audit = batch_result["drift_audit"]
-    assert drift_audit["schema_version"] == (
-        "urbanvision-feedback-drift-audit-v1.0.0"
+    assert batch_result["cumulative_curation"]["readiness"]["technical"]["status"] == "blocked"
+    assert batch_result["cumulative_curation"]["readiness"]["governance"]["status"] == "blocked"
+    assert (
+        batch_result["cumulative_snapshot"]["curation_binding"]["curation_id"]
+        == "cumulative-curation-machine-001"
     )
+    drift_audit = batch_result["drift_audit"]
+    assert drift_audit["schema_version"] == ("urbanvision-feedback-drift-audit-v1.0.0")
     assert drift_audit["status"] == "insufficient_or_invalid_evidence"
     assert set(drift_audit["readiness"]["blockers"]) >= {
         "insufficient_current_sources_for_drift",
@@ -1533,24 +1488,45 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
     }
     assert drift_audit["statistics"] is None
     assert drift_audit["training_authorized"] is False
-    assert batch["distribution_monitoring"]["drift_id"] == (
-        "feedback-drift-machine-001"
-    )
+    assert batch["distribution_monitoring"]["drift_id"] == ("feedback-drift-machine-001")
     assert batch["distribution_monitoring"]["monitoring_only"] is True
-    drift_path = service.feedback_drift_audit_path(
-        "feedback-drift-machine-001"
-    )
+    assert batch["transparency_policy"] == {
+        "entry_created_after_batch_persistence": True,
+        "artifact_count": 6,
+        "verification": "full_local_chain_and_bound_artifact_bytes",
+        "external_notarization": False,
+    }
+    transparency_entry = batch_result["transparency_entry"]
+    assert transparency_entry["schema_version"] == ("urbanvision-transparency-entry-v1.0.0")
+    assert transparency_entry["entry_id"] == ("transparency-entry-machine-001")
+    assert transparency_entry["sequence"] == 1
+    assert transparency_entry["previous_chain_sha256"] is None
+    assert transparency_entry["artifact_count"] == 6
+    assert len(transparency_entry["artifacts"]) == 6
+    assert {artifact["role"] for artifact in transparency_entry["artifacts"]} == {
+        "current_batch_curation",
+        "current_batch_snapshot",
+        "cumulative_curation",
+        "cumulative_snapshot",
+        "drift_audit",
+        "autopilot_batch",
+    }
+    transparency_verification = batch_result["transparency_verification"]
+    assert transparency_verification["status"] == "verified"
+    assert transparency_verification["entry_count"] == 1
+    assert transparency_verification["verified_entry_count"] == 1
+    assert transparency_verification["findings"] == []
+    transparency_path = service.transparency_entry_path("transparency-entry-machine-001")
+    assert transparency_path.is_file()
+    assert "/Users/" not in transparency_path.read_text(encoding="utf-8")
+    drift_path = service.feedback_drift_audit_path("feedback-drift-machine-001")
     assert drift_path.is_file()
     assert "/Users/" not in drift_path.read_text(encoding="utf-8")
-    batch_path = service.autopilot_batch_path(
-        "autopilot-batch-machine-001"
-    )
+    batch_path = service.autopilot_batch_path("autopilot-batch-machine-001")
     assert batch_path.is_file()
     assert "/Users/" not in batch_path.read_text(encoding="utf-8")
 
-    saved_mask_path = (
-        service.paths.metrology / result["run_id"] / "mask.png"
-    )
+    saved_mask_path = service.paths.metrology / result["run_id"] / "mask.png"
     saved_mask = cv2.imread(str(saved_mask_path), cv2.IMREAD_GRAYSCALE)
     assert saved_mask is not None
     shifted_mask = np.roll(saved_mask, 1, axis=1)
@@ -1570,6 +1546,19 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
             arbitration_ids=json.dumps([arbitration_id]),
             minimum_unique_sources=1,
         )
+
+    tampered_batch = json.loads(batch_path.read_text(encoding="utf-8"))
+    tampered_batch["status"] = "tampered"
+    batch_path.write_text(
+        json.dumps(tampered_batch, sort_keys=True),
+        encoding="utf-8",
+    )
+    failed_verification = service.verify_transparency_log()
+    assert failed_verification["status"] == "invalid"
+    assert failed_verification["verified_entry_count"] == 0
+    assert {finding["code"] for finding in failed_verification["findings"]} >= {
+        "artifact_digest_mismatch"
+    }
 
 
 def test_aruco_web_calibration_preserves_detection_quality(tmp_path: Path) -> None:

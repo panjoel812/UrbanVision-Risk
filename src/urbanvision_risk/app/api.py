@@ -8,6 +8,7 @@ from fastapi.requests import Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.middleware.base import RequestResponseEndpoint
 
+from urbanvision_risk import __version__
 from urbanvision_risk.app.metrology_service import (
     MAX_METROLOGY_UPLOAD_BYTES,
     LocalMetrologyService,
@@ -57,7 +58,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="5.1.0",
+        version=__version__,
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -134,6 +135,7 @@ def create_app(
         payload["leakage_safe_feedback_curation"] = True
         payload["visual_near_duplicate_split_firewall"] = True
         payload["content_addressed_snapshot_preflight"] = True
+        payload["policy_bounded_local_autopilot"] = True
         return payload
 
     @app.get("/api/review-queue")

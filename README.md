@@ -1,14 +1,16 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。选择一张图片会在本机并行启动三视图检测和裂缝候选；画笔/橡皮修订把 `automatic_draft` 更新为 `human_reviewed`。v5.1 在质量门控、视觉场景泄漏防火墙和确定性切分之后加入内容寻址快照预检：在原反馈 ZIP 内逐项验证原图 ROI 与最终掩膜成员的 SHA-256，解码检查尺寸一致性、像素上限和严格二值格式，重新审计精确来源、视觉簇及相同 ROI 字节是否跨切分，再通过带域分离的规范化 SHA-256 Merkle 树绑定所有验证数据对。快照只保存引用、统计和完整性根，不解压或复制隐私图片，也不自动授权训练。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。选择一张图片会在本机并行启动三视图检测和裂缝候选。v5.2 默认开启受策略约束的本地自动驾驶：机器自动生成掩膜，对排序热点按 `candidate_overlap_ratio >= 0.10` 接受、否则暂缓，保存 `machine_reviewed_candidate`，再自动执行质量门控、防泄漏切分与内容寻址快照预检。机器身份写为 `machine_heuristic`，不会冒充 `human_reviewed`；画笔/橡皮修订仍可把结果保存为人工复核版本。只要候选中存在机器标签，训练防火墙就保持 `training_authorized: false` 并要求独立人工批准。
 
-**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Choosing one image starts three-view detection and a crack proposal locally in parallel; brush/eraser correction advances `automatic_draft` to `human_reviewed`. Version 5.1 adds content-addressed snapshot preflight after quality gating, visual-scene leakage control, and deterministic splitting. It verifies every referenced source ROI and final-mask SHA-256 inside the original feedback ZIP, decodes geometry and strict binary-mask structure, re-audits exact sources, visual groups, and identical ROI bytes across splits, then binds all verified pairs with a canonical domain-separated SHA-256 Merkle tree. The snapshot stores references, statistics, and an integrity root—never extracted private images or automatic training authorization.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Choosing one image starts three-view detection and a crack proposal locally in parallel. Version 5.2 enables policy-bounded local autopilot by default: the machine proposes a mask, accepts ranked hotspots when `candidate_overlap_ratio >= 0.10` and defers the rest, saves a `machine_reviewed_candidate`, then automatically runs quality gating, leakage-safe splitting, and content-addressed snapshot preflight. Machine authority is recorded as `machine_heuristic`, never impersonating `human_reviewed`; brush/eraser correction can still save a human-reviewed override. If any selected label is machine-authored, the training firewall keeps `training_authorized: false` and requires independent human approval.
+
+Turning Autopilot off preserves the earlier `automatic_draft` workflow. / 关闭自动驾驶会保留原有 `automatic_draft` 工作流。
 
 **v3.0 Calibrated Metrology / 标定量测：** printable field fiducials, semantic marker detection (`TL/TR/BR/BL`), homography rectification, graph-geodesic length, skeleton distance-transform width, immutable artifacts, privacy-minimized provenance, deterministic uncertainty analysis, and a first-hand field-validation protocol. / 可打印现场标记、语义标记检测、单应性矫正、图测地长度、骨架距离变换宽度、不可覆盖结果、最小化隐私来源记录、确定性不确定性分析和亲身现场验证方案。
 
 **v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v5.1 Quick Start / v5.1 快速启动
+## v5.2 Quick Start / v5.2 快速启动
 
 ```bash
 uv sync --extra dev
@@ -23,9 +25,9 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`. After **Build leakage-safe candidate plan** creates the governed 80/10/10 references, select **Verify content-addressed snapshot**. Preflight reads only the referenced ZIP members, verifies hashes and source-mask structure, reports pair and empty-mask counts for every split, detects identical source bytes crossing splits, and writes an immutable Merkle-root JSON under `results/metrology/snapshots/`. A changed member fails even when `manifest.json` is unchanged.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`. With **Autopilot** checked, selecting one image automatically saves the machine candidate, creates the feedback ZIP and leakage-safe 80/10/10 candidate plan, then runs content-addressed snapshot preflight. The existing **Build leakage-safe candidate plan** and **Verify content-addressed snapshot** controls remain available for explicit reruns. Preflight reads only referenced ZIP members and writes an immutable Merkle-root JSON under `results/metrology/snapshots/`.
 
-第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程。点击 **生成防泄漏候选策划** 得到受治理的 80/10/10 引用后，再点击 **验证内容寻址快照**。预检只读取被引用的 ZIP 成员，核对摘要及原图—掩膜结构，显示每个切分的数据对与空掩膜数量，检测相同原图字节是否跨切分，并把不可覆盖的 Merkle 根 JSON 保存到 `results/metrology/snapshots/`。即使 `manifest.json` 没变，成员字节被替换也会失败。端口被占用时使用 `--port 8001`。
+第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程。保持 **自动驾驶开启**，只需选择图片，系统就会自动保存机器候选、创建反馈 ZIP、防泄漏 80/10/10 候选策划并运行内容寻址快照预检。原有 **生成防泄漏候选策划** 和 **验证内容寻址快照** 按钮保留用于显式重跑。预检只读取被引用的 ZIP 成员，并把不可覆盖的 Merkle 根 JSON 保存到 `results/metrology/snapshots/`。端口被占用时使用 `--port 8001`。
 
 The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
 
@@ -96,6 +98,8 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 - `results/inspections/<run>/<inspection-id>/`: normalized source, annotation, prediction, risk record, provenance, and optional immutable `narrative.json` / 规范化原图、标注、预测、风险、来源记录和可选不可变 `narrative.json`。
 - `results/metrology/<output>/measurement.json`: calibrated topology, physical geometry, uncertainty, provenance, and decision boundaries; sibling files contain source/rectified masks, skeletons, width heatmaps, and overlays / 标定拓扑、真实几何量、不确定性、来源和使用边界；同目录还包含原始/矫正掩膜、骨架、宽度热图和叠加图。
 - `results/metrology/proposals/<proposal>/`: immutable `proposal-mask.png`, `review-hotspots.png`, and algorithm `evidence.json`; the source image itself is not retained / 不可覆盖的候选掩膜、复核热点与算法证据；不保存原图本身。
+- `results/metrology/<output>/active-learning-feedback.zip`: deterministic machine- or human-authored ROI feedback with explicit review authority / 带明确审核身份的确定性机器或人工 ROI 反馈包。
+- `results/metrology/curations/*.json` and `results/metrology/snapshots/*.json`: automatically generated leakage-safe plans and content-addressed Merkle preflight records; neither authorizes training / 自动生成的防泄漏策划与内容寻址 Merkle 预检记录；二者都不授权训练。
 - `results/metrology/<output>/plans/*.json`: immutable material quantity, cost assumptions, measurement digest, and decision boundary / 不可覆盖的材料数量、成本假设、量测摘要和使用边界。
 - `results/metrology/comparisons/*.json` and `*-change-map.png`: normalized two-date changes, physical alignment quality, spatial classes, daily growth, user thresholds, and source-record digests / 统一单位的两期变化、物理对齐质量、空间分类、每日增长、用户阈值和源记录摘要。
 

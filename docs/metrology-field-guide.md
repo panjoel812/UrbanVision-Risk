@@ -1,4 +1,4 @@
-# UrbanVision-Risk v5.1 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v5.2 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -155,13 +155,23 @@ The disposition describes what the operator did or concluded during this review.
 
 ### Active-learning feedback package / 主动学习反馈包
 
-When a saved human review contains at least one structured disposition, Version 4.7 creates `active-learning-feedback.zip` beside `measurement.json`. Each dispositioned target contains four aligned PNGs: the source ROI, immutable proposal mask, final reviewed mask, and sensitivity-disagreement layer. The crop adds 15% context with an eight-pixel minimum and is proportionally reduced when it exceeds 512,000 pixels; masks always use nearest-neighbour resizing.
+When a saved human review or machine-reviewed candidate contains at least one structured disposition, the service creates `active-learning-feedback.zip` beside `measurement.json`. Each dispositioned target contains four aligned PNGs: the source ROI, immutable proposal mask, submitted candidate mask, and sensitivity-disagreement layer. The crop adds 15% context with an eight-pixel minimum and is proportionally reduced when it exceeds 512,000 pixels; masks always use nearest-neighbour resizing.
 
-当保存的人工复核至少包含一项结构化处置时，v4.7 会在 `measurement.json` 旁生成 `active-learning-feedback.zip`。每个已处置目标包含四张对齐 PNG：原图 ROI、不可变候选掩膜、最终复核掩膜和灵敏度分歧层。裁剪增加 15% 上下文且至少 8 像素；超过 512,000 像素时等比例缩小，掩膜始终采用最近邻缩放。
+当保存的人工复核或机器复核候选至少包含一项结构化处置时，服务会在 `measurement.json` 旁生成 `active-learning-feedback.zip`。每个已处置目标包含四张对齐 PNG：原图 ROI、不可变候选掩膜、提交的候选掩膜和灵敏度分歧层。裁剪增加 15% 上下文且至少 8 像素；超过 512,000 像素时等比例缩小，掩膜始终采用最近邻缩放。
 
-`manifest.json` records original and exported crop geometry, scale, rank, priority, disposition, optional note, and SHA-256 for every PNG. It also binds the package to the source and immutable measurement digests. ZIP entries use fixed timestamps and sorted paths, so identical entry content produces reproducible archive bytes. No absolute path is stored.
+`manifest.json` records original and exported crop geometry, scale, rank, priority, disposition, optional note, `review_authority`, `decision_authority`, and SHA-256 for every PNG. It also binds the package to the source and immutable measurement digests. ZIP entries use fixed timestamps and sorted paths, so identical entry content produces reproducible archive bytes. No absolute path is stored.
 
-`manifest.json` 记录原始和导出裁剪几何、比例、排名、优先级、处置、可选备注以及每张 PNG 的 SHA-256，并把反馈包绑定到源图和不可变量测摘要。ZIP 成员使用固定时间戳和排序路径，因此相同成员内容能产生可复现压缩包；不会保存绝对路径。
+`manifest.json` 记录原始和导出裁剪几何、比例、排名、优先级、处置、可选备注、`review_authority`、`decision_authority` 以及每张 PNG 的 SHA-256，并把反馈包绑定到源图和不可变量测摘要。ZIP 成员使用固定时间戳和排序路径，因此相同成员内容能产生可复现压缩包；不会保存绝对路径。
+
+### Policy-bounded local autopilot / 受策略约束的本地自动驾驶
+
+Version 5.2 enables autopilot by default. After proposal generation, the browser deterministically marks every ranked hotspot as inspected and applies one transparent rule: `candidate_overlap_ratio >= 0.10` becomes `accepted_as_proposed`; otherwise the hotspot becomes `deferred_for_follow_up`. The service independently recomputes this rule and rejects incomplete or mismatched machine decisions. It then submits pixel metrology as `review_state: machine_reviewed_candidate` with `review_authority: machine_heuristic`, automatically builds curation, and automatically runs snapshot preflight. The threshold is source code and audit evidence—not a learned confidence or a hidden prompt.
+
+v5.2 默认开启自动驾驶。候选生成后，浏览器会确定性地把所有排序热点标为已检查，并执行一条透明规则：`candidate_overlap_ratio >= 0.10` 时记录为 `accepted_as_proposed`，否则记录为 `deferred_for_follow_up`。服务端会独立重算该规则，拒绝不完整或不匹配的机器决策。随后以 `review_state: machine_reviewed_candidate` 和 `review_authority: machine_heuristic` 提交像素量测，自动生成策划并运行快照预检。这个阈值是源码与审计证据，不是学习得到的置信度，也不是隐藏提示词。
+
+The automated chain saves work without fabricating accountability. A machine candidate may pass pixel-consistency gates, but any selected non-human label adds `machine_labels_require_human_approval`; `training_authorized` remains `false`. A later brush/eraser correction is submitted separately as `human_reviewed` with `human_operator` authority. Disabling the toggle preserves the older `automatic_draft` path.
+
+自动链路减少操作，但不伪造责任归属。机器候选可能通过像素一致性门控，但任何入选的非人工标签都会加入 `machine_labels_require_human_approval`，且 `training_authorized` 保持 `false`。后续画笔/橡皮修订会单独以 `human_reviewed` 和 `human_operator` 身份保存。关闭开关则保留旧的 `automatic_draft` 路径。
 
 This package is a candidate pool for separately governed relabeling, error analysis, and future training—not an automatic training set. Source ROIs may contain people, vehicles, licence plates, or location cues, so a dataset owner must apply privacy review, split control, deduplication, and label QA before training.
 
@@ -211,17 +221,17 @@ This is intentionally conservative. Difference hashes can collide, single linkag
 
 ### Content-addressed snapshot preflight / 内容寻址快照预检
 
-`POST /api/metrology/feedback-curations/{curation_id}/snapshot-preflight` verifies a v5.0 curation without extracting a dataset. It SHA-256 binds the curation JSON, reloads the current bounded manifest inventory, and rejects missing or changed manifests. For every selected pair, it revalidates the run/hotspot/manifest binding and reads only the referenced source ROI and final mask from the preserved ZIP.
+`POST /api/metrology/feedback-curations/{curation_id}/snapshot-preflight` verifies a v5.2 curation without extracting a dataset. It SHA-256 binds the curation JSON, reloads the current bounded manifest inventory, and rejects missing or changed manifests. For every selected pair, it revalidates the run/hotspot/manifest binding and reads only the referenced source ROI and final mask from the preserved ZIP.
 
-`POST /api/metrology/feedback-curations/{curation_id}/snapshot-preflight` 在不解压数据集的情况下验证 v5.0 策划。它用 SHA-256 绑定策划 JSON，重新加载当前有界清单，并拒绝缺失或变化的清单。对每个入选数据对，它重新校验运行、热点与清单绑定，只从保留 ZIP 中读取被引用的原图 ROI 和最终掩膜。
+`POST /api/metrology/feedback-curations/{curation_id}/snapshot-preflight` 在不解压数据集的情况下验证 v5.2 策划。它用 SHA-256 绑定策划 JSON，重新加载当前有界清单，并拒绝缺失或变化的清单。对每个入选数据对，它重新校验运行、热点与清单绑定，只从保留 ZIP 中读取被引用的原图 ROI 和最终掩膜。
 
 Each member is capped at 8 MiB and the full read is capped at 512 MiB. SHA-256 is checked before decoding. The source and mask must decode, share dimensions, remain within 512,000 pixels, and the final mask may contain only binary 0/255 values. A valid all-zero final mask is retained and counted because reviewed negative segmentation examples can be meaningful.
 
 每个成员上限为 8 MiB，完整读取预算为 512 MiB；解码前先验证 SHA-256。原图与掩膜必须可解码、尺寸一致、不超过 512,000 像素，最终掩膜只能含 0/255 二值。合法全零最终掩膜会被保留并计数，因为人工复核后的负分割样本同样可能有价值。
 
-Preflight independently recomputes cross-split exact-source, visual-group, and identical source-member overlaps. Canonical JSON leaves contain split, run, hotspot, source digest, visual group, source-member digest, and target-member digest. Sorted leaves use SHA-256 with `0x00` leaf-domain separation; parents use `0x01`; the final node is duplicated on odd levels. The result is an immutable `urbanvision-feedback-snapshot-preflight-v1.0.0` JSON with a reproducible Merkle root.
+Preflight independently recomputes cross-split exact-source, visual-group, and identical source-member overlaps. Canonical JSON leaves contain split, run, hotspot, source digest, visual group, source-member digest, target-member digest, and review authority. Sorted leaves use SHA-256 with `0x00` leaf-domain separation; parents use `0x01`; the final node is duplicated on odd levels. The result is an immutable `urbanvision-feedback-snapshot-preflight-v1.0.0` JSON with a reproducible Merkle root.
 
-预检会独立重算切分间的精确来源、视觉簇和相同原图成员交集。规范化 JSON 叶节点包含切分、运行、热点、来源摘要、视觉簇、原图成员摘要和目标成员摘要。排序叶使用带 `0x00` 叶域分离的 SHA-256，父节点使用 `0x01`，奇数层复制最后节点。结果是带可复现 Merkle 根的不可覆盖 `urbanvision-feedback-snapshot-preflight-v1.0.0` JSON。
+预检会独立重算切分间的精确来源、视觉簇和相同原图成员交集。规范化 JSON 叶节点包含切分、运行、热点、来源摘要、视觉簇、原图成员摘要、目标成员摘要和审核身份。排序叶使用带 `0x00` 叶域分离的 SHA-256，父节点使用 `0x01`，奇数层复制最后节点。结果是带可复现 Merkle 根的不可覆盖 `urbanvision-feedback-snapshot-preflight-v1.0.0` JSON。
 
 Passing status is `verified_candidate_snapshot_requires_training_approval`, never “training ready.” Member integrity and Merkle reproducibility do not establish privacy clearance, semantic label correctness, field validity, or model performance.
 
@@ -243,9 +253,9 @@ The proposal becomes the editable green base layer. Every later brush or eraser 
 
 候选会成为可编辑的绿色底稿，后续画笔或橡皮笔迹都在不可变底稿之上重放。提交量测时，`measurement.json` 会记录候选编号与版本、候选/最终掩膜摘要、人工增加像素、人工删除像素、整图改动比例和候选—最终 IoU。
 
-The first automatic pixel run records `review_state: automatic_draft` and `mask.origin: local_proposal_automatic_draft`. Saving after review records `review_state: human_reviewed`. This distinction is a workflow audit label, not a claim that the mask is objectively correct.
+With autopilot disabled, the first automatic pixel run records `review_state: automatic_draft` and `mask.origin: local_proposal_automatic_draft`. With autopilot enabled, it records `machine_reviewed_candidate` and `local_proposal_machine_reviewed_candidate`. Saving after human review records `review_state: human_reviewed`. These are workflow audit labels, not claims that any mask is objectively correct.
 
-第一次自动像素量测会记录 `review_state: automatic_draft` 与 `mask.origin: local_proposal_automatic_draft`；人工复核后保存则记录 `review_state: human_reviewed`。这个字段是流程审计标签，不等于系统宣称掩膜客观正确。
+关闭自动驾驶时，第一次自动像素量测记录 `review_state: automatic_draft` 与 `mask.origin: local_proposal_automatic_draft`；开启时记录 `machine_reviewed_candidate` 与 `local_proposal_machine_reviewed_candidate`；人工复核后保存则记录 `review_state: human_reviewed`。这些字段是流程审计标签，不等于系统宣称任何掩膜客观正确。
 
 This is intentionally called a **proposal**, not automatic segmentation truth. Shadows, expansion joints, road markings, stains, patched seams, and low contrast can produce false positives or false negatives. A person must inspect the entire mask before using physical measurements.
 

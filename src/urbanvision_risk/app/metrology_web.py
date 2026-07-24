@@ -108,6 +108,8 @@ METROLOGY_HTML = """<!doctype html>
     .pipeline-stage.active::before { background: var(--amber); box-shadow: 0 0 0 4px color-mix(in srgb, var(--amber) 15%, transparent); }
     .pipeline-stage.complete { border-color: color-mix(in srgb, var(--forest-2) 35%, var(--line)); background: var(--mint); color: var(--forest); }
     .pipeline-stage.complete::before { background: var(--forest-2); }
+    .autopilot-control { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--forest-2) 35%, var(--line)); border-radius: 10px; background: var(--mint); color: var(--forest); font-size: .7rem; font-weight: 680; }
+    .autopilot-control input { flex: none; margin-top: 3px; accent-color: var(--forest-2); }
     .inspection-loading { display: flex; align-items: center; gap: 9px; padding: 12px; border-radius: 12px; background: var(--soft); color: var(--muted); font-size: .76rem; }
     .spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--line); border-top-color: var(--forest-2); border-radius: 50%; animation: spin 800ms linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -274,9 +276,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v5.1 · Content-addressed snapshot preflight</p>
+        <p class="eyebrow">v5.2 · Policy-bounded local autopilot</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>防泄漏策划完成后，快照预检会在原 ZIP 内逐项核对 ROI 与最终二值掩膜的 SHA-256、尺寸和格式，重新审计切分隔离，并用规范化 Merkle 根绑定整个候选快照；不解压、不复制，也不自动训练。</span><span data-en class="hidden-lang">After leakage-safe curation, snapshot preflight verifies every ROI and final binary mask in-place—SHA-256, geometry, format, and split isolation—then binds the candidate snapshot with a canonical Merkle root. Nothing is extracted, copied, or trained automatically.</span></p>
+        <p class="hero-copy"><span data-zh>选图后，机器默认自动完成检测、掩膜、热点处置、候选量测、反馈筛选与内容寻址快照。所有机器结论都标记为“机器候选”；系统不会冒充人工确认，也不会自动授权训练。</span><span data-en class="hidden-lang">After one image selection, the machine automatically runs detection, masking, hotspot disposition, candidate metrology, feedback curation, and a content-addressed snapshot. Every machine conclusion remains a machine candidate; the system never impersonates human confirmation or authorizes training.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -305,8 +307,9 @@ METROLOGY_HTML = """<!doctype html>
             <span id="stage-upload" class="pipeline-stage"><span data-zh>读取图片</span><span data-en class="hidden-lang">Load image</span></span>
             <span id="stage-detect" class="pipeline-stage"><span data-zh>检测 + 掩膜</span><span data-en class="hidden-lang">Detect + mask</span></span>
             <span id="stage-draft" class="pipeline-stage"><span data-zh>像素量测草稿</span><span data-en class="hidden-lang">Pixel draft</span></span>
-            <span id="stage-review" class="pipeline-stage"><span data-zh>人工复核保存</span><span data-en class="hidden-lang">Review + save</span></span>
+            <span id="stage-review" class="pipeline-stage"><span data-zh>机器保存 + 治理</span><span data-en class="hidden-lang">Machine save + governance</span></span>
           </div>
+          <label class="autopilot-control"><input id="autopilot-toggle" type="checkbox" checked><span><span data-zh>自动驾驶开启：自动处置热点、保存机器候选、生成防泄漏策划并验证 Merkle 快照；人工可随时覆盖修正。</span><span data-en class="hidden-lang">Autopilot on: disposition hotspots, save the machine candidate, build leakage-safe curation, and verify the Merkle snapshot automatically. A human can override it at any time.</span></span></label>
         </div>
 
         <div id="inspection-section" class="section hidden">
@@ -390,7 +393,7 @@ METROLOGY_HTML = """<!doctype html>
               </div>
             </div>
           </section>
-          <p id="proposal-state" class="subcopy"><span data-zh>上传图片后自动生成可编辑底稿；提交量测前必须人工复核。</span><span data-en class="hidden-lang">An editable proposal is generated automatically after upload; human review is required before metrology.</span></p>
+          <p id="proposal-state" class="subcopy"><span data-zh>上传后自动生成并保存机器候选；建议人工抽检，但不再阻断自动流水线。</span><span data-en class="hidden-lang">Upload generates and saves a machine candidate automatically. Human spot-checking is recommended but no longer blocks the automated pipeline.</span></p>
         </div>
 
         <div class="section">
@@ -514,7 +517,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v5.1 · Merkle Snapshot Preflight · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v5.2 · Policy-bounded Local Autopilot · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -567,13 +570,14 @@ METROLOGY_HTML = """<!doctype html>
       let reviewProgressDirty = false;
       let measurementOperationCount = 0;
       let pipelineStage = "idle";
+      const AUTOPILOT_ACCEPT_OVERLAP = 0.10;
 
       const text = {
         zh: {
           choose: "点击选择道路图片",
           private: "图片不会发送到互联网",
           ready: "原图已就绪，自动检测与自动掩膜正在并行运行。",
-          pipelineComplete: "自动检测、绿色掩膜和像素量测草稿已完成；请人工复核后保存。",
+          pipelineComplete: "自动驾驶已完成检测、掩膜、机器候选量测与数据治理；可选人工抽检或修正。",
           pipelinePartial: "自动流水线部分完成；请检查上方结果并人工补充掩膜。",
           inspectionRunning: "正在通过 MPS 运行三视图检测与可靠性分析…",
           inspectionComplete: "自动检测与可靠性分析完成。",
@@ -593,7 +597,7 @@ METROLOGY_HTML = """<!doctype html>
           narrativeOllama: "Ollama 本地模型",
           narrativeError: "本地说明生成失败，请检查终端日志。",
           drawingRequired: "请先选择原图并绘制裂缝掩膜。",
-          proposalIdle: "上传图片后自动生成可编辑底稿；提交量测前必须人工复核。",
+          proposalIdle: "上传后自动生成并保存机器候选；人工可随时抽检或覆盖。",
           proposalRunning: "正在本机运行多尺度暗脊与形态学集成…",
           proposalReady: "候选底稿已载入；请用画笔和橡皮人工复核。",
           proposalEmpty: "没有找到可靠候选；请手动画笔标注或提高建议灵敏度。",
@@ -602,6 +606,11 @@ METROLOGY_HTML = """<!doctype html>
           autoDraftFailed: "自动量测草稿生成失败；可以人工修正后再保存。",
           draftBadge: "自动草稿 · 仅像素",
           draftState: "这是自动候选生成的像素量测草稿，尚未经过人工复核，不能作为真实尺寸或安全结论。",
+          machineBadge: "机器候选 · 自动治理",
+          machineState: "机器已按确定性规则处置热点并保存候选；它不是人工确认、真实尺寸或安全结论。",
+          machineComplete: "机器候选已保存，正在自动运行反馈治理与快照预检…",
+          autopilotComplete: "本地自动驾驶链已完成；机器标签仍被训练防火墙阻断，等待独立人工批准。",
+          autopilotPartial: "机器候选已保存，但自动治理链未全部完成；可使用下方按钮重试。",
           editedState: "绿色掩膜已有尚未保存的人工修改；右侧仍显示上一次自动草稿。",
           reviewedState: "这是已保存的人工复核版本；真实尺寸仍只在有效标定后成立。",
           demoState: "这是确定性算法演示，不代表人工复核或现场精度验证。",
@@ -693,7 +702,7 @@ METROLOGY_HTML = """<!doctype html>
           choose: "Click to choose a road image",
           private: "The image never leaves this machine",
           ready: "Source ready; automatic detection and mask proposal are running in parallel.",
-          pipelineComplete: "Detection, the green mask, and a pixel-metrology draft are ready; review and save.",
+          pipelineComplete: "Autopilot completed detection, masking, machine-candidate metrology, and data governance. Optional human spot-checking or correction remains available.",
           pipelinePartial: "The automatic pipeline partially completed; inspect the result and correct the mask.",
           inspectionRunning: "Running three-view detection and reliability analysis on MPS…",
           inspectionComplete: "Automatic detection and reliability analysis complete.",
@@ -713,7 +722,7 @@ METROLOGY_HTML = """<!doctype html>
           narrativeOllama: "Local Ollama model",
           narrativeError: "Local narrative generation failed; check the terminal log.",
           drawingRequired: "Choose a source image and draw a crack mask first.",
-          proposalIdle: "An editable proposal is generated automatically after upload; human review is required before metrology.",
+          proposalIdle: "Upload automatically generates and saves a machine candidate; a human can spot-check or override it at any time.",
           proposalRunning: "Running the multi-scale dark-ridge and morphology ensemble locally…",
           proposalReady: "The proposal is loaded; review it with the brush and eraser.",
           proposalEmpty: "No reliable candidate was found; draw manually or increase proposal sensitivity.",
@@ -722,6 +731,11 @@ METROLOGY_HTML = """<!doctype html>
           autoDraftFailed: "The automatic measurement draft failed; correct the mask and save manually.",
           draftBadge: "Auto draft · pixel only",
           draftState: "This pixel measurement comes from the automatic proposal and has not been human-reviewed. It is not a physical-size or safety conclusion.",
+          machineBadge: "Machine candidate · governed",
+          machineState: "The machine dispositioned hotspots with a deterministic policy and saved a candidate. This is not human confirmation, physical size, or a safety conclusion.",
+          machineComplete: "Machine candidate saved; running feedback governance and snapshot preflight automatically…",
+          autopilotComplete: "The local autopilot chain is complete. The training firewall still blocks machine labels pending independent human approval.",
+          autopilotPartial: "The machine candidate was saved, but the governance chain did not fully complete. Retry with the controls below.",
           editedState: "The green mask has unsaved human changes; the right side still shows the previous automatic draft.",
           reviewedState: "This is a saved human-reviewed version. Physical dimensions still require valid calibration.",
           demoState: "This is a deterministic algorithm demo, not human review or field-accuracy validation.",
@@ -843,6 +857,7 @@ METROLOGY_HTML = """<!doctype html>
           empty_test_split: "测试切分为空",
           privacy_review_pending: "隐私复核未确认",
           label_qa_pending: "标签抽检未确认",
+          machine_labels_require_human_approval: "机器标签需要独立人工批准",
           invalid_feedback_packages_present: "存在损坏反馈包",
           feedback_inventory_truncated: "反馈清单超过本次读取上限",
           scene_fingerprint_inventory_truncated: "视觉指纹超过单个来源读取上限",
@@ -867,6 +882,7 @@ METROLOGY_HTML = """<!doctype html>
           empty_test_split: "Test split is empty",
           privacy_review_pending: "Privacy review is unconfirmed",
           label_qa_pending: "Label QA is unconfirmed",
+          machine_labels_require_human_approval: "Machine labels require independent human approval",
           invalid_feedback_packages_present: "Malformed feedback packages exist",
           feedback_inventory_truncated: "Feedback inventory exceeded the read limit",
           scene_fingerprint_inventory_truncated: "Per-source visual-fingerprint inventory was truncated",
@@ -1079,14 +1095,14 @@ METROLOGY_HTML = """<!doctype html>
         }
         if (maskDirty) button.textContent = t("saveEdited");
         else if (reviewProgressDirty) button.textContent = t("saveReviewProgress");
-        else if (latestResult && resultReviewState() === "automatic_draft") button.textContent = t("confirmReviewed");
+        else if (latestResult && ["automatic_draft", "machine_reviewed_candidate"].includes(resultReviewState())) button.textContent = t("confirmReviewed");
         else button.textContent = t("saveAgain");
         const state = byId("review-state");
         const resultState = resultReviewState();
         const reviewed = resultState === "human_reviewed";
         const pending = maskDirty || reviewProgressDirty;
         state.className = `review-state ${reviewed && !pending ? "reviewed" : "draft"}`;
-        state.textContent = maskDirty ? t("editedState") : reviewProgressDirty ? t("reviewProgressState") : (resultState === "demo" ? t("demoState") : (reviewed ? t("reviewedState") : t("draftState")));
+        state.textContent = maskDirty ? t("editedState") : reviewProgressDirty ? t("reviewProgressState") : (resultState === "demo" ? t("demoState") : (reviewed ? t("reviewedState") : (resultState === "machine_reviewed_candidate" ? t("machineState") : t("draftState"))));
       }
 
       function markMaskDirty() {
@@ -1552,7 +1568,7 @@ METROLOGY_HTML = """<!doctype html>
           byId("inspection-loading").classList.remove("hidden");
           byId("inspection-loading-text").textContent = t("inspectionFailed");
         }
-        setPipeline(draftSucceeded ? "review" : "draft");
+        setPipeline(draftSucceeded && byId("autopilot-toggle").checked ? "saved" : (draftSucceeded ? "review" : "draft"));
         setStatus(inspectionSucceeded && draftSucceeded ? t("pipelineComplete") : t("pipelinePartial"), !inspectionSucceeded && !draftSucceeded);
       }
 
@@ -1612,6 +1628,24 @@ METROLOGY_HTML = """<!doctype html>
         updateControls();
       }
 
+      function applyAutopilotDecisions() {
+        reviewedHotspotIds = new Set();
+        hotspotDecisions = new Map();
+        hotspotComponents.forEach((hotspot) => {
+          const overlap = Number(hotspot.candidate_overlap_ratio);
+          const disposition = Number.isFinite(overlap) && overlap >= AUTOPILOT_ACCEPT_OVERLAP
+            ? "accepted_as_proposed"
+            : "deferred_for_follow_up";
+          reviewedHotspotIds.add(hotspot.hotspot_id);
+          hotspotDecisions.set(hotspot.hotspot_id, {
+            hotspot_id: hotspot.hotspot_id,
+            disposition
+          });
+        });
+        reviewProgressDirty = false;
+        renderHotspotReview();
+      }
+
       async function generateProposal(file = sourceFile, generation = sourceGeneration) {
         if (!file) return false;
         byId("proposal-sensitivity").disabled = true;
@@ -1644,10 +1678,14 @@ METROLOGY_HTML = """<!doctype html>
       async function generateProposalAndDraft(file, generation) {
         const found = await generateProposal(file, generation);
         if (!found || generation !== sourceGeneration) return false;
+        const machineReviewed = byId("autopilot-toggle").checked;
+        if (machineReviewed) applyAutopilotDecisions();
         setPipeline("draft");
         setStatus(t("autoDrafting"));
-        const drafted = await runMeasurement({ automatic: true, generation });
-        if (drafted && generation === sourceGeneration) setPipeline("review");
+        const drafted = await runMeasurement({ automatic: true, machineReviewed, generation });
+        if (drafted && generation === sourceGeneration) {
+          setPipeline(machineReviewed ? "saved" : "review");
+        }
         return drafted;
       }
 
@@ -1766,7 +1804,7 @@ METROLOGY_HTML = """<!doctype html>
         return String(Number(byId(id).value));
       }
 
-      async function runMeasurement({ automatic = false, generation = sourceGeneration } = {}) {
+      async function runMeasurement({ automatic = false, machineReviewed = false, generation = sourceGeneration } = {}) {
         if (!sourceFile || (!activeProposalId && strokes.length === 0)) {
           setStatus(t("drawingRequired"), true);
           return false;
@@ -1788,9 +1826,12 @@ METROLOGY_HTML = """<!doctype html>
           form.append("calibration_mode", mode);
           form.append("uncertainty_samples", automatic ? "0" : formNumber("uncertainty-samples"));
           form.append("segmentation_radius_pixels", formNumber("boundary-radius"));
-          form.append("review_state", automatic ? "automatic_draft" : "human_reviewed");
+          const reviewState = automatic
+            ? (machineReviewed ? "machine_reviewed_candidate" : "automatic_draft")
+            : "human_reviewed";
+          form.append("review_state", reviewState);
           if (activeProposalId) form.append("proposal_id", activeProposalId);
-          if (!automatic && activeProposalId) {
+          if ((!automatic || machineReviewed) && activeProposalId) {
             form.append("reviewed_hotspots", JSON.stringify(Array.from(reviewedHotspotIds)));
             const decisions = hotspotComponents
               .map((hotspot) => hotspotDecisions.get(hotspot.hotspot_id))
@@ -1816,7 +1857,13 @@ METROLOGY_HTML = """<!doctype html>
             reviewProgressDirty = false;
           }
           renderResult(payload);
-          setStatus(automatic ? t("autoDraftComplete") : t("complete"));
+          if (machineReviewed && payload.artifacts["active-learning-feedback.zip"]) {
+            setStatus(t("machineComplete"));
+            const governed = await runGovernanceAutopilot();
+            setStatus(governed ? t("autopilotComplete") : t("autopilotPartial"), !governed);
+          } else {
+            setStatus(automatic ? t("autoDraftComplete") : t("complete"));
+          }
           if (!automatic) {
             setPipeline("saved");
             byId("result").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1896,7 +1943,9 @@ METROLOGY_HTML = """<!doctype html>
         byId("placeholder").classList.add("hidden");
         byId("result").classList.remove("hidden");
         byId("run-id").textContent = payload.run_id;
-        byId("mode-badge").textContent = reviewState === "automatic_draft" ? t("draftBadge") : (physical ? t("physical") : t("pixel"));
+        byId("mode-badge").textContent = reviewState === "automatic_draft"
+          ? t("draftBadge")
+          : (reviewState === "machine_reviewed_candidate" ? t("machineBadge") : (physical ? t("physical") : t("pixel")));
         byId("metric-length").textContent = formatValue(geometry.centerline_network_length, unit);
         byId("metric-width").textContent = formatValue(widths.mean, unit);
         byId("metric-p95").textContent = formatValue(widths.p95, unit);
@@ -1936,6 +1985,12 @@ METROLOGY_HTML = """<!doctype html>
         addEvidence(t("fractal"), topology.box_counting_dimension);
         const maskEvidence = inputEvidence && inputEvidence.mask;
         const revision = maskEvidence && maskEvidence.proposal_revision;
+        if (inputEvidence && inputEvidence.review_authority) {
+          addEvidence(
+            language === "zh" ? "审核身份" : "Review authority",
+            inputEvidence.review_authority
+          );
+        }
         const feedbackUrl = payload.artifacts["active-learning-feedback.zip"];
         byId("feedback-panel").classList.toggle("hidden", !feedbackUrl);
         if (feedbackUrl) byId("feedback-download").href = feedbackUrl;
@@ -1983,10 +2038,11 @@ METROLOGY_HTML = """<!doctype html>
       function renderFeedbackCatalog(payload) {
         latestFeedbackCatalog = payload;
         const quality = payload.quality_counts || {};
+        const authorities = payload.review_authority_counts || {};
         const duplicateGroups = Number(payload.duplicate_fingerprint_group_count || 0);
         byId("feedback-catalog-summary").textContent = language === "zh"
-          ? `本机台账：${payload.returned_package_count} 个反馈包 · ${payload.item_count} 个样本 · ${payload.unique_source_count} 个来源 · ${Number(quality.warning || 0)} 项一致性警告 · ${duplicateGroups} 组重复候选`
-          : `Local registry: ${payload.returned_package_count} packages · ${payload.item_count} examples · ${payload.unique_source_count} sources · ${Number(quality.warning || 0)} consistency warnings · ${duplicateGroups} duplicate candidates`;
+          ? `本机台账：${payload.returned_package_count} 个反馈包 · ${payload.item_count} 个样本 · ${payload.unique_source_count} 个来源 · ${Number(authorities.machine_heuristic || 0)} 个机器标签 · ${Number(quality.warning || 0)} 项一致性警告 · ${duplicateGroups} 组重复候选`
+          : `Local registry: ${payload.returned_package_count} packages · ${payload.item_count} examples · ${payload.unique_source_count} sources · ${Number(authorities.machine_heuristic || 0)} machine labels · ${Number(quality.warning || 0)} consistency warnings · ${duplicateGroups} duplicate candidates`;
       }
 
       async function loadFeedbackCatalog() {
@@ -2023,6 +2079,7 @@ METROLOGY_HTML = """<!doctype html>
           : (language === "zh" ? "无；仍需单独批准训练" : "None; training still requires separate approval");
         const lines = [
           `${t("selectedItems")}: ${selection.selected_item_count} · ${t("uniqueSources")}: ${selection.unique_source_count} · ${t("visualSceneGroups")}: ${selection.visual_scene_group_count}`,
+          `${language === "zh" ? "机器候选" : "Machine candidates"}: ${Number(selection.machine_only_selected_count || 0)} · ${language === "zh" ? "人工复核" : "Human-reviewed"}: ${Number((selection.review_authority_counts || {}).human_operator || 0)}`,
           `${splitSummary} (${language === "zh" ? "样本 / 原图 / 视觉簇" : "items / sources / visual groups"})`,
           `${t("nearDuplicateLinks")}: ${Number(clustering.near_duplicate_link_count || 0)} · ${language === "zh" ? "多来源视觉簇" : "multi-source groups"}: ${Number(clustering.multi_source_scene_group_count || 0)}`,
           `${t("duplicateRemoved")}: ${selection.exclusion_counts.duplicate_fingerprint}`,
@@ -2071,9 +2128,11 @@ METROLOGY_HTML = """<!doctype html>
               : t("curationComplete"),
             payload.curation.status === "not_training_ready"
           );
+          return payload;
         } catch (error) {
           const message = error && (language === "zh" ? error.message_zh : error.message_en);
           setStatus(message || t("failed"), true);
+          return null;
         } finally {
           button.disabled = !byId("feedback-download").getAttribute("href");
         }
@@ -2116,7 +2175,7 @@ METROLOGY_HTML = """<!doctype html>
       }
 
       async function createFeedbackSnapshot() {
-        if (!latestFeedbackCuration) return;
+        if (!latestFeedbackCuration) return null;
         const button = byId("snapshot-button");
         button.disabled = true;
         setStatus(t("snapshotRunning"));
@@ -2136,12 +2195,21 @@ METROLOGY_HTML = """<!doctype html>
             blocked ? t("snapshotBlocked") : t("snapshotComplete"),
             blocked
           );
+          return payload;
         } catch (error) {
           const message = error && (language === "zh" ? error.message_zh : error.message_en);
           setStatus(message || t("failed"), true);
+          return null;
         } finally {
           button.disabled = !latestFeedbackCuration;
         }
+      }
+
+      async function runGovernanceAutopilot() {
+        const curation = await createFeedbackCuration();
+        if (!curation) return false;
+        const snapshot = await createFeedbackSnapshot();
+        return Boolean(snapshot);
       }
 
       function inputNumber(id) {

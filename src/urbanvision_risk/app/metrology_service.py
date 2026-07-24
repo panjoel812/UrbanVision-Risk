@@ -36,6 +36,11 @@ MAX_METROLOGY_PIXELS = 20_000_000
 SOURCE_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 MASK_CONTENT_TYPES = frozenset({"image/png", "image/webp"})
 CALIBRATION_MODES = frozenset({"pixel", "manual", "aruco"})
+REVIEW_AUTHORITIES = {
+    "automatic_draft": "machine_unreviewed",
+    "machine_reviewed_candidate": "machine_heuristic",
+    "human_reviewed": "human_operator",
+}
 HOTSPOT_DISPOSITIONS = frozenset(
     {
         "accepted_as_proposed",
@@ -45,6 +50,7 @@ HOTSPOT_DISPOSITIONS = frozenset(
     }
 )
 MAX_HOTSPOT_NOTE_CHARS = 160
+AUTOPILOT_ACCEPT_OVERLAP = 0.10
 ACTIVE_LEARNING_FEEDBACK_ARTIFACT = "active-learning-feedback.zip"
 MAX_FEEDBACK_CROP_PIXELS = 512_000
 MAX_FEEDBACK_CATALOG_PACKAGES = 100
@@ -1205,6 +1211,7 @@ class LocalMetrologyService:
         final_mask: np.ndarray,
         reviewed_hotspot_ids: list[str],
         hotspot_decisions: list[dict[str, str]],
+        review_authority: str,
     ) -> dict[str, object]:
         safe_id = validate_run_name(proposal_id)
         evidence_path = self.paths.metrology / "proposals" / safe_id / "evidence.json"
@@ -1231,6 +1238,11 @@ class LocalMetrologyService:
         added = int(np.count_nonzero(final_mask & ~proposed))
         removed = int(np.count_nonzero(proposed & ~final_mask))
         changed = added + removed
+        if review_authority == "machine_heuristic" and changed:
+            raise _input_error(
+                "machine_reviewed_candidate must preserve the immutable "
+                "proposal mask"
+            )
         algorithm_version = evidence.get("schema_version")
         review_guidance = evidence.get("review_guidance")
         ranking = (
@@ -1295,6 +1307,30 @@ class LocalMetrologyService:
         decisions_by_id = {
             decision["hotspot_id"]: decision for decision in hotspot_decisions
         }
+        if review_authority == "machine_heuristic":
+            if set(reviewed_hotspot_ids) != set(available_ids):
+                raise _input_error(
+                    "machine_reviewed_candidate must inspect every ranked hotspot"
+                )
+            if set(decisions_by_id) != set(available_ids):
+                raise _input_error(
+                    "machine_reviewed_candidate must disposition every ranked hotspot"
+                )
+            for hotspot in available_hotspots:
+                overlap = float(hotspot.get("candidate_overlap_ratio", 0.0))
+                expected = (
+                    "accepted_as_proposed"
+                    if overlap >= AUTOPILOT_ACCEPT_OVERLAP
+                    else "deferred_for_follow_up"
+                )
+                actual = decisions_by_id[str(hotspot["hotspot_id"])][
+                    "disposition"
+                ]
+                if actual != expected:
+                    raise _input_error(
+                        "machine_reviewed_candidate decision differs from "
+                        f"autopilot policy for {hotspot['hotspot_id']}"
+                    )
         decisions_in_rank_order = [
             decisions_by_id[hotspot_id]
             for hotspot_id in available_ids
@@ -1332,6 +1368,12 @@ class LocalMetrologyService:
             else "not_started"
         )
         hotspot_review = {
+            "review_authority": review_authority,
+            "decision_policy": (
+                "candidate_overlap_ratio>=0.10_accept_else_defer"
+                if review_authority == "machine_heuristic"
+                else "operator_recorded"
+            ),
             "status": review_status,
             "decision_status": decision_status,
             "ranked_hotspot_count": ranked_count,
@@ -1378,7 +1420,7 @@ class LocalMetrologyService:
             ),
             "interpretation": (
                 "This records which ranked sensitivity-disagreement regions the "
-                "operator inspected and how the operator dispositioned them; "
+                f"{review_authority} workflow dispositioned; "
                 "it does not prove mask correctness or field conditions"
             ),
         }
@@ -1397,7 +1439,7 @@ class LocalMetrologyService:
             "hotspot_review": hotspot_review,
             "interpretation": (
                 "Difference between the immutable local proposal and the "
-                "mask submitted from the human-editable browser"
+                f"browser-submitted mask; review authority={review_authority}"
             ),
         }
 
@@ -1411,6 +1453,7 @@ class LocalMetrologyService:
         source_image: np.ndarray,
         final_mask: np.ndarray,
         hotspot_decisions: list[dict[str, str]],
+        review_authority: str,
     ) -> bytes:
         safe_proposal_id = validate_run_name(proposal_id)
         proposal_dir = self.paths.metrology / "proposals" / safe_proposal_id
@@ -1475,11 +1518,13 @@ class LocalMetrologyService:
                 "UrbanVision-Risk active-learning feedback package\n"
                 "UrbanVision-Risk 主动学习反馈包\n\n"
                 "Each item contains one source ROI, the immutable proposal mask, "
-                "the final reviewed mask, and the sensitivity-disagreement layer.\n"
-                "每项包含原图 ROI、不可变候选掩膜、最终人工复核掩膜和灵敏度分歧层。\n\n"
-                "Operator dispositions are workflow observations, not ground truth, "
+                "the submitted candidate mask, and the sensitivity-disagreement "
+                "layer.\n"
+                "每项包含原图 ROI、不可变候选掩膜、提交的候选掩膜和灵敏度分歧层。\n\n"
+                "Machine or operator dispositions are workflow observations, not "
+                "ground truth, "
                 "engineering diagnoses, repair orders, or road-safety labels.\n"
-                "操作员处置是工作流观察，不是真值、工程诊断、维修工单或道路安全标签。\n"
+                "机器或操作员处置是工作流观察，不是真值、工程诊断、维修工单或道路安全标签。\n"
             ).encode()
         }
         manifest_items: list[dict[str, object]] = []
@@ -1559,6 +1604,7 @@ class LocalMetrologyService:
                     "hotspot_id": hotspot_id,
                     "rank": rank,
                     "disposition": decision["disposition"],
+                    "decision_authority": review_authority,
                     **(
                         {"note": decision["note"]}
                         if decision.get("note")
@@ -1620,9 +1666,15 @@ class LocalMetrologyService:
             else None
         )
         manifest = {
-            "schema_version": "urbanvision-active-learning-feedback-v1.1.0",
+            "schema_version": "urbanvision-active-learning-feedback-v1.2.0",
             "run_id": run_id,
             "proposal_id": safe_proposal_id,
+            "review_authority": review_authority,
+            "decision_policy": (
+                "candidate_overlap_ratio>=0.10_accept_else_defer"
+                if review_authority == "machine_heuristic"
+                else "operator_recorded"
+            ),
             "created_at_utc": (
                 measurement_run.get("created_at_utc")
                 if isinstance(measurement_run, dict)
@@ -1646,8 +1698,8 @@ class LocalMetrologyService:
                 "for a separately governed future training dataset"
             ),
             "claim_boundary": (
-                "Operator dispositions are not automatic ground truth, engineering "
-                "diagnoses, repair orders, or road-safety labels"
+                "Machine or operator dispositions are not automatic ground truth, "
+                "engineering diagnoses, repair orders, or road-safety labels"
             ),
         }
         entries["manifest.json"] = (
@@ -1688,15 +1740,16 @@ class LocalMetrologyService:
             raise _input_error(f"uncertainty_samples={uncertainty_samples}")
         if not 0 <= segmentation_radius_pixels <= 5:
             raise _input_error(f"segmentation_radius_pixels={segmentation_radius_pixels}")
-        if review_state not in {"automatic_draft", "human_reviewed"}:
+        if review_state not in REVIEW_AUTHORITIES:
             raise _input_error(f"review_state={review_state!r}")
+        review_authority = REVIEW_AUTHORITIES[review_state]
         reviewed_hotspot_ids = _reviewed_hotspot_ids(reviewed_hotspots)
         parsed_hotspot_decisions = _hotspot_decisions(hotspot_decisions)
-        if reviewed_hotspot_ids and review_state != "human_reviewed":
+        if reviewed_hotspot_ids and review_state == "automatic_draft":
             raise _input_error(
                 "automatic_draft cannot contain reviewed hotspot IDs"
             )
-        if parsed_hotspot_decisions and review_state != "human_reviewed":
+        if parsed_hotspot_decisions and review_state == "automatic_draft":
             raise _input_error(
                 "automatic_draft cannot contain hotspot decisions"
             )
@@ -1725,6 +1778,8 @@ class LocalMetrologyService:
         source_digest = _sha256(source_content)
         if proposal_id and review_state == "automatic_draft":
             mask_origin = "local_proposal_automatic_draft"
+        elif proposal_id and review_state == "machine_reviewed_candidate":
+            mask_origin = "local_proposal_machine_reviewed_candidate"
         elif proposal_id:
             mask_origin = "local_proposal_submitted_after_human_editing"
         else:
@@ -1745,10 +1800,12 @@ class LocalMetrologyService:
                 final_mask=mask,
                 reviewed_hotspot_ids=reviewed_hotspot_ids,
                 hotspot_decisions=parsed_hotspot_decisions,
+                review_authority=review_authority,
             )
         input_evidence = {
             "kind": "local_web_metrology",
             "review_state": review_state,
+            "review_authority": review_authority,
             "source": {
                 "filename": _safe_filename(source_filename, "road-image"),
                 "sha256": source_digest,
@@ -1777,6 +1834,7 @@ class LocalMetrologyService:
                     source_image=source_image,
                     final_mask=mask,
                     hotspot_decisions=parsed_hotspot_decisions,
+                    review_authority=review_authority,
                 )
                 self._write_bytes_exclusive(
                     output_dir / ACTIVE_LEARNING_FEEDBACK_ARTIFACT,
@@ -1808,6 +1866,10 @@ class LocalMetrologyService:
                         "proposal_id": manifest.get("proposal_id"),
                         "created_at_utc": manifest.get("created_at_utc"),
                         "source_sha256": manifest.get("source_sha256"),
+                        "review_authority": manifest.get(
+                            "review_authority",
+                            "legacy_unknown",
+                        ),
                         "schema_version": manifest.get("schema_version"),
                         "manifest_sha256": manifest_sha256,
                         "items": [item for item in items if isinstance(item, dict)],
@@ -1841,6 +1903,12 @@ class LocalMetrologyService:
             "deferred": 0,
             "unknown": 0,
         }
+        review_authority_counts = {
+            "human_operator": 0,
+            "machine_heuristic": 0,
+            "machine_unreviewed": 0,
+            "legacy_unknown": 0,
+        }
         fingerprints: dict[str, list[dict[str, str]]] = {}
         unique_sources: set[str] = set()
         item_count = 0
@@ -1865,6 +1933,16 @@ class LocalMetrologyService:
                 if not isinstance(item, dict):
                     continue
                 item_count += 1
+                authority = item.get(
+                    "decision_authority",
+                    package.get(
+                        "review_authority",
+                        "legacy_unknown",
+                    ),
+                )
+                if authority not in review_authority_counts:
+                    authority = "legacy_unknown"
+                review_authority_counts[str(authority)] += 1
                 disposition = item.get("disposition")
                 if (
                     isinstance(disposition, str)
@@ -1922,6 +2000,7 @@ class LocalMetrologyService:
             "unique_source_count": len(unique_sources),
             "disposition_counts": disposition_counts,
             "quality_counts": quality_counts,
+            "review_authority_counts": review_authority_counts,
             "duplicate_fingerprint_group_count": len(duplicate_groups),
             "duplicate_fingerprint_item_count": sum(
                 group["item_count"] for group in duplicate_groups
@@ -2005,6 +2084,9 @@ class LocalMetrologyService:
         candidates: list[dict[str, object]] = []
         for package in selected_packages:
             source_sha256 = package.get("source_sha256")
+            package_authority = package.get("review_authority")
+            if package_authority not in set(REVIEW_AUTHORITIES.values()):
+                package_authority = "legacy_unknown"
             valid_source = _is_hex_digest(source_sha256, 64)
             package_items = package.get("items")
             if not isinstance(package_items, list):
@@ -2114,6 +2196,12 @@ class LocalMetrologyService:
                     {
                         "run_id": package["run_id"],
                         "proposal_id": package.get("proposal_id"),
+                        "review_authority": (
+                            item.get("decision_authority")
+                            if item.get("decision_authority")
+                            in set(REVIEW_AUTHORITIES.values())
+                            else package_authority
+                        ),
                         "source_sha256": source_sha256,
                         "manifest_sha256": package["manifest_sha256"],
                         "hotspot_id": hotspot_id,
@@ -2149,6 +2237,22 @@ class LocalMetrologyService:
                 str(candidate["source_sha256"]),
                 [],
             ).append(candidate)
+        review_authority_counts = {
+            authority: sum(
+                item["review_authority"] == authority
+                for item in deduplicated
+            )
+            for authority in (
+                "human_operator",
+                "machine_heuristic",
+                "machine_unreviewed",
+                "legacy_unknown",
+            )
+        }
+        machine_only_selected_count = (
+            len(deduplicated)
+            - review_authority_counts["human_operator"]
+        )
         raw_source_fingerprints = {
             source: {
                 str(item["source_roi_difference_hash64"])
@@ -2234,6 +2338,18 @@ class LocalMetrologyService:
                     )
                     for disposition in sorted(HOTSPOT_DISPOSITIONS)
                 },
+                "review_authority_counts": {
+                    authority: sum(
+                        item["review_authority"] == authority
+                        for item in items
+                    )
+                    for authority in (
+                        "human_operator",
+                        "machine_heuristic",
+                        "machine_unreviewed",
+                        "legacy_unknown",
+                    )
+                },
                 "items": items,
             }
         source_overlaps = {
@@ -2264,6 +2380,8 @@ class LocalMetrologyService:
             blockers.append("privacy_review_pending")
         if not label_qa_confirmed:
             blockers.append("label_qa_pending")
+        if machine_only_selected_count:
+            blockers.append("machine_labels_require_human_approval")
         if invalid_package_count:
             blockers.append("invalid_feedback_packages_present")
         if inventory_truncated:
@@ -2284,7 +2402,7 @@ class LocalMetrologyService:
             self._record_id_factory("feedback-curation")
         )
         payload: dict[str, object] = {
-            "schema_version": "urbanvision-feedback-curation-v2.0.0",
+            "schema_version": "urbanvision-feedback-curation-v2.1.0",
             "curation_id": curation_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "local_only": True,
@@ -2315,6 +2433,10 @@ class LocalMetrologyService:
                 "selected_item_count": len(deduplicated),
                 "unique_source_count": len(source_groups),
                 "visual_scene_group_count": len(scene_groups),
+                "review_authority_counts": review_authority_counts,
+                "machine_only_selected_count": (
+                    machine_only_selected_count
+                ),
                 "exclusion_counts": exclusion_counts,
                 "duplicate_policy": (
                     "Retain the highest-priority deterministic representative "
@@ -2427,9 +2549,10 @@ class LocalMetrologyService:
                 finding["hotspot_id"] = hotspot_id
             findings.append(finding)
 
-        if curation.get("schema_version") != (
-            "urbanvision-feedback-curation-v2.0.0"
-        ):
+        if curation.get("schema_version") not in {
+            "urbanvision-feedback-curation-v2.0.0",
+            "urbanvision-feedback-curation-v2.1.0",
+        }:
             add_blocker("unsupported_curation_schema")
         readiness = curation.get("readiness")
         upstream_blockers = (
@@ -2606,6 +2729,21 @@ class LocalMetrologyService:
                 visual_scene_group_id = item.get(
                     "visual_scene_group_id"
                 )
+                review_authority = item.get(
+                    "review_authority",
+                    "legacy_unknown",
+                )
+                current_review_authority = (
+                    current_item.get(
+                        "decision_authority",
+                        package.get(
+                            "review_authority",
+                            "legacy_unknown",
+                        ),
+                    )
+                    if isinstance(current_item, dict)
+                    else None
+                )
                 if (
                     files is None
                     or current_files != files
@@ -2615,6 +2753,11 @@ class LocalMetrologyService:
                     or not visual_scene_group_id.startswith(
                         "visual-scene-"
                     )
+                    or review_authority not in {
+                        *REVIEW_AUTHORITIES.values(),
+                        "legacy_unknown",
+                    }
+                    or review_authority != current_review_authority
                 ):
                     add_blocker("invalid_training_pairs")
                     add_finding(
@@ -2751,6 +2894,7 @@ class LocalMetrologyService:
                     "source_sha256": source_sha256,
                     "visual_scene_group_id": visual_scene_group_id,
                     "disposition": item.get("disposition"),
+                    "review_authority": review_authority,
                     "width": int(final_mask.shape[1]),
                     "height": int(final_mask.shape[0]),
                     "foreground_pixels": foreground_pixels,
@@ -2861,6 +3005,18 @@ class LocalMetrologyService:
                     )
                     for disposition in sorted(HOTSPOT_DISPOSITIONS)
                 },
+                "review_authority_counts": {
+                    authority: sum(
+                        pair["review_authority"] == authority
+                        for pair in pairs
+                    )
+                    for authority in (
+                        "human_operator",
+                        "machine_heuristic",
+                        "machine_unreviewed",
+                        "legacy_unknown",
+                    )
+                },
                 "pairs": pairs,
             }
         merkle_records = [
@@ -2874,6 +3030,7 @@ class LocalMetrologyService:
                 ],
                 "source_roi_sha256": pair["source_roi"]["sha256"],
                 "final_mask_sha256": pair["final_mask"]["sha256"],
+                "review_authority": pair["review_authority"],
             }
             for pair in verified_pairs
         ]
@@ -2920,6 +3077,18 @@ class LocalMetrologyService:
                 "source_roi_content_overlaps": (
                     source_content_overlaps
                 ),
+                "review_authority_counts": {
+                    authority: sum(
+                        pair["review_authority"] == authority
+                        for pair in verified_pairs
+                    )
+                    for authority in (
+                        "human_operator",
+                        "machine_heuristic",
+                        "machine_unreviewed",
+                        "legacy_unknown",
+                    )
+                },
                 "findings": findings,
                 "truncated_finding_count": truncated_finding_count,
             },
@@ -2941,6 +3110,7 @@ class LocalMetrologyService:
                     "visual_scene_group_id",
                     "source_roi_sha256",
                     "final_mask_sha256",
+                    "review_authority",
                 ],
             },
             "splits": split_payloads,

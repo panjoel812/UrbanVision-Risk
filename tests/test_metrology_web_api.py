@@ -313,11 +313,13 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "Promise.allSettled" in response.text
     assert "runAutomaticInspection" in response.text
     assert "generateProposalAndDraft" in response.text
+    assert 'id="autopilot-toggle"' in response.text
+    assert "applyAutopilotDecisions" in response.text
+    assert "AUTOPILOT_ACCEPT_OVERLAP = 0.10" in response.text
+    assert "runGovernanceAutopilot" in response.text
     assert "proposalSuppressed" in response.text
-    review_state_submission = (
-        'form.append("review_state", automatic ? "automatic_draft" : "human_reviewed")'
-    )
-    assert review_state_submission in response.text
+    assert '"machine_reviewed_candidate"' in response.text
+    assert 'form.append("review_state", reviewState)' in response.text
     assert 'id="review-state"' in response.text
     assert "/api/metrology/compare" in response.text
     assert "/api/metrology/proposals" in response.text
@@ -404,6 +406,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["leakage_safe_feedback_curation"] is True
     assert health.json()["visual_near_duplicate_split_firewall"] is True
     assert health.json()["content_addressed_snapshot_preflight"] is True
+    assert health.json()["policy_bounded_local_autopilot"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:

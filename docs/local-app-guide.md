@@ -1,4 +1,4 @@
-# UrbanVision-Risk v5.1 Reliability-Aware Local App / 可靠性本地应用指南
+# UrbanVision-Risk v5.2 Reliability-Aware Local App / 可靠性本地应用指南
 
 ## Finished product / 最终产品
 
@@ -37,6 +37,7 @@ Open `http://127.0.0.1:8000`. Detection, reliability evidence, editable mask rev
 
 The browser workflow includes:
 
+- policy-bounded autopilot from upload through governed snapshot preflight / 从上传到受治理快照预检的策略约束自动驾驶；
 - deterministic built-in calibrated demo / 确定性内置标定 Demo；
 - original-resolution mask brush, eraser, undo, and clear / 原分辨率掩膜画笔、橡皮、撤销和清空；
 - pixel-only, manual `TL → TR → BR → BL`, and automatic ArUco modes / 仅像素、手动四点和 ArUco 自动模式；
@@ -67,6 +68,10 @@ Preflight independently recomputes exact-source, visual-group, and identical sou
 The Merkle root proves that one exact set of references produced the recorded root; it does not prove privacy clearance, label correctness, or model quality. `training_authorized` remains `false`.
 
 Merkle 根只能证明某一精确引用集合产生了记录中的根，不能证明隐私合规、标签正确或模型质量；`training_authorized` 仍为 `false`。
+
+Version 5.2 checks **Autopilot** by default. It dispositions ranked hotspots with the published overlap rule, saves a `machine_reviewed_candidate`, builds curation, and invokes snapshot preflight without more clicks. Provenance records `machine_heuristic`; selected machine labels add a training blocker until a human operator independently approves them. Brush/eraser correction remains available as an explicit `human_reviewed` override.
+
+v5.2 默认勾选 **自动驾驶**。它使用公开的重叠规则处置排序热点，保存 `machine_reviewed_candidate`，随后无需额外点击即可生成策划并调用快照预检。来源记录明确写入 `machine_heuristic`；入选机器标签会添加训练阻断，直到人工操作员独立批准。画笔/橡皮修订仍可作为明确的 `human_reviewed` 覆盖版本保存。
 
 ## What happens after upload / 上传后发生什么
 

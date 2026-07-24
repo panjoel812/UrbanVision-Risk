@@ -251,9 +251,10 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
             for role, content in role_contents.items()
         }
         manifest = {
-            "schema_version": "urbanvision-active-learning-feedback-v1.1.0",
+            "schema_version": "urbanvision-active-learning-feedback-v1.2.0",
             "run_id": run_id,
             "proposal_id": f"proposal-{index:03d}",
+            "review_authority": "human_operator",
             "created_at_utc": f"2026-07-24T00:00:{index:02d}+00:00",
             "source_sha256": f"{index + 1:064x}",
             "items": [
@@ -261,6 +262,7 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
                     "hotspot_id": f"hotspot-{index:03d}",
                     "rank": 1,
                     "disposition": "accepted_as_proposed",
+                    "decision_authority": "human_operator",
                     "priority_score": float(100 - index),
                     "source_roi_difference_hash64": scene_fingerprint,
                     "quality_gate": {"status": "pass"},
@@ -312,6 +314,10 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
     assert curation["readiness"]["blockers"] == []
     assert curation["selection"]["selected_item_count"] == 10
     assert curation["selection"]["visual_scene_group_count"] == 9
+    assert curation["selection"]["machine_only_selected_count"] == 0
+    assert curation["selection"]["review_authority_counts"][
+        "human_operator"
+    ] == 10
     assert curation["visual_scene_clustering"]["near_duplicate_link_count"] == 1
     assert curation["visual_scene_clustering"]["scene_group_count"] == 9
     assert curation["visual_scene_clustering"][
@@ -346,6 +352,9 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
     assert snapshot["integrity"]["expected_pair_count"] == 10
     assert snapshot["integrity"]["verified_pair_count"] == 10
     assert snapshot["integrity"]["invalid_pair_count"] == 0
+    assert snapshot["integrity"]["review_authority_counts"][
+        "human_operator"
+    ] == 10
     assert snapshot["merkle"]["leaf_count"] == 10
     assert len(snapshot["merkle"]["root_sha256"]) == 64
     assert {
@@ -753,8 +762,10 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
         manifest_bytes = archive.read("manifest.json")
         manifest = json.loads(manifest_bytes)
         assert manifest["schema_version"] == (
-            "urbanvision-active-learning-feedback-v1.1.0"
+            "urbanvision-active-learning-feedback-v1.2.0"
         )
+        assert manifest["review_authority"] == "human_operator"
+        assert manifest["decision_policy"] == "operator_recorded"
         assert manifest["item_count"] == 2
         assert manifest["source_sha256"] == proposal["evidence"]["source"]["sha256"]
         measurement_bytes = (
@@ -789,6 +800,7 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
         "schema_version": manifest["schema_version"],
         "run_id": "duplicate-feedback-001",
         "proposal_id": manifest["proposal_id"],
+        "review_authority": manifest["review_authority"],
         "created_at_utc": "2026-07-24T00:00:00+00:00",
         "source_sha256": manifest["source_sha256"],
         "items": [manifest["items"][0]],
@@ -815,6 +827,7 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
     assert catalog["invalid_package_count"] == 1
     assert catalog["quality_counts"]["pass"] == 2
     assert catalog["quality_counts"]["deferred"] == 1
+    assert catalog["review_authority_counts"]["human_operator"] == 3
     assert catalog["duplicate_fingerprint_group_count"] >= 1
     assert catalog["duplicate_fingerprint_item_count"] >= 2
     curation_result = service.create_feedback_curation(
@@ -861,6 +874,142 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
     assert "/Users/" not in curation_path.read_text(encoding="utf-8")
     assert feedback_path.is_file()
     assert (duplicate_dir / feedback_name).is_file()
+
+
+def test_machine_reviewed_candidate_is_audited_and_training_blocked(
+    tmp_path: Path,
+) -> None:
+    source = _textured_crack_source()
+    service = LocalMetrologyService(
+        paths=get_paths(tmp_path),
+        id_factory=lambda: "machine-candidate-001",
+        record_id_factory=lambda prefix: f"{prefix}-machine-001",
+    )
+    proposal = service.propose_mask_bytes(
+        source_content=source,
+        source_filename="machine-road.png",
+        source_content_type="image/png",
+        sensitivity=0.55,
+    )
+    proposal_id = proposal["proposal_id"]
+    hotspots = proposal["evidence"]["review_guidance"]["ranking"][
+        "ranked_hotspots"
+    ]
+    hotspot_ids = [hotspot["hotspot_id"] for hotspot in hotspots]
+    decisions = [
+        {
+            "hotspot_id": hotspot["hotspot_id"],
+            "disposition": (
+                "accepted_as_proposed"
+                if hotspot["candidate_overlap_ratio"] >= 0.10
+                else "deferred_for_follow_up"
+            ),
+        }
+        for hotspot in hotspots
+    ]
+    mask_path = service.proposal_artifact_path(
+        proposal_id,
+        "proposal-mask.png",
+    )
+
+    result = service.analyze_bytes(
+        source_content=source,
+        source_filename="machine-road.png",
+        source_content_type="image/png",
+        mask_content=mask_path.read_bytes(),
+        mask_filename="proposal-mask.png",
+        mask_content_type="image/png",
+        calibration_mode="pixel",
+        uncertainty_samples=0,
+        proposal_id=proposal_id,
+        review_state="machine_reviewed_candidate",
+        reviewed_hotspots=json.dumps(hotspot_ids),
+        hotspot_decisions=json.dumps(decisions),
+    )
+
+    input_evidence = result["measurement"]["run"]["input_evidence"]
+    assert input_evidence["review_state"] == "machine_reviewed_candidate"
+    assert input_evidence["review_authority"] == "machine_heuristic"
+    assert input_evidence["mask"]["origin"] == (
+        "local_proposal_machine_reviewed_candidate"
+    )
+    assert input_evidence["mask"]["proposal_revision"]["hotspot_review"][
+        "review_authority"
+    ] == "machine_heuristic"
+    assert input_evidence["mask"]["proposal_revision"]["hotspot_review"][
+        "decision_policy"
+    ] == "candidate_overlap_ratio>=0.10_accept_else_defer"
+    feedback_path = service.artifact_path(
+        result["run_id"],
+        "active-learning-feedback.zip",
+    )
+    with zipfile.ZipFile(feedback_path) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+    assert manifest["review_authority"] == "machine_heuristic"
+    assert manifest["decision_policy"] == (
+        "candidate_overlap_ratio>=0.10_accept_else_defer"
+    )
+    assert {
+        item["decision_authority"] for item in manifest["items"]
+    } == {"machine_heuristic"}
+    assert {
+        item["disposition"] for item in manifest["items"]
+    } >= {
+        "accepted_as_proposed",
+        "deferred_for_follow_up",
+    }
+
+    with pytest.raises(ProjectError, match="inspect every ranked hotspot"):
+        service.analyze_bytes(
+            source_content=source,
+            source_filename="machine-road.png",
+            source_content_type="image/png",
+            mask_content=mask_path.read_bytes(),
+            mask_filename="proposal-mask.png",
+            mask_content_type="image/png",
+            calibration_mode="pixel",
+            uncertainty_samples=0,
+            proposal_id=proposal_id,
+            review_state="machine_reviewed_candidate",
+            reviewed_hotspots=json.dumps(hotspot_ids[:-1]),
+            hotspot_decisions=json.dumps(decisions[:-1]),
+        )
+
+    with pytest.raises(ProjectError, match="decision differs"):
+        invalid_decisions = [dict(decision) for decision in decisions]
+        invalid_decisions[0]["disposition"] = (
+            "accepted_as_proposed"
+            if decisions[0]["disposition"] == "deferred_for_follow_up"
+            else "deferred_for_follow_up"
+        )
+        service.analyze_bytes(
+            source_content=source,
+            source_filename="machine-road.png",
+            source_content_type="image/png",
+            mask_content=mask_path.read_bytes(),
+            mask_filename="proposal-mask.png",
+            mask_content_type="image/png",
+            calibration_mode="pixel",
+            uncertainty_samples=0,
+            proposal_id=proposal_id,
+            review_state="machine_reviewed_candidate",
+            reviewed_hotspots=json.dumps(hotspot_ids),
+            hotspot_decisions=json.dumps(invalid_decisions),
+        )
+
+    curation = service.create_feedback_curation(
+        minimum_unique_sources=1,
+        privacy_review_confirmed=True,
+        label_qa_confirmed=True,
+    )["curation"]
+    assert curation["selection"]["machine_only_selected_count"] >= 1
+    assert curation["selection"]["review_authority_counts"][
+        "machine_heuristic"
+    ] == curation["selection"]["machine_only_selected_count"]
+    assert "machine_labels_require_human_approval" in (
+        curation["readiness"]["blockers"]
+    )
+    assert curation["training_authorized"] is False
 
 
 def test_aruco_web_calibration_preserves_detection_quality(tmp_path: Path) -> None:

@@ -153,6 +153,15 @@ METROLOGY_HTML = """<!doctype html>
     .brush-control { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--muted); font-size: .72rem; }
     .brush-control.proposal-control { margin-left: 0; }
     .brush-control input { width: 112px; accent-color: var(--forest-2); }
+    .hotspot-review { margin-top: 11px; padding: 12px; border: 1px solid color-mix(in srgb, var(--amber) 45%, var(--line)); border-radius: 13px; background: color-mix(in srgb, var(--amber) 7%, var(--card)); }
+    .hotspot-review-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .hotspot-review-title { font-size: .76rem; font-weight: 760; }
+    .hotspot-review-progress { color: var(--muted); font-size: .68rem; text-align: right; }
+    .hotspot-review-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+    .hotspot-review-actions .tool-button.reviewed { border-color: var(--forest-2); background: var(--mint); color: var(--forest); }
+    .hotspot-review-detail { margin: 8px 0 0; color: var(--muted); font-size: .69rem; }
+    .hotspot-review-track { height: 5px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: var(--line); }
+    .hotspot-review-bar { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--amber); transition: width 180ms ease; }
     .mode-grid { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(0, 1.3fr); gap: 13px; }
     .field { display: grid; gap: 5px; }
     .field label { color: var(--muted); font-size: .7rem; font-weight: 680; }
@@ -250,9 +259,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v4.3 · Sensitivity-disagreement review guidance</p>
+        <p class="eyebrow">v4.4 · Ranked human-review queue</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>目标检测、绿色裂缝候选和像素量测草稿会自动运行；黄色热点标出三档灵敏度结果不一致的位置，帮助你优先检查不稳定边界，再保存人工复核量测或加入真实标定。</span><span data-en class="hidden-lang">Detection, the green crack proposal, and a pixel-metrology draft run automatically. Yellow hotspots mark disagreement across three nearby sensitivity settings so review can focus on unstable boundaries before saving or adding physical calibration.</span></p>
+        <p class="hero-copy"><span data-zh>目标检测、绿色裂缝候选和像素量测草稿会自动运行；黄色分歧区域会被拆分并排序成复核队列，逐项检查与修订进度可一起保存到审计证据。</span><span data-en class="hidden-lang">Detection, the green crack proposal, and a pixel-metrology draft run automatically. Yellow disagreement regions become a ranked review queue whose inspected targets and corrections are saved as audit evidence.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -333,6 +342,19 @@ METROLOGY_HTML = """<!doctype html>
             <label class="brush-control"><span><span data-zh>笔宽</span><span data-en class="hidden-lang">Brush</span> <strong id="brush-value">18</strong> px</span><input id="brush-size" type="range" min="2" max="100" value="18" disabled></label>
             <label class="brush-control proposal-control"><span><span data-zh>建议灵敏度</span><span data-en class="hidden-lang">Proposal sensitivity</span> <strong id="proposal-sensitivity-value">55</strong>%</span><input id="proposal-sensitivity" type="range" min="0" max="1" step="0.05" value="0.55" disabled></label>
           </div>
+          <section id="hotspot-review" class="hotspot-review hidden" aria-live="polite">
+            <div class="hotspot-review-head">
+              <strong class="hotspot-review-title"><span data-zh>智能复核队列</span><span data-en class="hidden-lang">Ranked review queue</span></strong>
+              <span id="hotspot-progress" class="hotspot-review-progress">—</span>
+            </div>
+            <div class="hotspot-review-actions">
+              <button id="hotspot-previous" class="tool-button" type="button"><span data-zh>上一个</span><span data-en class="hidden-lang">Previous</span></button>
+              <button id="hotspot-next" class="tool-button" type="button"><span data-zh>下一个</span><span data-en class="hidden-lang">Next</span></button>
+              <button id="hotspot-reviewed" class="tool-button" type="button"><span data-zh>标记已检查</span><span data-en class="hidden-lang">Mark inspected</span></button>
+            </div>
+            <p id="hotspot-detail" class="hotspot-review-detail">—</p>
+            <div class="hotspot-review-track" aria-hidden="true"><span id="hotspot-progress-bar" class="hotspot-review-bar"></span></div>
+          </section>
           <p id="proposal-state" class="subcopy"><span data-zh>上传图片后自动生成可编辑底稿；提交量测前必须人工复核。</span><span data-en class="hidden-lang">An editable proposal is generated automatically after upload; human review is required before metrology.</span></p>
         </div>
 
@@ -439,7 +461,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v4.3 · Review Hotspots + Audited Draft · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v4.4 · Ranked Review Queue + Audited Draft · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -473,9 +495,13 @@ METROLOGY_HTML = """<!doctype html>
       let activeProposalId = null;
       let proposalSuppressed = false;
       let reviewHotspotsVisible = true;
+      let hotspotComponents = [];
+      let reviewedHotspotIds = new Set();
+      let activeHotspotIndex = -1;
       let hoverPoint = null;
       let sourceGeneration = 0;
       let maskDirty = false;
+      let reviewProgressDirty = false;
       let measurementOperationCount = 0;
       let pipelineStage = "idle";
 
@@ -527,6 +553,13 @@ METROLOGY_HTML = """<!doctype html>
           sensitivityDisagreement: "候选分歧",
           showHotspots: "显示黄色复核热点",
           hideHotspots: "隐藏黄色复核热点",
+          inspectedHotspots: "已检查热点",
+          rankedQueue: "优先队列",
+          priorityCoverage: "优先影响覆盖",
+          markInspected: "标记已检查",
+          markedInspected: "取消已检查",
+          saveReviewProgress: "保存复核进度",
+          reviewProgressState: "热点检查进度尚未保存；保存后会进入不可覆盖的量测证据。",
           pointsRequired: "手动标定需要依次点击 TL、TR、BR、BL 四个点。",
           measuring: "正在本机提取骨架、构建图结构并计算不确定性…",
           demoRunning: "正在生成完整标定 Demo…",
@@ -614,6 +647,13 @@ METROLOGY_HTML = """<!doctype html>
           sensitivityDisagreement: "proposal disagreement",
           showHotspots: "Show yellow review hotspots",
           hideHotspots: "Hide yellow review hotspots",
+          inspectedHotspots: "Inspected hotspots",
+          rankedQueue: "Priority queue",
+          priorityCoverage: "Priority-impact coverage",
+          markInspected: "Mark inspected",
+          markedInspected: "Undo inspected",
+          saveReviewProgress: "Save review progress",
+          reviewProgressState: "Hotspot-review progress is not saved yet; saving records it in immutable measurement evidence.",
           pointsRequired: "Manual calibration needs TL, TR, BR, and BL clicks in order.",
           measuring: "Extracting the skeleton, graph, geometry, and uncertainty locally…",
           demoRunning: "Generating the full calibrated demo…",
@@ -696,6 +736,47 @@ METROLOGY_HTML = """<!doctype html>
         button.textContent = available && reviewHotspotsVisible ? t("hideHotspots") : t("showHotspots");
       }
 
+      function renderHotspotReview() {
+        const panel = byId("hotspot-review");
+        const available = hotspotComponents.length > 0;
+        panel.classList.toggle("hidden", !available);
+        if (!available) return;
+        activeHotspotIndex = Math.max(0, Math.min(activeHotspotIndex, hotspotComponents.length - 1));
+        const current = hotspotComponents[activeHotspotIndex];
+        const reviewedCount = hotspotComponents.filter((hotspot) => reviewedHotspotIds.has(hotspot.hotspot_id)).length;
+        const totalPriority = hotspotComponents.reduce((sum, hotspot) => sum + Number(hotspot.priority_score || 0), 0);
+        const reviewedPriority = hotspotComponents.reduce((sum, hotspot) => reviewedHotspotIds.has(hotspot.hotspot_id) ? sum + Number(hotspot.priority_score || 0) : sum, 0);
+        const priorityCoverage = totalPriority > 0 ? reviewedPriority / totalPriority * 100 : 0;
+        const guidance = latestProposal && latestProposal.evidence && latestProposal.evidence.review_guidance;
+        const totalComponents = guidance && Number(guidance.review_zone_component_count);
+        const queueScope = totalComponents ? `${t("rankedQueue")} ${hotspotComponents.length}/${totalComponents} · ` : "";
+        byId("hotspot-progress").textContent = `${queueScope}${t("inspectedHotspots")} ${reviewedCount}/${hotspotComponents.length} · ${t("priorityCoverage")} ${priorityCoverage.toFixed(1)}%`;
+        byId("hotspot-progress-bar").style.width = `${priorityCoverage}%`;
+        const box = current.bounding_box;
+        const overlap = Number(current.candidate_overlap_ratio || 0) * 100;
+        byId("hotspot-detail").textContent = language === "zh"
+          ? `当前 #${current.rank} · 分歧 ${current.disagreement_pixels} px · 候选重叠 ${overlap.toFixed(1)}% · 区域 ${box.width} × ${box.height} px`
+          : `Current #${current.rank} · disagreement ${current.disagreement_pixels} px · proposal overlap ${overlap.toFixed(1)}% · region ${box.width} × ${box.height} px`;
+        const busy = measurementOperationCount > 0;
+        byId("hotspot-previous").disabled = busy || hotspotComponents.length < 2;
+        byId("hotspot-next").disabled = busy || hotspotComponents.length < 2;
+        const inspected = reviewedHotspotIds.has(current.hotspot_id);
+        const reviewButton = byId("hotspot-reviewed");
+        reviewButton.disabled = busy;
+        reviewButton.classList.toggle("reviewed", inspected);
+        reviewButton.textContent = inspected ? t("markedInspected") : t("markInspected");
+      }
+
+      function focusHotspot(index) {
+        if (!hotspotComponents.length) return;
+        activeHotspotIndex = (index + hotspotComponents.length) % hotspotComponents.length;
+        reviewHotspotsVisible = true;
+        updateHotspotToggle();
+        renderHotspotReview();
+        renderEditor();
+        byId("editor-canvas").scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+
       function setStatus(message, error = false) {
         byId("status").textContent = message;
         byId("status").classList.toggle("error", error);
@@ -725,13 +806,15 @@ METROLOGY_HTML = """<!doctype html>
           return;
         }
         if (maskDirty) button.textContent = t("saveEdited");
+        else if (reviewProgressDirty) button.textContent = t("saveReviewProgress");
         else if (latestResult && resultReviewState() === "automatic_draft") button.textContent = t("confirmReviewed");
         else button.textContent = t("saveAgain");
         const state = byId("review-state");
         const resultState = resultReviewState();
         const reviewed = resultState === "human_reviewed";
-        state.className = `review-state ${reviewed && !maskDirty ? "reviewed" : "draft"}`;
-        state.textContent = maskDirty ? t("editedState") : (resultState === "demo" ? t("demoState") : (reviewed ? t("reviewedState") : t("draftState")));
+        const pending = maskDirty || reviewProgressDirty;
+        state.className = `review-state ${reviewed && !pending ? "reviewed" : "draft"}`;
+        state.textContent = maskDirty ? t("editedState") : reviewProgressDirty ? t("reviewProgressState") : (resultState === "demo" ? t("demoState") : (reviewed ? t("reviewedState") : t("draftState")));
       }
 
       function markMaskDirty() {
@@ -915,6 +998,7 @@ METROLOGY_HTML = """<!doctype html>
         if (latestInspection) renderInspection(latestInspection);
         if (latestNarrative) renderNarrative(latestNarrative);
         renderProposalState();
+        renderHotspotReview();
         setPipeline(pipelineStage);
         updateReviewUI();
       }
@@ -943,8 +1027,13 @@ METROLOGY_HTML = """<!doctype html>
         proposalSuppressed = false;
         latestProposal = null;
         reviewHotspotsVisible = true;
+        hotspotComponents = [];
+        reviewedHotspotIds = new Set();
+        activeHotspotIndex = -1;
         maskDirty = false;
+        reviewProgressDirty = false;
         renderProposalState();
+        renderHotspotReview();
       }
 
       function drawStroke(context, stroke) {
@@ -1003,6 +1092,35 @@ METROLOGY_HTML = """<!doctype html>
         editorContext.drawImage(tintCanvas, 0, 0);
         editorContext.restore();
 
+        if (activeHotspotIndex >= 0 && hotspotComponents[activeHotspotIndex]) {
+          const hotspot = hotspotComponents[activeHotspotIndex];
+          const box = hotspot.bounding_box;
+          const scale = Math.max(2, Math.min(editor.width, editor.height) / 300);
+          const padding = scale * 2.5;
+          const x = Math.max(0, box.x - padding);
+          const y = Math.max(0, box.y - padding);
+          const width = Math.min(editor.width - x, box.width + padding * 2);
+          const height = Math.min(editor.height - y, box.height + padding * 2);
+          const label = `#${hotspot.rank}`;
+          editorContext.save();
+          editorContext.setLineDash([scale * 4, scale * 2]);
+          editorContext.lineWidth = scale * 2.4;
+          editorContext.strokeStyle = "rgba(0, 0, 0, .88)";
+          editorContext.strokeRect(x, y, width, height);
+          editorContext.lineWidth = scale * 1.2;
+          editorContext.strokeStyle = "#ffd34d";
+          editorContext.strokeRect(x, y, width, height);
+          editorContext.setLineDash([]);
+          editorContext.font = `700 ${Math.max(14, scale * 5)}px -apple-system, sans-serif`;
+          const labelWidth = editorContext.measureText(label).width + scale * 4;
+          const labelHeight = Math.max(18, scale * 7);
+          editorContext.fillStyle = "rgba(0, 0, 0, .82)";
+          editorContext.fillRect(x, Math.max(0, y - labelHeight), labelWidth, labelHeight);
+          editorContext.fillStyle = "#ffd34d";
+          editorContext.fillText(label, x + scale * 2, Math.max(labelHeight * .72, y - scale * 1.5));
+          editorContext.restore();
+        }
+
         if (calibrationPoints.length) {
           const scale = Math.max(2, Math.min(editor.width, editor.height) / 300);
           editorContext.save();
@@ -1058,6 +1176,7 @@ METROLOGY_HTML = """<!doctype html>
         const hasMask = (activeProposalId && !proposalSuppressed) || strokes.length > 0;
         byId("measure-button").disabled = !editable || !hasMask;
         updateHotspotToggle();
+        renderHotspotReview();
         updateReviewUI();
       }
 
@@ -1189,12 +1308,19 @@ METROLOGY_HTML = """<!doctype html>
         proposalSuppressed = false;
         reviewHotspotsVisible = Boolean(hotspotUrl);
         latestProposal = payload;
+        const guidance = payload.evidence && payload.evidence.review_guidance;
+        const ranking = guidance && guidance.ranking;
+        hotspotComponents = ranking && Array.isArray(ranking.ranked_hotspots) ? ranking.ranked_hotspots : [];
+        reviewedHotspotIds = new Set();
+        activeHotspotIndex = hotspotComponents.length ? 0 : -1;
+        reviewProgressDirty = false;
         strokes = [];
         activeStroke = null;
         maskDirty = false;
         rebuildMask();
         renderEditor();
         renderProposalState();
+        renderHotspotReview();
         updateControls();
       }
 
@@ -1316,6 +1442,9 @@ METROLOGY_HTML = """<!doctype html>
           form.append("segmentation_radius_pixels", formNumber("boundary-radius"));
           form.append("review_state", automatic ? "automatic_draft" : "human_reviewed");
           if (activeProposalId) form.append("proposal_id", activeProposalId);
+          if (!automatic && activeProposalId) {
+            form.append("reviewed_hotspots", JSON.stringify(Array.from(reviewedHotspotIds)));
+          }
           if (mode !== "pixel") {
             form.append("physical_width", formNumber("physical-width"));
             form.append("physical_height", formNumber("physical-height"));
@@ -1330,7 +1459,10 @@ METROLOGY_HTML = """<!doctype html>
           const payload = await response.json();
           if (!response.ok) throw payload.error || payload;
           if (generation !== sourceGeneration) return false;
-          if (!automatic) maskDirty = false;
+          if (!automatic) {
+            maskDirty = false;
+            reviewProgressDirty = false;
+          }
           renderResult(payload);
           setStatus(automatic ? t("autoDraftComplete") : t("complete"));
           if (!automatic) {
@@ -1456,6 +1588,11 @@ METROLOGY_HTML = """<!doctype html>
           addEvidence(t("humanRemoved"), revision.human_removed_pixels);
           addEvidence(t("proposalIou"), number(revision.proposal_final_iou, 4));
           addEvidence(t("changedRatio"), `${(Number(revision.changed_image_ratio) * 100).toFixed(4)}%`);
+          const hotspotReview = revision.hotspot_review;
+          if (hotspotReview && hotspotReview.ranked_hotspot_count) {
+            addEvidence(t("inspectedHotspots"), `${hotspotReview.reviewed_hotspot_count}/${hotspotReview.ranked_hotspot_count}`);
+            addEvidence(t("priorityCoverage"), `${(Number(hotspotReview.ranked_priority_coverage_ratio || 0) * 100).toFixed(1)}%`);
+          }
         }
         const calibration = measurement.run && measurement.run.input_evidence && measurement.run.input_evidence.calibration;
         const field = calibration && calibration.field_detection;
@@ -1683,6 +1820,22 @@ METROLOGY_HTML = """<!doctype html>
         reviewHotspotsVisible = !reviewHotspotsVisible;
         updateHotspotToggle();
         renderEditor();
+      });
+      byId("hotspot-previous").addEventListener("click", () => {
+        focusHotspot(activeHotspotIndex - 1);
+      });
+      byId("hotspot-next").addEventListener("click", () => {
+        focusHotspot(activeHotspotIndex + 1);
+      });
+      byId("hotspot-reviewed").addEventListener("click", () => {
+        const hotspot = hotspotComponents[activeHotspotIndex];
+        if (!hotspot) return;
+        if (reviewedHotspotIds.has(hotspot.hotspot_id)) reviewedHotspotIds.delete(hotspot.hotspot_id);
+        else reviewedHotspotIds.add(hotspot.hotspot_id);
+        reviewProgressDirty = true;
+        setPipeline("review");
+        renderHotspotReview();
+        updateReviewUI();
       });
       byId("reset-points").addEventListener("click", () => {
         calibrationPoints = [];

@@ -92,9 +92,29 @@ After choosing a source image, the page automatically runs two complementary fea
 2. multi-scale Hessian eigenvalue response for thin dark ridges / 多尺度 Hessian 特征值响应提取细暗脊；
 3. strong-seed/weak-neighbour hysteresis with connected-component geometry filtering / 强种子—弱邻域迟滞与连通区域几何过滤。
 
-Version 4.3 evaluates the selector at the nominal sensitivity and its two neighbours (`−0.15`, `+0.15`, clamped to 0–1). Pixels selected at every sampled setting form the stable set; pixels present in the union but absent from the stable set form the disagreement set. A small display dilation makes these regions visible as yellow hotspots without adding them to the editable green mask. `evidence.json` records `review_guidance.method: three_level_sensitivity_vote_disagreement`, sampled sensitivities, stable/union/disagreement counts, disagreement ratio, hotspot area, and hotspot component count. `review-hotspots.png` preserves the exact review layer.
+Version 4.4 evaluates the selector at the nominal sensitivity and its two neighbours (`−0.15`, `+0.15`, clamped to 0–1). Pixels selected at every sampled setting form the stable set; pixels present in the union but absent from the stable set form the disagreement set. A small display dilation makes these regions visible as yellow hotspots without adding them to the editable green mask. `evidence.json` records `review_guidance.method: three_level_sensitivity_vote_disagreement`, sampled sensitivities, stable/union/disagreement counts, disagreement ratio, hotspot area, and hotspot component count. `review-hotspots.png` preserves the exact review layer.
 
-v4.3 会在当前灵敏度及其两个邻域值（`−0.15`、`+0.15`，限制在 0–1）运行筛选器。所有设置都选中的像素构成稳定集；并集中存在但未进入稳定集的像素构成分歧集。系统只为显示而对分歧区做小范围膨胀，形成黄色热点，不会把黄色自动加入绿色可编辑掩膜。`evidence.json` 记录采样灵敏度、稳定/并集/分歧像素数、分歧比例、热点面积和热点连通区域数；`review-hotspots.png` 保存精确复核层。
+v4.4 会在当前灵敏度及其两个邻域值（`−0.15`、`+0.15`，限制在 0–1）运行筛选器。所有设置都选中的像素构成稳定集；并集中存在但未进入稳定集的像素构成分歧集。系统只为显示而对分歧区做小范围膨胀，形成黄色热点，不会把黄色自动加入绿色可编辑掩膜。`evidence.json` 记录采样灵敏度、稳定/并集/分歧像素数、分歧比例、热点面积和热点连通区域数；`review-hotspots.png` 保存精确复核层。
+
+The service preserves the exact yellow display layer, then uses a scale-aware odd-diameter dilation only for worklist grouping. It extracts connected review zones from that grouping layer and ranks at most 24 with:
+
+```text
+priority score = disagreement pixels × (1 + nominal-proposal overlap ratio)
+```
+
+This places large unstable regions that directly intersect the current editable proposal before smaller or proposal-external regions. Ties are resolved deterministically by disagreement size, hotspot area, then image position. Every ranked item records its stable ID, rank, source-resolution bounding box, centroid, hotspot/disagreement/nominal pixel counts, overlap ratio, and score. The queue also records its share of all disagreement pixels and of total component-priority mass, so limiting the operator worklist cannot be mistaken for covering every detected component.
+
+服务保留精确黄色显示层，再以随图像尺寸变化的奇数直径膨胀层专门进行工作清单分组；它从分组层提取连通复核区域，并最多排序 24 项：
+
+```text
+优先分数 = 分歧像素数 ×（1 + 当前候选重叠比例）
+```
+
+因此，面积较大且直接影响当前绿色候选的区域会排在更小或候选之外的区域之前。分数相同时依次按分歧规模、热点面积和图像位置确定顺序，保证复现。每项记录稳定编号、名次、原图分辨率边界框、质心、热点/分歧/候选像素数、重叠比例与分数。队列还记录其覆盖全部分歧像素和组件总优先质量的比例，避免把“限制操作员工作量”误解为“覆盖了所有热点”。
+
+The browser can mark ranked items as inspected without changing mask pixels. On save, `measurement.json` records the inspected IDs, count completion ratio, and priority-weighted coverage under `mask.proposal_revision.hotspot_review`. The status is `not_started`, `partial`, `complete`, or `not_available`. “Complete” means every ranked target was marked; it does not mean every raw component was ranked, every crack was found, or the mask is correct.
+
+网页可把排序项标记为已检查，而不改变掩膜像素。保存后，`measurement.json` 在 `mask.proposal_revision.hotspot_review` 下记录已检查编号、数量完成率和优先影响覆盖率；状态为 `not_started`、`partial`、`complete` 或 `not_available`。“complete”只表示所有排序目标都被标记，不代表所有原始热点都进入队列、所有裂缝都被发现或掩膜正确。
 
 Images larger than two million pixels are processed on a downsampled work raster and the binary proposal is restored to the exact source resolution. This bounds memory and runtime without sending pixels to a cloud service. The sensitivity slider changes proposal recall; it is not a calibrated probability or YOLO confidence.
 

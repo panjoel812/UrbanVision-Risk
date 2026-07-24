@@ -8,7 +8,8 @@ import numpy as np
 
 MAX_PROPOSAL_WORK_PIXELS = 2_000_000
 MAX_PROPOSAL_COVERAGE_RATIO = 0.35
-PROPOSAL_SCHEMA_VERSION = "local-crack-proposal-v4.3.0"
+MAX_RANKED_REVIEW_HOTSPOTS = 24
+PROPOSAL_SCHEMA_VERSION = "local-crack-proposal-v4.4.0"
 REVIEW_SENSITIVITY_OFFSET = 0.15
 
 
@@ -262,13 +263,117 @@ def propose_crack_mask(
     stable_pixels = int(np.count_nonzero(stable))
     disagreement_pixels = max(0, union_pixels - stable_pixels)
     hotspot_pixels = int(np.count_nonzero(review_hotspots))
-    hotspot_count = max(
+    disagreement = union & ~stable
+    raw_hotspot_count = max(
         0,
         cv2.connectedComponents(
             review_hotspots.astype(np.uint8),
             connectivity=8,
         )[0]
         - 1,
+    )
+    grouping_diameter = max(
+        3,
+        min(31, round(min(source_height, source_width) / 90)),
+    )
+    if grouping_diameter % 2 == 0:
+        grouping_diameter += 1
+    review_zones = (
+        cv2.dilate(
+            review_hotspots.astype(np.uint8),
+            np.ones(
+                (grouping_diameter, grouping_diameter),
+                dtype=np.uint8,
+            ),
+            iterations=1,
+        )
+        > 0
+    )
+    (
+        review_zone_label_count,
+        review_zone_labels,
+        review_zone_stats,
+        review_zone_centroids,
+    ) = cv2.connectedComponentsWithStats(
+        review_zones.astype(np.uint8),
+        connectivity=8,
+    )
+    review_zone_count = max(0, review_zone_label_count - 1)
+    hotspot_components: list[dict[str, object]] = []
+    for label in range(1, review_zone_label_count):
+        x, y, width, height, area = (
+            int(value) for value in review_zone_stats[label]
+        )
+        labels_window = review_zone_labels[y : y + height, x : x + width]
+        component_window = labels_window == label
+        display_hotspot_pixels_in_component = int(
+            np.count_nonzero(
+                review_hotspots[y : y + height, x : x + width]
+                & component_window
+            )
+        )
+        disagreement_pixels_in_component = int(
+            np.count_nonzero(
+                disagreement[y : y + height, x : x + width] & component_window
+            )
+        )
+        nominal_pixels_in_component = int(
+            np.count_nonzero(mask[y : y + height, x : x + width] & component_window)
+        )
+        candidate_overlap_ratio = nominal_pixels_in_component / max(1, area)
+        priority_score = disagreement_pixels_in_component * (
+            1.0 + candidate_overlap_ratio
+        )
+        centroid_x, centroid_y = review_zone_centroids[label]
+        hotspot_components.append(
+            {
+                "bounding_box": {
+                    "x": x,
+                    "y": y,
+                    "width": width,
+                    "height": height,
+                },
+                "centroid": {
+                    "x": round(float(centroid_x), 3),
+                    "y": round(float(centroid_y), 3),
+                },
+                "hotspot_pixels": display_hotspot_pixels_in_component,
+                "review_zone_pixels": area,
+                "disagreement_pixels": disagreement_pixels_in_component,
+                "nominal_candidate_pixels": nominal_pixels_in_component,
+                "candidate_overlap_ratio": round(candidate_overlap_ratio, 8),
+                "priority_score": round(priority_score, 4),
+            }
+        )
+    hotspot_components.sort(
+        key=lambda component: (
+            -float(component["priority_score"]),
+            -int(component["disagreement_pixels"]),
+            -int(component["review_zone_pixels"]),
+            int(component["bounding_box"]["y"]),
+            int(component["bounding_box"]["x"]),
+        )
+    )
+    ranked_hotspots = []
+    for index, component in enumerate(
+        hotspot_components[:MAX_RANKED_REVIEW_HOTSPOTS],
+        start=1,
+    ):
+        ranked_hotspots.append(
+            {
+                "hotspot_id": f"hotspot-{index:03d}",
+                "rank": index,
+                **component,
+            }
+        )
+    ranked_disagreement_pixels = sum(
+        int(hotspot["disagreement_pixels"]) for hotspot in ranked_hotspots
+    )
+    total_component_priority = sum(
+        float(component["priority_score"]) for component in hotspot_components
+    )
+    ranked_component_priority = sum(
+        float(hotspot["priority_score"]) for hotspot in ranked_hotspots
     )
     evidence: dict[str, object] = {
         "schema_version": PROPOSAL_SCHEMA_VERSION,
@@ -322,7 +427,31 @@ def propose_crack_mask(
                 hotspot_pixels / (source_width * source_height),
                 8,
             ),
-            "review_hotspot_component_count": hotspot_count,
+            "review_hotspot_component_count": raw_hotspot_count,
+            "review_zone_grouping_diameter_pixels": grouping_diameter,
+            "review_zone_component_count": review_zone_count,
+            "ranking": {
+                "method": (
+                    "disagreement_pixels_times_one_plus_nominal_candidate_overlap"
+                ),
+                "maximum_ranked_hotspots": MAX_RANKED_REVIEW_HOTSPOTS,
+                "ranked_hotspot_count": len(ranked_hotspots),
+                "unranked_component_count": max(
+                    0,
+                    review_zone_count - len(ranked_hotspots),
+                ),
+                "ranked_disagreement_pixel_coverage_ratio": (
+                    round(ranked_disagreement_pixels / disagreement_pixels, 8)
+                    if disagreement_pixels
+                    else None
+                ),
+                "ranked_priority_mass_ratio": (
+                    round(ranked_component_priority / total_component_priority, 8)
+                    if total_component_priority > 0
+                    else None
+                ),
+                "ranked_hotspots": ranked_hotspots,
+            },
             "interpretation": (
                 "Yellow review hotspots mark pixels whose inclusion changes across "
                 "nearby sensitivity settings; this is sensitivity disagreement, "

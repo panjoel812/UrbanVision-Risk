@@ -29,6 +29,16 @@ def _straight_sample(end_x: int = 350) -> tuple[bytes, bytes]:
     return _encode_image(source), _encode_image(mask)
 
 
+def _textured_crack_source() -> bytes:
+    random = np.random.default_rng(42)
+    road = np.clip(random.normal(170, 12, (360, 540)), 0, 255).astype(np.uint8)
+    source = cv2.cvtColor(road, cv2.COLOR_GRAY2BGR)
+    cv2.line(source, (35, 280), (490, 80), (35, 35, 35), 5)
+    cv2.line(source, (250, 190), (410, 315), (100, 100, 100), 2)
+    cv2.line(source, (250, 190), (180, 80), (125, 125, 125), 1)
+    return _encode_image(source)
+
+
 def _transparent_straight_mask() -> bytes:
     mask = np.zeros((221, 421, 4), dtype=np.uint8)
     cv2.line(mask, (50, 110), (350, 110), (255, 255, 255, 255), 11)
@@ -246,6 +256,73 @@ def test_local_proposal_is_private_and_human_revision_is_audited(
     assert revision["human_removed_pixels"] > 0
     assert revision["human_added_pixels"] == 0
     assert 0 < revision["proposal_final_iou"] < 1
+
+
+def test_ranked_hotspot_review_progress_is_validated_and_audited(
+    tmp_path: Path,
+) -> None:
+    source = _textured_crack_source()
+    service = LocalMetrologyService(
+        paths=get_paths(tmp_path),
+        id_factory=lambda: "ranked-review-001",
+        record_id_factory=lambda prefix: f"{prefix}-ranked-001",
+    )
+    proposal = service.propose_mask_bytes(
+        source_content=source,
+        source_filename="/Users/private/textured-road.png",
+        source_content_type="image/png",
+        sensitivity=0.55,
+    )
+    proposal_id = proposal["proposal_id"]
+    ranked = proposal["evidence"]["review_guidance"]["ranking"]["ranked_hotspots"]
+    reviewed_ids = [ranked[0]["hotspot_id"], ranked[1]["hotspot_id"]]
+    mask_path = service.proposal_artifact_path(
+        proposal_id,
+        "proposal-mask.png",
+    )
+
+    with pytest.raises(ProjectError, match="outside the current proposal"):
+        service.analyze_bytes(
+            source_content=source,
+            source_filename="textured-road.png",
+            source_content_type="image/png",
+            mask_content=mask_path.read_bytes(),
+            mask_filename="proposal-mask.png",
+            mask_content_type="image/png",
+            calibration_mode="pixel",
+            uncertainty_samples=0,
+            proposal_id=proposal_id,
+            reviewed_hotspots='["hotspot-999"]',
+        )
+
+    result = service.analyze_bytes(
+        source_content=source,
+        source_filename="textured-road.png",
+        source_content_type="image/png",
+        mask_content=mask_path.read_bytes(),
+        mask_filename="proposal-mask.png",
+        mask_content_type="image/png",
+        calibration_mode="pixel",
+        uncertainty_samples=0,
+        proposal_id=proposal_id,
+        reviewed_hotspots=json.dumps(reviewed_ids),
+    )
+
+    revision = result["measurement"]["run"]["input_evidence"]["mask"][
+        "proposal_revision"
+    ]
+    review = revision["hotspot_review"]
+    assert review["status"] == "partial"
+    assert review["reviewed_hotspot_ids"] == reviewed_ids
+    assert review["reviewed_hotspot_count"] == 2
+    assert review["ranked_hotspot_count"] == len(ranked)
+    assert 0 < review["ranked_disagreement_pixel_coverage_ratio"] <= 1
+    assert 0 < review["ranked_priority_mass_ratio"] <= 1
+    assert review["ranked_review_completion_ratio"] == pytest.approx(
+        2 / len(ranked),
+        abs=1e-8,
+    )
+    assert 0 < review["ranked_priority_coverage_ratio"] <= 1
 
 
 def test_aruco_web_calibration_preserves_detection_quality(tmp_path: Path) -> None:

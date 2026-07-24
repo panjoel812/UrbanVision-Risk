@@ -14,7 +14,10 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from urbanvision_risk.app.crack_proposal import propose_crack_mask
+from urbanvision_risk.app.crack_proposal import (
+    MAX_RANKED_REVIEW_HOTSPOTS,
+    propose_crack_mask,
+)
 from urbanvision_risk.detection.config import validate_run_name
 from urbanvision_risk.errors import ProjectError
 from urbanvision_risk.metrology.calibration import (
@@ -150,6 +153,30 @@ def _finite_nonnegative(value: float | None, label: str) -> float:
     result = float(value)
     if not math.isfinite(result) or result < 0:
         raise _input_error(f"{label}={value!r}")
+    return result
+
+
+def _reviewed_hotspot_ids(value: str | None) -> list[str]:
+    if value is None or not value.strip():
+        return []
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise _input_error("reviewed_hotspots is not valid JSON") from error
+    if not isinstance(payload, list):
+        raise _input_error("reviewed_hotspots must be a JSON array")
+    if len(payload) > MAX_RANKED_REVIEW_HOTSPOTS:
+        raise _input_error(
+            f"reviewed_hotspots count={len(payload)} exceeds "
+            f"{MAX_RANKED_REVIEW_HOTSPOTS}"
+        )
+    result: list[str] = []
+    for hotspot_id in payload:
+        if not isinstance(hotspot_id, str) or not hotspot_id:
+            raise _input_error("reviewed_hotspots contains a non-string ID")
+        if hotspot_id in result:
+            raise _input_error(f"reviewed_hotspots contains duplicate ID {hotspot_id}")
+        result.append(hotspot_id)
     return result
 
 
@@ -706,6 +733,7 @@ class LocalMetrologyService:
         proposal_id: str,
         source_sha256: str,
         final_mask: np.ndarray,
+        reviewed_hotspot_ids: list[str],
     ) -> dict[str, object]:
         safe_id = validate_run_name(proposal_id)
         evidence_path = self.paths.metrology / "proposals" / safe_id / "evidence.json"
@@ -733,6 +761,98 @@ class LocalMetrologyService:
         removed = int(np.count_nonzero(proposed & ~final_mask))
         changed = added + removed
         algorithm_version = evidence.get("schema_version")
+        review_guidance = evidence.get("review_guidance")
+        ranking = (
+            review_guidance.get("ranking")
+            if isinstance(review_guidance, dict)
+            else None
+        )
+        ranked_hotspots = (
+            ranking.get("ranked_hotspots")
+            if isinstance(ranking, dict)
+            else None
+        )
+        available_hotspots = (
+            [
+                hotspot
+                for hotspot in ranked_hotspots
+                if isinstance(hotspot, dict)
+                and isinstance(hotspot.get("hotspot_id"), str)
+            ]
+            if isinstance(ranked_hotspots, list)
+            else []
+        )
+        available_ids = [
+            str(hotspot["hotspot_id"]) for hotspot in available_hotspots
+        ]
+        unknown_ids = sorted(set(reviewed_hotspot_ids) - set(available_ids))
+        if unknown_ids:
+            raise _input_error(
+                "reviewed_hotspots contains IDs outside the current proposal: "
+                + ", ".join(unknown_ids)
+            )
+        reviewed_set = set(reviewed_hotspot_ids)
+        reviewed_in_rank_order = [
+            hotspot_id for hotspot_id in available_ids if hotspot_id in reviewed_set
+        ]
+        total_priority = sum(
+            float(hotspot.get("priority_score", 0.0))
+            for hotspot in available_hotspots
+        )
+        reviewed_priority = sum(
+            float(hotspot.get("priority_score", 0.0))
+            for hotspot in available_hotspots
+            if hotspot["hotspot_id"] in reviewed_set
+        )
+        ranked_count = len(available_ids)
+        reviewed_count = len(reviewed_in_rank_order)
+        review_status = (
+            "not_available"
+            if ranked_count == 0
+            else "complete"
+            if reviewed_count == ranked_count
+            else "partial"
+            if reviewed_count
+            else "not_started"
+        )
+        hotspot_review = {
+            "status": review_status,
+            "ranked_hotspot_count": ranked_count,
+            "total_detected_component_count": (
+                review_guidance.get("review_zone_component_count")
+                if isinstance(review_guidance, dict)
+                else None
+            ),
+            "raw_display_hotspot_component_count": (
+                review_guidance.get("review_hotspot_component_count")
+                if isinstance(review_guidance, dict)
+                else None
+            ),
+            "ranked_disagreement_pixel_coverage_ratio": (
+                ranking.get("ranked_disagreement_pixel_coverage_ratio")
+                if isinstance(ranking, dict)
+                else None
+            ),
+            "ranked_priority_mass_ratio": (
+                ranking.get("ranked_priority_mass_ratio")
+                if isinstance(ranking, dict)
+                else None
+            ),
+            "reviewed_hotspot_ids": reviewed_in_rank_order,
+            "reviewed_hotspot_count": reviewed_count,
+            "ranked_review_completion_ratio": (
+                round(reviewed_count / ranked_count, 8) if ranked_count else None
+            ),
+            "ranked_priority_coverage_ratio": (
+                round(reviewed_priority / total_priority, 8)
+                if total_priority > 0
+                else None
+            ),
+            "interpretation": (
+                "This records which ranked sensitivity-disagreement regions the "
+                "operator marked as inspected; it does not prove mask correctness"
+            ),
+        }
         return {
             "proposal_id": safe_id,
             "proposal_schema_version": algorithm_version,
@@ -745,6 +865,7 @@ class LocalMetrologyService:
             "changed_pixels": changed,
             "changed_image_ratio": round(changed / final_mask.size, 8),
             "proposal_final_iou": (round(intersection / union, 8) if union else None),
+            "hotspot_review": hotspot_review,
             "interpretation": (
                 "Difference between the immutable local proposal and the "
                 "mask submitted from the human-editable browser"
@@ -771,6 +892,7 @@ class LocalMetrologyService:
         segmentation_radius_pixels: int = 1,
         proposal_id: str | None = None,
         review_state: str = "human_reviewed",
+        reviewed_hotspots: str | None = None,
     ) -> dict[str, object]:
         if not 0 <= uncertainty_samples <= 512:
             raise _input_error(f"uncertainty_samples={uncertainty_samples}")
@@ -778,6 +900,15 @@ class LocalMetrologyService:
             raise _input_error(f"segmentation_radius_pixels={segmentation_radius_pixels}")
         if review_state not in {"automatic_draft", "human_reviewed"}:
             raise _input_error(f"review_state={review_state!r}")
+        reviewed_hotspot_ids = _reviewed_hotspot_ids(reviewed_hotspots)
+        if reviewed_hotspot_ids and review_state != "human_reviewed":
+            raise _input_error(
+                "automatic_draft cannot contain reviewed hotspot IDs"
+            )
+        if reviewed_hotspot_ids and not proposal_id:
+            raise _input_error(
+                "reviewed hotspot IDs require a proposal_id"
+            )
         source_image, source_shape = _decode_source(
             source_content,
             source_content_type,
@@ -815,6 +946,7 @@ class LocalMetrologyService:
                 proposal_id=proposal_id,
                 source_sha256=source_digest,
                 final_mask=mask,
+                reviewed_hotspot_ids=reviewed_hotspot_ids,
             )
         input_evidence = {
             "kind": "local_web_metrology",

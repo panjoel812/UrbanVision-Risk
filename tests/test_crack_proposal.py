@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from urbanvision_risk.app.crack_proposal import (
+    MAX_RANKED_REVIEW_HOTSPOTS,
     PROPOSAL_SCHEMA_VERSION,
     propose_crack_mask,
 )
@@ -37,6 +38,33 @@ def test_proposal_exposes_three_level_review_guidance() -> None:
     )
     assert guidance["disagreement_pixels"] > 0
     assert guidance["review_hotspot_pixels"] > 0
+    ranking = guidance["ranking"]
+    hotspots = ranking["ranked_hotspots"]
+    assert 0 < len(hotspots) <= MAX_RANKED_REVIEW_HOTSPOTS
+    assert ranking["ranked_hotspot_count"] == len(hotspots)
+    assert ranking["ranked_hotspot_count"] + ranking["unranked_component_count"] == (
+        guidance["review_zone_component_count"]
+    )
+    assert guidance["review_zone_component_count"] <= (
+        guidance["review_hotspot_component_count"]
+    )
+    assert guidance["review_zone_grouping_diameter_pixels"] % 2 == 1
+    assert 0 < ranking["ranked_disagreement_pixel_coverage_ratio"] <= 1
+    assert 0 < ranking["ranked_priority_mass_ratio"] <= 1
+    assert [hotspot["hotspot_id"] for hotspot in hotspots] == [
+        f"hotspot-{index:03d}" for index in range(1, len(hotspots) + 1)
+    ]
+    assert [hotspot["priority_score"] for hotspot in hotspots] == sorted(
+        [hotspot["priority_score"] for hotspot in hotspots],
+        reverse=True,
+    )
+    for hotspot in hotspots:
+        box = hotspot["bounding_box"]
+        assert 0 <= box["x"] < proposal.mask.shape[1]
+        assert 0 <= box["y"] < proposal.mask.shape[0]
+        assert box["x"] + box["width"] <= proposal.mask.shape[1]
+        assert box["y"] + box["height"] <= proposal.mask.shape[0]
+        assert hotspot["disagreement_pixels"] > 0
     assert "not a calibrated uncertainty probability" in guidance["interpretation"]
 
 

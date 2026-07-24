@@ -73,6 +73,23 @@ class MetrologyStub:
                 "review_guidance": {
                     "review_hotspot_image_ratio": 0.01,
                     "disagreement_ratio_of_union": 0.25,
+                    "ranking": {
+                        "ranked_hotspots": [
+                            {
+                                "hotspot_id": "hotspot-001",
+                                "rank": 1,
+                                "bounding_box": {
+                                    "x": 10,
+                                    "y": 20,
+                                    "width": 30,
+                                    "height": 40,
+                                },
+                                "disagreement_pixels": 42,
+                                "candidate_overlap_ratio": 0.5,
+                                "priority_score": 63.0,
+                            }
+                        ]
+                    },
                 },
             },
             "artifacts": {
@@ -184,6 +201,10 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="proposal-button"' not in response.text
     assert 'id="proposal-sensitivity"' in response.text
     assert 'id="hotspot-toggle"' in response.text
+    assert 'id="hotspot-review"' in response.text
+    assert 'id="hotspot-previous"' in response.text
+    assert 'id="hotspot-next"' in response.text
+    assert 'id="hotspot-reviewed"' in response.text
     assert 'id="inspection-section"' in response.text
     assert 'id="narrative-button"' in response.text
     assert "/api/inspect" in response.text
@@ -200,6 +221,7 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "/api/metrology/proposals" in response.text
     assert "review-hotspots.png" in response.text
     assert "sensitivityDisagreement" in response.text
+    assert 'form.append("reviewed_hotspots"' in response.text
     assert "change-map.png" in response.text
     assert "https://" not in response.text
     assert "http://" not in response.text
@@ -243,6 +265,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
             "uncertainty_samples": "32",
             "segmentation_radius_pixels": "2",
             "proposal_id": "proposal-001",
+            "reviewed_hotspots": '["hotspot-001"]',
         },
     )
 
@@ -257,11 +280,13 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert metrology.analyze_arguments["uncertainty_samples"] == 32
     assert metrology.analyze_arguments["proposal_id"] == "proposal-001"
     assert metrology.analyze_arguments["review_state"] == "human_reviewed"
+    assert metrology.analyze_arguments["reviewed_hotspots"] == '["hotspot-001"]'
 
     health = client.get("/api/health")
     assert health.json()["precision_metrology"] is True
     assert health.json()["metrology_modes"] == ["pixel", "manual", "aruco"]
     assert health.json()["automatic_pixel_draft"] is True
+    assert health.json()["ranked_hotspot_review"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:

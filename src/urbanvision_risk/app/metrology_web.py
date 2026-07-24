@@ -289,9 +289,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v5.6 · Self-remediating data readiness</p>
+        <p class="eyebrow">v5.7 · Cumulative dual-axis readiness</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>v5.6 会在视觉簇足够时自动保证训练、验证和测试切分非空，并把“还差多少张独立原图、多少视觉簇、多少机器候选待批准”直接显示出来。YOLO × 分割仲裁、内容去重、自愈队列与训练防火墙继续保留。</span><span data-en class="hidden-lang">v5.6 automatically keeps train, validation, and test non-empty when enough visual groups exist, then reports the exact source, scene-group, and machine-approval deficits. YOLO × segmentation arbitration, content deduplication, self-healing, and the training firewall remain active.</span></p>
+        <p class="hero-copy"><span data-zh>v5.7 会把每次上传自动累积到跨会话本机台账，并分别显示“技术数据是否就绪”和“治理审批是否完成”。本批次不可变证据、YOLO × 分割仲裁、内容去重与训练防火墙继续保留。</span><span data-en class="hidden-lang">v5.7 automatically accumulates every upload into a cross-session local registry and reports technical data readiness separately from governance approval. Immutable batch evidence, YOLO × segmentation arbitration, content deduplication, and the training firewall remain active.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -327,6 +327,7 @@ METROLOGY_HTML = """<!doctype html>
             <div class="batch-head"><strong><span data-zh>批量自动驾驶队列</span><span data-en class="hidden-lang">Batch-autopilot queue</span></strong><span id="batch-summary" class="batch-summary">—</span></div>
             <div id="batch-list" class="batch-list"></div>
             <div id="batch-result" class="utility-result hidden"></div>
+            <div id="cumulative-result" class="utility-result hidden"></div>
           </section>
         </div>
 
@@ -540,7 +541,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v5.6 · Self-Remediating Data Readiness · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v5.7 · Cumulative Dual-Axis Readiness · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -979,6 +980,8 @@ METROLOGY_HTML = """<!doctype html>
           visual_scene_group_leakage_detected: "发现视觉簇跨切分泄漏",
           unsupported_curation_schema: "策划版本不支持快照预检",
           upstream_curation_not_ready: "上游策划尚未就绪",
+          upstream_curation_technical_not_ready: "上游技术数据尚未就绪",
+          upstream_curation_governance_blocked: "上游技术数据可验证，但治理审批尚未完成",
           curation_inventory_invalid: "策划清单结构无效",
           feedback_inventory_changed: "反馈清单缺失或已经变化",
           invalid_training_pairs: "存在损坏或格式无效的数据对",
@@ -1004,6 +1007,8 @@ METROLOGY_HTML = """<!doctype html>
           visual_scene_group_leakage_detected: "Cross-split visual-group leakage detected",
           unsupported_curation_schema: "Curation schema is unsupported by snapshot preflight",
           upstream_curation_not_ready: "Upstream curation is not ready",
+          upstream_curation_technical_not_ready: "Upstream technical data is not ready",
+          upstream_curation_governance_blocked: "Upstream data is technically verifiable, but governance approval is pending",
           curation_inventory_invalid: "Curation inventory is invalid",
           feedback_inventory_changed: "Feedback inventory is missing or changed",
           invalid_training_pairs: "Damaged or structurally invalid pairs exist",
@@ -2420,6 +2425,21 @@ METROLOGY_HTML = """<!doctype html>
         ];
       }
 
+      function readinessAxisLines(readiness) {
+        const technical = readiness && readiness.technical || {};
+        const governance = readiness && readiness.governance || {};
+        const technicalReady = technical.status === "ready";
+        const governanceReady = governance.status === "ready";
+        return [
+          language === "zh"
+            ? `技术数据就绪: ${technicalReady ? "是" : "否"}`
+            : `Technical data ready: ${technicalReady ? "yes" : "no"}`,
+          language === "zh"
+            ? `治理审批完成: ${governanceReady ? "是" : "否"}`
+            : `Governance approval complete: ${governanceReady ? "yes" : "no"}`
+        ];
+      }
+
       function renderFeedbackCuration(payload) {
         latestFeedbackCuration = payload;
         const curation = payload.curation;
@@ -2447,6 +2467,7 @@ METROLOGY_HTML = """<!doctype html>
           `${t("duplicateRemoved")}: ${selection.exclusion_counts.duplicate_fingerprint}`,
           `${t("sourceLeakage")}: ${hasOverlap(sourceOverlap) ? (language === "zh" ? "已发现" : "detected") : (language === "zh" ? "未发现" : "not detected")}`,
           `${t("visualSceneLeakage")}: ${hasOverlap(visualOverlap) ? (language === "zh" ? "已发现" : "detected") : (language === "zh" ? "未发现" : "not detected")}`,
+          ...readinessAxisLines(curation.readiness),
           ...readinessRemediationLines(
             curation.readiness && curation.readiness.remediation,
             curation.allocation
@@ -2454,13 +2475,26 @@ METROLOGY_HTML = """<!doctype html>
           `${t("readinessBlockers")}: ${blockerText}`,
           `${t("trainingAuthorization")}: ${curation.training_authorized ? (language === "zh" ? "已授权" : "authorized") : (language === "zh" ? "未授权" : "not authorized")}`
         ];
-        const blocked = curation.status === "not_training_ready";
+        const technicalBlocked = (
+          curation.readiness
+          && curation.readiness.technical
+          && curation.readiness.technical.status === "blocked"
+        );
+        const governanceBlocked = (
+          curation.readiness
+          && curation.readiness.governance
+          && curation.readiness.governance.status === "blocked"
+        );
         renderUtilityResult(
           byId("curation-result"),
-          blocked ? t("curationBlocked") : t("curationComplete"),
+          technicalBlocked
+            ? (language === "zh" ? "策划已生成：技术数据仍不足" : "Plan built: technical data is insufficient")
+            : governanceBlocked
+              ? (language === "zh" ? "技术数据已就绪：等待治理审批" : "Technical data ready: governance approval pending")
+              : t("curationComplete"),
           lines,
           payload.curation_url,
-          blocked
+          technicalBlocked || governanceBlocked
         );
         byId("snapshot-button").disabled = false;
       }
@@ -2488,11 +2522,14 @@ METROLOGY_HTML = """<!doctype html>
           latestFeedbackSnapshot = null;
           byId("snapshot-result").classList.add("hidden");
           renderFeedbackCuration(payload);
+          const technicalBlocked = (
+            payload.curation.readiness
+            && payload.curation.readiness.technical
+            && payload.curation.readiness.technical.status === "blocked"
+          );
           setStatus(
-            payload.curation.status === "not_training_ready"
-              ? t("curationBlocked")
-              : t("curationComplete"),
-            payload.curation.status === "not_training_ready"
+            technicalBlocked ? t("curationBlocked") : t("curationComplete"),
+            technicalBlocked
           );
           return payload;
         } catch (error) {
@@ -2527,6 +2564,7 @@ METROLOGY_HTML = """<!doctype html>
           `${t("memberBytes")}: ${byteLabel}`,
           `${t("contentDuplicates")}: ${(integrity.source_roi_content_overlaps || []).length}`,
           `${t("merkleRoot")}: ${merkle.root_sha256}`,
+          ...readinessAxisLines(snapshot.readiness),
           ...readinessRemediationLines(
             snapshot.readiness && snapshot.readiness.remediation,
             latestFeedbackCuration
@@ -2608,12 +2646,64 @@ METROLOGY_HTML = """<!doctype html>
             `${language === "zh" ? "服务端摘要匹配" : "Server digest matches"}: ${integrity.browser_digest_match_count ?? "—"}`,
             `${language === "zh" ? "双通道仲裁绑定" : "Cross-channel arbitration bindings"}: ${arbitration.bound_count ?? 0}/${batch.run_count}`,
             `${language === "zh" ? "反馈包" : "Feedback packages"}: ${batch.feedback_run_count}`,
+            ...readinessAxisLines(batch.governance || {}),
             `${t("readinessBlockers")}: ${blockerText}`,
             `${t("trainingAuthorization")}: ${batch.training_authorized ? (language === "zh" ? "已授权" : "authorized") : (language === "zh" ? "未授权" : "not authorized")}`
           ],
           payload.batch_url,
           blockers.length > 0
         );
+        renderCumulativeReadiness(payload);
+      }
+
+      function renderCumulativeReadiness(payload) {
+        const curation = payload.cumulative_curation;
+        const snapshot = payload.cumulative_snapshot;
+        if (!curation || !snapshot) return;
+        const selection = curation.selection || {};
+        const readiness = curation.readiness || {};
+        const splits = curation.splits || {};
+        const technicalBlocked = (
+          readiness.technical && readiness.technical.status === "blocked"
+        );
+        const remediation = readiness.remediation || {};
+        const nextBatch = remediation.recommended_next_batch || {};
+        const splitSummary = ["train", "val", "test"].map((split) => {
+          const value = splits[split] || {};
+          return `${split}: ${Number(value.item_count || 0)}`;
+        }).join(" · ");
+        renderUtilityResult(
+          byId("cumulative-result"),
+          language === "zh"
+            ? "跨会话累计台账已自动刷新"
+            : "Cross-session cumulative registry refreshed",
+          [
+            language === "zh"
+              ? "范围: 本机全部历史反馈；不会把旧样本混入本批次证据"
+              : "Scope: all local feedback; historical samples do not enter this batch record",
+            `${language === "zh" ? "累计样本" : "Cumulative items"}: ${Number(selection.selected_item_count || 0)} · ${language === "zh" ? "独立原图" : "independent sources"}: ${Number(selection.unique_source_count || 0)} · ${language === "zh" ? "视觉簇" : "visual groups"}: ${Number(selection.visual_scene_group_count || 0)}`,
+            splitSummary,
+            ...readinessAxisLines(readiness),
+            language === "zh"
+              ? `距离技术门槛还需: ${Number(nextBatch.additional_distinct_images_for_current_registry || 0)} 张独立图片`
+              : `Additional independent images for the technical threshold: ${Number(nextBatch.additional_distinct_images_for_current_registry || 0)}`,
+            language === "zh"
+              ? `快照完整性: ${snapshot.readiness && snapshot.readiness.technical && snapshot.readiness.technical.status === "ready" ? "通过" : "未通过"}`
+              : `Snapshot integrity: ${snapshot.readiness && snapshot.readiness.technical && snapshot.readiness.technical.status === "ready" ? "passed" : "not passed"}`
+          ],
+          payload.cumulative_curation_url,
+          technicalBlocked
+        );
+        if (payload.cumulative_snapshot_url) {
+          const link = document.createElement("a");
+          link.className = "download-link";
+          link.href = payload.cumulative_snapshot_url;
+          link.download = "";
+          link.textContent = language === "zh"
+            ? "下载累计快照 JSON"
+            : "Download cumulative snapshot JSON";
+          byId("cumulative-result").appendChild(link);
+        }
       }
 
       async function finalizeAutopilotBatch(completedItems, accounting) {

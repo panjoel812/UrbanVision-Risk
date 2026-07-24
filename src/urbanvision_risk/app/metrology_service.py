@@ -77,6 +77,13 @@ CURATION_EXTERNAL_BENCHMARK_REFERENCE = {
     ),
 }
 CURATION_SPLITS = ("train", "val", "test")
+CURATION_GOVERNANCE_BLOCKERS = frozenset(
+    {
+        "privacy_review_pending",
+        "label_qa_pending",
+        "machine_labels_require_human_approval",
+    }
+)
 FEEDBACK_FILE_ROLES = (
     "source_roi",
     "proposal_mask",
@@ -616,7 +623,7 @@ def _curation_ratios(
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise _input_error(f"{split}_ratio={value!r}")
         ratio = float(value)
-        if not math.isfinite(ratio) or not 0 < ratio < 1:
+        if not math.isfinite(ratio) or not 0 <= ratio <= 1:
             raise _input_error(f"{split}_ratio={value!r}")
         ratios[split] = ratio
     if not math.isclose(sum(ratios.values()), 1.0, abs_tol=1e-9):
@@ -963,6 +970,25 @@ def _curation_readiness_remediation(
         "external_benchmark_reference": dict(
             CURATION_EXTERNAL_BENCHMARK_REFERENCE
         ),
+    }
+
+
+def _readiness_axes(blockers: list[str]) -> dict[str, object]:
+    governance_blockers = [
+        code for code in blockers if code in CURATION_GOVERNANCE_BLOCKERS
+    ]
+    technical_blockers = [
+        code for code in blockers if code not in CURATION_GOVERNANCE_BLOCKERS
+    ]
+    return {
+        "technical": {
+            "status": "ready" if not technical_blockers else "blocked",
+            "blockers": technical_blockers,
+        },
+        "governance": {
+            "status": "ready" if not governance_blockers else "blocked",
+            "blockers": governance_blockers,
+        },
     }
 
 
@@ -2339,6 +2365,7 @@ class LocalMetrologyService:
         privacy_review_confirmed: bool = False,
         label_qa_confirmed: bool = False,
         included_run_ids: list[str] | None = None,
+        _record_prefix: str = "feedback-curation",
     ) -> dict[str, object]:
         if (
             isinstance(seed, bool)
@@ -2740,7 +2767,7 @@ class LocalMetrologyService:
         elif len(scene_groups) < minimum_unique_sources:
             blockers.append("insufficient_independent_visual_scene_groups")
         for split in CURATION_SPLITS:
-            if not assigned[split]:
+            if ratios[split] > 0 and not assigned[split]:
                 blockers.append(f"empty_{split}_split")
         if not privacy_review_confirmed:
             blockers.append("privacy_review_pending")
@@ -2765,17 +2792,28 @@ class LocalMetrologyService:
             int(group["source_count"]) > 1 for group in scene_groups
         )
         curation_id = validate_run_name(
-            self._record_id_factory("feedback-curation")
+            self._record_id_factory(_record_prefix)
         )
+        readiness_axes = _readiness_axes(blockers)
+        technical_readiness = readiness_axes["technical"]
+        governance_readiness = readiness_axes["governance"]
+        if not isinstance(technical_readiness, dict):
+            raise RuntimeError("technical readiness is not an object")
+        if not isinstance(governance_readiness, dict):
+            raise RuntimeError("governance readiness is not an object")
         payload: dict[str, object] = {
-            "schema_version": "urbanvision-feedback-curation-v2.2.0",
+            "schema_version": "urbanvision-feedback-curation-v2.3.0",
             "curation_id": curation_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "local_only": True,
             "status": (
-                "not_training_ready"
-                if blockers
-                else "candidate_plan_requires_training_approval"
+                "technical_data_not_ready"
+                if technical_readiness["status"] == "blocked"
+                else (
+                    "technical_data_ready_governance_blocked"
+                    if governance_readiness["status"] == "blocked"
+                    else "candidate_plan_requires_training_approval"
+                )
             ),
             "training_authorized": False,
             "configuration": {
@@ -2881,6 +2919,7 @@ class LocalMetrologyService:
             },
             "readiness": {
                 "blockers": blockers,
+                **readiness_axes,
                 "requires_separate_training_approval": True,
                 "remediation": remediation,
             },
@@ -2904,6 +2943,8 @@ class LocalMetrologyService:
     def create_feedback_snapshot_preflight(
         self,
         curation_id: str,
+        *,
+        _record_prefix: str = "feedback-snapshot",
     ) -> dict[str, object]:
         safe_curation_id = validate_run_name(curation_id)
         curation_path = self.feedback_curation_path(safe_curation_id)
@@ -2947,6 +2988,7 @@ class LocalMetrologyService:
             "urbanvision-feedback-curation-v2.0.0",
             "urbanvision-feedback-curation-v2.1.0",
             "urbanvision-feedback-curation-v2.2.0",
+            "urbanvision-feedback-curation-v2.3.0",
         }:
             add_blocker("unsupported_curation_schema")
         readiness = curation.get("readiness")
@@ -2960,13 +3002,43 @@ class LocalMetrologyService:
             if isinstance(readiness, dict)
             else None
         )
-        if (
-            curation.get("status")
-            != "candidate_plan_requires_training_approval"
-            or not isinstance(upstream_blockers, list)
-            or upstream_blockers
-        ):
+        upstream_technical_blockers: list[str] | None = None
+        upstream_governance_blockers: list[str] | None = None
+        if isinstance(readiness, dict):
+            upstream_technical = readiness.get("technical")
+            upstream_governance = readiness.get("governance")
+            if isinstance(upstream_technical, dict) and isinstance(
+                upstream_technical.get("blockers"), list
+            ):
+                upstream_technical_blockers = list(
+                    upstream_technical["blockers"]
+                )
+            if isinstance(upstream_governance, dict) and isinstance(
+                upstream_governance.get("blockers"), list
+            ):
+                upstream_governance_blockers = list(
+                    upstream_governance["blockers"]
+                )
+        if isinstance(upstream_blockers, list):
+            legacy_axes = _readiness_axes(upstream_blockers)
+            if upstream_technical_blockers is None:
+                legacy_technical = legacy_axes["technical"]
+                if isinstance(legacy_technical, dict):
+                    upstream_technical_blockers = list(
+                        legacy_technical["blockers"]
+                    )
+            if upstream_governance_blockers is None:
+                legacy_governance = legacy_axes["governance"]
+                if isinstance(legacy_governance, dict):
+                    upstream_governance_blockers = list(
+                        legacy_governance["blockers"]
+                    )
+        if upstream_technical_blockers is None:
             add_blocker("upstream_curation_not_ready")
+        elif upstream_technical_blockers:
+            add_blocker("upstream_curation_technical_not_ready")
+        if upstream_governance_blockers:
+            add_blocker("upstream_curation_governance_blocked")
         current_packages, current_invalid_package_count = (
             self._feedback_packages()
         )
@@ -3435,21 +3507,35 @@ class LocalMetrologyService:
             for pair in verified_pairs
         ]
         snapshot_id = validate_run_name(
-            self._record_id_factory("feedback-snapshot")
+            self._record_id_factory(_record_prefix)
         )
+        snapshot_governance_blockers = [
+            code
+            for code in blockers
+            if code == "upstream_curation_governance_blocked"
+        ]
+        snapshot_technical_blockers = [
+            code
+            for code in blockers
+            if code != "upstream_curation_governance_blocked"
+        ]
         payload: dict[str, object] = {
             "schema_version": (
-                "urbanvision-feedback-snapshot-preflight-v1.1.0"
+                "urbanvision-feedback-snapshot-preflight-v1.2.0"
             ),
             "snapshot_id": snapshot_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "local_only": True,
             "status": (
                 "not_snapshot_ready"
-                if blockers
+                if snapshot_technical_blockers
                 else (
-                    "verified_candidate_snapshot_requires_"
-                    "training_approval"
+                    "integrity_verified_governance_blocked"
+                    if snapshot_governance_blockers
+                    else (
+                        "verified_candidate_snapshot_requires_"
+                        "training_approval"
+                    )
                 )
             ),
             "training_authorized": False,
@@ -3516,6 +3602,23 @@ class LocalMetrologyService:
             "splits": split_payloads,
             "readiness": {
                 "blockers": blockers,
+                "technical": {
+                    "status": (
+                        "ready"
+                        if not snapshot_technical_blockers
+                        else "blocked"
+                    ),
+                    "blockers": snapshot_technical_blockers,
+                },
+                "governance": {
+                    "status": (
+                        "ready"
+                        if not snapshot_governance_blockers
+                        else "blocked"
+                    ),
+                    "blockers": snapshot_governance_blockers,
+                    "upstream_blockers": upstream_governance_blockers,
+                },
                 "requires_separate_training_approval": True,
                 "upstream_curation_blockers": (
                     upstream_blockers
@@ -3761,6 +3864,33 @@ class LocalMetrologyService:
         snapshot = snapshot_result["snapshot"]
         if not isinstance(snapshot, dict):
             raise RuntimeError("autopilot snapshot did not return a record")
+        cumulative_curation_result = self.create_feedback_curation(
+            seed=seed,
+            minimum_unique_sources=minimum_unique_sources,
+            max_scene_hamming_distance=max_scene_hamming_distance,
+            privacy_review_confirmed=False,
+            label_qa_confirmed=False,
+            _record_prefix="cumulative-curation",
+        )
+        cumulative_curation = cumulative_curation_result["curation"]
+        if not isinstance(cumulative_curation, dict):
+            raise RuntimeError(
+                "cumulative autopilot curation did not return a record"
+            )
+        cumulative_curation_id = cumulative_curation.get("curation_id")
+        if not isinstance(cumulative_curation_id, str):
+            raise RuntimeError("cumulative autopilot curation has no ID")
+        cumulative_snapshot_result = (
+            self.create_feedback_snapshot_preflight(
+                cumulative_curation_id,
+                _record_prefix="cumulative-snapshot",
+            )
+        )
+        cumulative_snapshot = cumulative_snapshot_result["snapshot"]
+        if not isinstance(cumulative_snapshot, dict):
+            raise RuntimeError(
+                "cumulative autopilot snapshot did not return a record"
+            )
         batch_id = validate_run_name(
             self._record_id_factory("autopilot-batch")
         )
@@ -3770,15 +3900,46 @@ class LocalMetrologyService:
             if isinstance(snapshot_blockers, dict)
             else []
         )
+        scoped_technical = (
+            snapshot_blockers.get("technical")
+            if isinstance(snapshot_blockers, dict)
+            else None
+        )
+        scoped_governance = (
+            snapshot_blockers.get("governance")
+            if isinstance(snapshot_blockers, dict)
+            else None
+        )
+        scoped_technical_blocked = (
+            isinstance(scoped_technical, dict)
+            and scoped_technical.get("status") == "blocked"
+        )
+        scoped_governance_blocked = (
+            isinstance(scoped_governance, dict)
+            and scoped_governance.get("status") == "blocked"
+        )
+        cumulative_readiness = cumulative_curation.get("readiness")
+        cumulative_selection = cumulative_curation.get("selection")
+        cumulative_splits = cumulative_curation.get("splits")
+        if not isinstance(cumulative_readiness, dict):
+            raise RuntimeError("cumulative readiness is not an object")
+        if not isinstance(cumulative_selection, dict):
+            raise RuntimeError("cumulative selection is not an object")
+        if not isinstance(cumulative_splits, dict):
+            raise RuntimeError("cumulative splits are not an object")
         payload: dict[str, object] = {
-            "schema_version": "urbanvision-autopilot-batch-v1.2.0",
+            "schema_version": "urbanvision-autopilot-batch-v1.3.0",
             "batch_id": batch_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "local_only": True,
             "status": (
-                "completed_with_governance_blockers"
-                if blocker_codes
-                else "completed_requires_training_approval"
+                "completed_with_technical_constraints"
+                if scoped_technical_blocked
+                else (
+                    "completed_with_governance_blockers"
+                    if scoped_governance_blocked
+                    else "completed_requires_training_approval"
+                )
             ),
             "training_authorized": False,
             "run_count": len(run_records),
@@ -3805,11 +3966,42 @@ class LocalMetrologyService:
             },
             "runs": run_records,
             "governance": {
+                "scope": "explicit_autopilot_batch",
                 "curation_id": curation_id,
                 "curation_url": curation_result["curation_url"],
                 "snapshot_id": snapshot.get("snapshot_id"),
                 "snapshot_url": snapshot_result["snapshot_url"],
                 "blockers": blocker_codes,
+                "technical": scoped_technical,
+                "governance": scoped_governance,
+            },
+            "cumulative_registry": {
+                "scope": "all_local_feedback_across_sessions",
+                "automatically_refreshed": True,
+                "curation_id": cumulative_curation_id,
+                "curation_url": cumulative_curation_result["curation_url"],
+                "snapshot_id": cumulative_snapshot.get("snapshot_id"),
+                "snapshot_url": cumulative_snapshot_result["snapshot_url"],
+                "selected_item_count": cumulative_selection.get(
+                    "selected_item_count"
+                ),
+                "unique_source_count": cumulative_selection.get(
+                    "unique_source_count"
+                ),
+                "visual_scene_group_count": cumulative_selection.get(
+                    "visual_scene_group_count"
+                ),
+                "split_item_counts": {
+                    split: (
+                        cumulative_splits[split].get("item_count")
+                        if isinstance(cumulative_splits.get(split), dict)
+                        else None
+                    )
+                    for split in CURATION_SPLITS
+                },
+                "technical": cumulative_readiness.get("technical"),
+                "governance": cumulative_readiness.get("governance"),
+                "training_authorized": False,
             },
             "configuration": {
                 "seed": seed,
@@ -3854,6 +4046,14 @@ class LocalMetrologyService:
             "curation_url": curation_result["curation_url"],
             "snapshot": snapshot,
             "snapshot_url": snapshot_result["snapshot_url"],
+            "cumulative_curation": cumulative_curation,
+            "cumulative_curation_url": (
+                cumulative_curation_result["curation_url"]
+            ),
+            "cumulative_snapshot": cumulative_snapshot,
+            "cumulative_snapshot_url": (
+                cumulative_snapshot_result["snapshot_url"]
+            ),
         }
 
     def create_evidence_arbitration(

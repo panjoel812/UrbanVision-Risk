@@ -455,10 +455,18 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
 
     assert curation["status"] == "candidate_plan_requires_training_approval"
     assert curation["schema_version"] == (
-        "urbanvision-feedback-curation-v2.2.0"
+        "urbanvision-feedback-curation-v2.3.0"
     )
     assert curation["training_authorized"] is False
     assert curation["readiness"]["blockers"] == []
+    assert curation["readiness"]["technical"] == {
+        "status": "ready",
+        "blockers": [],
+    }
+    assert curation["readiness"]["governance"] == {
+        "status": "ready",
+        "blockers": [],
+    }
     assert curation["allocation"][
         "non_empty_positive_split_seeding_applied"
     ] is True
@@ -500,10 +508,12 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
         "verified_candidate_snapshot_requires_training_approval"
     )
     assert snapshot["schema_version"] == (
-        "urbanvision-feedback-snapshot-preflight-v1.1.0"
+        "urbanvision-feedback-snapshot-preflight-v1.2.0"
     )
     assert snapshot["training_authorized"] is False
     assert snapshot["readiness"]["blockers"] == []
+    assert snapshot["readiness"]["technical"]["status"] == "ready"
+    assert snapshot["readiness"]["governance"]["status"] == "ready"
     assert snapshot["readiness"]["remediation"] == (
         curation["readiness"]["remediation"]
     )
@@ -995,7 +1005,7 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
     )
     curation = curation_result["curation"]
     assert curation["curation_id"] == "feedback-curation-ranked-001"
-    assert curation["status"] == "not_training_ready"
+    assert curation["status"] == "technical_data_not_ready"
     assert curation["training_authorized"] is False
     assert curation["selection"]["candidate_count_before_deduplication"] == 2
     assert curation["selection"]["selected_item_count"] == 1
@@ -1022,6 +1032,17 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
         "privacy_review_pending",
         "label_qa_pending",
         "invalid_feedback_packages_present",
+    }
+    assert curation["readiness"]["technical"]["status"] == "blocked"
+    assert set(curation["readiness"]["technical"]["blockers"]) >= {
+        "empty_val_split",
+        "empty_test_split",
+        "invalid_feedback_packages_present",
+    }
+    assert curation["readiness"]["governance"]["status"] == "blocked"
+    assert set(curation["readiness"]["governance"]["blockers"]) == {
+        "privacy_review_pending",
+        "label_qa_pending",
     }
     curation_path = service.feedback_curation_path(
         "feedback-curation-ranked-001"
@@ -1254,6 +1275,81 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
             minimum_unique_sources=1,
         )
 
+    governance_only_result = service.create_feedback_curation(
+        train_ratio=1.0,
+        val_ratio=0.0,
+        test_ratio=0.0,
+        minimum_unique_sources=1,
+        included_run_ids=[result["run_id"]],
+        _record_prefix="governance-only-curation",
+    )
+    governance_only = governance_only_result["curation"]
+    assert governance_only["status"] == (
+        "technical_data_ready_governance_blocked"
+    )
+    assert governance_only["readiness"]["technical"]["status"] == "ready"
+    assert governance_only["readiness"]["governance"]["status"] == "blocked"
+    governance_snapshot_result = (
+        service.create_feedback_snapshot_preflight(
+            governance_only["curation_id"],
+            _record_prefix="governance-only-snapshot",
+        )
+    )
+    governance_snapshot = governance_snapshot_result["snapshot"]
+    assert governance_snapshot["status"] == (
+        "integrity_verified_governance_blocked"
+    )
+    assert governance_snapshot["readiness"]["technical"]["status"] == "ready"
+    assert governance_snapshot["readiness"]["governance"]["status"] == (
+        "blocked"
+    )
+
+    with zipfile.ZipFile(feedback_path) as archive:
+        historical_entries = {
+            name: archive.read(name) for name in archive.namelist()
+        }
+    historical_manifest = json.loads(
+        json.dumps(manifest, sort_keys=True)
+    )
+    historical_manifest["run_id"] = "historical-feedback-001"
+    historical_manifest["source_sha256"] = "f" * 64
+    for item in historical_manifest["items"]:
+        fingerprint = int(
+            item["source_roi_difference_hash64"],
+            16,
+        )
+        item["source_roi_difference_hash64"] = (
+            f"{fingerprint ^ 0x00FF00FF00FF00FF:016x}"
+        )
+        source_roi_evidence = item["files"]["source_roi"]
+        original_source_roi = cv2.imdecode(
+            np.frombuffer(
+                historical_entries[source_roi_evidence["path"]],
+                dtype=np.uint8,
+            ),
+            cv2.IMREAD_COLOR,
+        )
+        assert original_source_roi is not None
+        historical_source_roi = _encode_image(
+            np.full_like(original_source_roi, 173)
+        )
+        historical_entries[source_roi_evidence["path"]] = (
+            historical_source_roi
+        )
+        source_roi_evidence["sha256"] = hashlib.sha256(
+            historical_source_roi
+        ).hexdigest()
+    historical_entries["manifest.json"] = (
+        json.dumps(historical_manifest, sort_keys=True) + "\n"
+    ).encode()
+    historical_dir = (
+        service.paths.metrology / "historical-feedback-001"
+    )
+    historical_dir.mkdir()
+    (historical_dir / "active-learning-feedback.zip").write_bytes(
+        _deterministic_zip_bytes(historical_entries)
+    )
+
     batch_result = service.finalize_autopilot_batch(
         run_ids=json.dumps([result["run_id"]]),
         source_digests=json.dumps([source_sha256]),
@@ -1279,8 +1375,8 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
         "run_ids": [result["run_id"]],
     }
     batch = batch_result["batch"]
-    assert batch["schema_version"] == "urbanvision-autopilot-batch-v1.2.0"
-    assert batch["status"] == "completed_with_governance_blockers"
+    assert batch["schema_version"] == "urbanvision-autopilot-batch-v1.3.0"
+    assert batch["status"] == "completed_with_technical_constraints"
     assert batch["run_count"] == 1
     assert batch["feedback_run_count"] == 1
     assert batch["training_authorized"] is False
@@ -1317,6 +1413,34 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
     assert batch["governance"]["snapshot_id"] == (
         "feedback-snapshot-machine-001"
     )
+    assert batch["governance"]["technical"]["status"] == "blocked"
+    assert batch["governance"]["governance"]["status"] == "blocked"
+    assert batch["cumulative_registry"]["automatically_refreshed"] is True
+    assert batch["cumulative_registry"]["scope"] == (
+        "all_local_feedback_across_sessions"
+    )
+    assert batch["cumulative_registry"]["curation_id"] == (
+        "cumulative-curation-machine-001"
+    )
+    assert batch["cumulative_registry"]["snapshot_id"] == (
+        "cumulative-snapshot-machine-001"
+    )
+    assert batch["cumulative_registry"]["unique_source_count"] == 2
+    assert batch["cumulative_registry"]["unique_source_count"] > (
+        batch["source_integrity"]["unique_source_count"]
+    )
+    assert batch_result["cumulative_curation"]["configuration"]["scope"] == {
+        "kind": "all_local_feedback"
+    }
+    assert batch_result["cumulative_curation"]["readiness"]["technical"][
+        "status"
+    ] == "blocked"
+    assert batch_result["cumulative_curation"]["readiness"]["governance"][
+        "status"
+    ] == "blocked"
+    assert batch_result["cumulative_snapshot"]["curation_binding"][
+        "curation_id"
+    ] == "cumulative-curation-machine-001"
     batch_path = service.autopilot_batch_path(
         "autopilot-batch-machine-001"
     )

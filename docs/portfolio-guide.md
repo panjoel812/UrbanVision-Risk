@@ -1,10 +1,10 @@
 # Portfolio and Interview Guide / 简历与面试表达
 
-## What makes v5.6 different / v5.6 的差异化
+## What makes v5.7 different / v5.7 的差异化
 
-Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v5.6 additionally treats data readiness as an auditable control system: complete visual groups are deterministically assigned, every positive-ratio split is seeded when possible, exact deficits become a machine-readable remediation plan, and external benchmark licensing remains separate from local mask approval. The v5.5 cross-method selective-prediction layer remains intact, so obvious proposal-only evidence cannot become a misleading zero-risk result.
+Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v5.7 treats production feedback as an auditable, stateful data system: every batch preserves exact-scope evidence while automatically refreshing a cross-session cumulative registry, and technical data readiness is modeled independently from privacy, label-QA, and machine-label governance. The v5.6 deterministic holdout repair and v5.5 cross-method selective-prediction layer remain intact.
 
-许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v5.6 进一步把数据就绪做成可审计控制系统：完整视觉簇被确定性分配，条件允许时自动填充所有正比例切分，精确缺口转化为机器可读修复计划，外部基准许可证与本地掩膜批准严格分离。v5.5 的跨方法选择性预测仍完整保留，因此肉眼明显的仅分割证据不会被显示成误导性的零风险。
+许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v5.7 把生产反馈做成可审计、有状态的数据系统：每个批次保留精确范围证据，同时自动刷新跨会话累计台账，并把技术数据就绪与隐私、标签抽检、机器标签治理分别建模。v5.6 的确定性留出集修复与 v5.5 的跨方法选择性预测仍完整保留。
 
 ## Resume bullets / 简历要点
 
@@ -26,6 +26,7 @@ Use only metrics you can reproduce. A concise English version:
 - Added a content-aware self-healing control plane with Web Crypto pre-inference deduplication, typed retry eligibility, bounded automatic recovery, browser/server digest binding, duplicate-source rejection, and validated batch-accounting invariants.
 - Built a cross-channel selective-prediction arbiter that source-binds YOLO and segmentation evidence, rasterizes semantic box unions, quantifies bidirectional spatial support, detects suspected semantic misses, and withholds scores under method disagreement without claiming ground truth.
 - Engineered self-remediating data readiness with non-empty group-aware holdout seeding, exact source/scene/approval deficit computation, inherited snapshot guidance, and license-scoped RDD2022 benchmark provenance.
+- Built dual-scope cumulative readiness that preserves exact-batch governance while automatically refreshing all-session local curation and Merkle preflight, with separate technical and accountable-governance state machines.
 - Shipped the model as a loopback-only FastAPI product with bilingual UI, MPS inference, optional local Ollama narratives, privacy headers, structured failure recovery, and a comprehensive automated test suite.
 
 中文版本：
@@ -46,6 +47,7 @@ Use only metrics you can reproduce. A concise English version:
 - 增加内容感知自愈控制平面，实现 Web Crypto 推理前去重、按失败类型决定重试资格、有界自动恢复、浏览器/服务端摘要绑定、重复来源拒绝和批次账目不变量校验。
 - 构建双通道选择性预测仲裁器，对 YOLO 与分割证据做同源绑定、语义框并集栅格化和双向空间支持量化，识别疑似语义漏检，并在方法分歧时拒绝给分而不冒充真值。
 - 实现自修复数据就绪层：视觉簇感知的非空留出预留、精确来源/场景/批准缺口计算、快照继承修复建议，以及受许可证边界约束的 RDD2022 基准来源记录。
+- 构建双范围累计就绪层：保留当前批次治理证据，同时自动刷新跨会话本机策划与 Merkle 预检，并以独立状态机表示技术就绪和责任治理审批。
 - 使用 FastAPI 交付仅监听本机回环地址的双语产品，支持 Apple MPS、本地 Ollama 可选说明、隐私响应头、结构化故障恢复与完整自动化测试。
 
 ## Interview deep-dive / 面试追问
@@ -73,6 +75,7 @@ Be prepared to explain these decisions:
 19. Why workflow automation may be complete while training authorization remains a separate accountable decision.
 20. Why three independent visual groups can populate train/validation/test but still cannot satisfy a ten-source readiness threshold.
 21. Why a CC BY-SA detector benchmark must not be silently converted into approved pixel-mask supervision.
+22. Why cumulative learning progress must not weaken immutable batch provenance, and why technical integrity must be represented independently from governance approval.
 
 准备回答：为什么不取最高置信度、镜像一致性有什么局限、为什么聚类必须限制每个视图只贡献一次、主动学习如何形成数据闭环、为什么零检测不能解释为安全、为什么框不能量测裂缝宽度、单应性何时失效、骨架像素数为什么不等于测地长度，以及敏感性区间为什么不是认证置信区间。
 
@@ -85,8 +88,8 @@ Be prepared to explain these decisions:
 5. Start the app in default `consensus` mode, select several mixed images, and show that the queue continues when one item fails.
 6. Show a proposal-only image and explain why `proposal_only_semantic_miss` withholds the score rather than auto-assigning D00/D10/D20.
 7. Open `urbanvision-cross-channel-arbitration-v1.0.0` and explain source binding, semantic-box rasterization, proposal-supported ratio, selective abstention, and why agreement is not ground truth.
-8. Open the resulting `urbanvision-autopilot-batch-v1.2.0` JSON and show that every completed run binds its arbitration record before curation.
-9. Open `urbanvision-feedback-curation-v2.2.0` and show non-empty split seeding plus the exact next-batch and approval deficits.
+8. Open the resulting `urbanvision-autopilot-batch-v1.3.0` JSON and show that every completed run binds its arbitration record, exact-batch governance, and the automatically refreshed cumulative registry.
+9. Open `urbanvision-feedback-curation-v2.3.0` and show non-empty split seeding, the exact cumulative deficit, and separate `readiness.technical` / `readiness.governance` states.
 10. Open `/api/review-queue?limit=20` and connect detection uncertainty to human review.
 11. Finish with your own held-out field errors and limitations, not a certified-safety claim.
 

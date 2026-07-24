@@ -1,4 +1,4 @@
-# UrbanVision-Risk v5.6 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v5.7 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -183,9 +183,9 @@ The browser defers governance during the queue and submits only successful metro
 
 浏览器在队列期间暂缓治理，只把成功量测编号提交给 `POST /api/metrology/autopilot-batches/finalize`。服务端重新读取每份不可变 `measurement.json`，强制要求 `machine_reviewed_candidate` 与 `machine_heuristic`，并拒绝重复编号、缺失运行或非机器记录。策划仅限该明确运行集合的反馈包，防止不相关历史包混入本批次。
 
-The immutable `urbanvision-autopilot-batch-v1.2.0` record binds measurement SHA-256, source SHA-256, cross-channel arbitration, feedback presence, curation ID, snapshot ID, configuration, and blockers. It deliberately omits original filenames and absolute paths. A completed batch is operational automation evidence, not privacy clearance, label certification, physical calibration, training authorization, or road-safety evidence.
+The immutable `urbanvision-autopilot-batch-v1.3.0` record binds measurement SHA-256, source SHA-256, cross-channel arbitration, feedback presence, configuration, and two governance scopes. `governance` references evidence limited to the exact batch; `cumulative_registry` references the automatically refreshed all-session local curation and snapshot. It deliberately omits original filenames and absolute paths. A completed batch is operational automation evidence, not privacy clearance, label certification, physical calibration, training authorization, or road-safety evidence.
 
-不可覆盖的 `urbanvision-autopilot-batch-v1.2.0` 记录绑定量测 SHA-256、来源 SHA-256、双通道仲裁、反馈是否存在、策划编号、快照编号、配置和阻断项，并有意省略原文件名与绝对路径。完成批次只能证明自动流程执行过，不代表隐私许可、标签认证、物理标定、训练授权或道路安全结论。
+不可覆盖的 `urbanvision-autopilot-batch-v1.3.0` 记录绑定量测 SHA-256、来源 SHA-256、双通道仲裁、反馈是否存在、配置和两个治理范围：`governance` 仅引用当前精确批次，`cumulative_registry` 引用自动刷新的跨会话本机策划与快照。记录有意省略原文件名与绝对路径。完成批次只能证明自动流程执行过，不代表隐私许可、标签认证、物理标定、训练授权或道路安全结论。
 
 ### Content-aware self-healing / 内容感知自愈
 
@@ -263,13 +263,13 @@ The assignment unit is the complete `source_sha256` group, never an individual R
 
 分配单位是完整的 `source_sha256` 组，而不是单个 ROI。v5.6 的带种子确定性分配器会在视觉簇足够时，先为每个正比例切分预留一个完整视觉簇，再按比例缺口分配剩余簇。JSON 记录三个两两源图交集，因此该保证可以机器验证。它能防止同一文件泄漏，但不能证明两个不同文件没有拍摄同一实际地点。
 
-The plan stays `not_training_ready` when it has too few independent sources, an empty split, pending privacy or label review, malformed packages, a truncated inventory, or a failed overlap audit. Even with no blocker, its status is `candidate_plan_requires_training_approval` and `training_authorized` remains `false`. A separate accountable decision is required before materialization or training.
+The v5.7 plan separates readiness into two axes. Too few independent sources, an empty positive-ratio split, malformed packages, a truncated inventory, or a failed overlap audit produce `technical_data_not_ready`. If those checks pass while privacy, label QA, or machine-label approval remains pending, the status is `technical_data_ready_governance_blocked`. With neither axis blocked, the status is still only `candidate_plan_requires_training_approval`; `training_authorized` remains `false`.
 
-当独立原图不足、任一切分为空、隐私或标签复核待完成、存在损坏反馈包、清单被截断或交集审计失败时，策划保持 `not_training_ready`。即使没有阻断项，其状态也只是 `candidate_plan_requires_training_approval`，且 `training_authorized` 始终为 `false`；真正落盘为数据集或训练前仍需单独的责任审批。
+v5.7 把就绪状态拆成两轴。独立原图不足、正比例切分为空、反馈包损坏、清单截断或交集审计失败时，状态为 `technical_data_not_ready`；技术检查通过但隐私、标签质量或机器标签审批待完成时，状态为 `technical_data_ready_governance_blocked`。两轴都无阻断时，状态仍只是 `candidate_plan_requires_training_approval`，且 `training_authorized` 始终为 `false`。
 
-The v5.6 `urbanvision-feedback-curation-v2.2.0` record adds `allocation` and `readiness.remediation`. For the example “67 candidates from 3 independent sources,” automatic seeding produces non-empty train/validation/test groups, while remediation reports seven additional independent sources and seven additional visual groups required to reach the default minimum of ten. Because immutable autopilot governance is scoped to one selection, it separately reports that a fresh standalone batch should contain at least ten distinct images. It also reports all 67 machine candidates as awaiting independent approval. This turns a generic blocker into an executable acquisition plan without weakening the gate.
+The v5.7 `urbanvision-feedback-curation-v2.3.0` record retains `allocation` and `readiness.remediation`, then adds structured `readiness.technical` and `readiness.governance`. For “67 candidates from 3 independent sources,” the technical axis reports seven additional independent sources while the governance axis reports all 67 machine candidates awaiting approval. Every batch finalization also rebuilds an all-local-feedback curation, so three sources from this session plus seven independent sources from later sessions can satisfy the cumulative technical threshold without weakening the immutable batch scope.
 
-v5.6 的 `urbanvision-feedback-curation-v2.2.0` 新增 `allocation` 与 `readiness.remediation`。对于“67 个候选来自 3 张独立原图”的例子，自动预留会生成非空 train、val、test；修复建议明确显示，为达到默认最少 10 个来源，本机累计台账还需 7 张独立原图和 7 个独立视觉簇。由于不可变自动驾驶治理只绑定一次选择，它还会单独提示：全新独立批次至少应选择 10 张图片。67 个机器候选仍待独立批准。这样把笼统阻断转化为可执行采集计划，同时不降低安全门。
+v5.7 的 `urbanvision-feedback-curation-v2.3.0` 保留 `allocation` 与 `readiness.remediation`，并新增结构化 `readiness.technical` 和 `readiness.governance`。对于“67 个候选来自 3 张独立原图”，技术轴报告还差 7 个来源，治理轴报告 67 个机器候选待批准。每次批次结束还会重建包含全部本机反馈的策划，因此本次 3 个来源与以后会话采集的 7 个独立来源可以共同满足累计技术门槛，同时不弱化不可变的本批次范围。
 
 Internet research is recorded as a bounded reference rather than an automatic download. The official [RDD2022 source](https://github.com/sekilab/RoadDamageDetector) provides six-country data, D00/D10/D20/D40 Pascal VOC annotations, and CC BY-SA 4.0 image licensing. It is valid as an external detector benchmark but not as pixel-mask approval. A 400-image RDD2022-derived mask deposit was deliberately excluded from automatic ingestion because its downstream CC BY metadata does not explain how the upstream ShareAlike condition is preserved; license review is required before reuse.
 
@@ -299,13 +299,13 @@ Each member is capped at 8 MiB and the full read is capped at 512 MiB. SHA-256 i
 
 每个成员上限为 8 MiB，完整读取预算为 512 MiB；解码前先验证 SHA-256。原图与掩膜必须可解码、尺寸一致、不超过 512,000 像素，最终掩膜只能含 0/255 二值。合法全零最终掩膜会被保留并计数，因为人工复核后的负分割样本同样可能有价值。
 
-Preflight independently recomputes cross-split exact-source, visual-group, and identical source-member overlaps. Canonical JSON leaves contain split, run, hotspot, source digest, visual group, source-member digest, target-member digest, and review authority. Sorted leaves use SHA-256 with `0x00` leaf-domain separation; parents use `0x01`; the final node is duplicated on odd levels. The result is an immutable `urbanvision-feedback-snapshot-preflight-v1.1.0` JSON with a reproducible Merkle root and upstream remediation guidance.
+Preflight independently recomputes cross-split exact-source, visual-group, and identical source-member overlaps. Canonical JSON leaves contain split, run, hotspot, source digest, visual group, source-member digest, target-member digest, and review authority. Sorted leaves use SHA-256 with `0x00` leaf-domain separation; parents use `0x01`; the final node is duplicated on odd levels. The result is an immutable `urbanvision-feedback-snapshot-preflight-v1.2.0` JSON with a reproducible Merkle root, upstream remediation, and separate technical-integrity and governance axes.
 
-预检会独立重算切分间的精确来源、视觉簇和相同原图成员交集。规范化 JSON 叶节点包含切分、运行、热点、来源摘要、视觉簇、原图成员摘要、目标成员摘要和审核身份。排序叶使用带 `0x00` 叶域分离的 SHA-256，父节点使用 `0x01`，奇数层复制最后节点。结果是带可复现 Merkle 根和上游修复建议的不可覆盖 `urbanvision-feedback-snapshot-preflight-v1.1.0` JSON。
+预检会独立重算切分间的精确来源、视觉簇和相同原图成员交集。规范化 JSON 叶节点包含切分、运行、热点、来源摘要、视觉簇、原图成员摘要、目标成员摘要和审核身份。排序叶使用带 `0x00` 叶域分离的 SHA-256，父节点使用 `0x01`，奇数层复制最后节点。结果是带可复现 Merkle 根、上游修复建议、技术完整性轴和治理轴的不可覆盖 `urbanvision-feedback-snapshot-preflight-v1.2.0` JSON。
 
-Passing status is `verified_candidate_snapshot_requires_training_approval`, never “training ready.” Member integrity and Merkle reproducibility do not establish privacy clearance, semantic label correctness, field validity, or model performance.
+When byte and split integrity pass but governance remains pending, status is `integrity_verified_governance_blocked`. With neither kind of blocker, status is `verified_candidate_snapshot_requires_training_approval`, never “training ready.” Member integrity and Merkle reproducibility do not establish privacy clearance, semantic label correctness, field validity, or model performance.
 
-通过状态是 `verified_candidate_snapshot_requires_training_approval`，绝不是“训练就绪”。成员完整性和 Merkle 可复现性不能证明隐私许可、语义标签正确、现场有效性或模型性能。
+字节与切分完整性通过但治理待完成时，状态为 `integrity_verified_governance_blocked`；两类阻断都不存在时，状态也只是 `verified_candidate_snapshot_requires_training_approval`，绝不是“训练就绪”。成员完整性和 Merkle 可复现性不能证明隐私许可、语义标签正确、现场有效性或模型性能。
 
 Images larger than two million pixels are processed on a downsampled work raster and the binary proposal is restored to the exact source resolution. This bounds memory and runtime without sending pixels to a cloud service. The sensitivity slider changes proposal recall; it is not a calibrated probability or YOLO confidence.
 

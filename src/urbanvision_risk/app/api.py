@@ -140,6 +140,8 @@ def create_app(
         payload["self_healing_content_deduplication"] = True
         payload["cross_channel_evidence_arbitration"] = True
         payload["self_remediating_data_readiness"] = True
+        payload["cumulative_cross_session_readiness"] = True
+        payload["dual_axis_training_readiness"] = True
         return payload
 
     @app.get("/api/review-queue")

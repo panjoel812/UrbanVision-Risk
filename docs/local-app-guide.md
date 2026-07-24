@@ -1,10 +1,10 @@
-# UrbanVision-Risk v5.6 Self-Remediating Local App / 自修复数据就绪本地应用指南
+# UrbanVision-Risk v5.7 Cumulative Readiness Local App / 跨会话累计就绪本地应用指南
 
 ## Finished product / 最终产品
 
-**English:** v5.6 automatically repairs empty holdout allocation when enough independent visual groups exist and reports exact source, scene-group, and approval deficits. v5.5 YOLO × segmentation arbitration, content-aware self-healing, and bounded Apple MPS execution remain active.
+**English:** v5.7 automatically refreshes an all-session local feedback registry after each batch and separates technical data readiness from governance approval. Batch-scoped evidence, v5.6 holdout repair, v5.5 YOLO × segmentation arbitration, content-aware self-healing, and bounded Apple MPS execution remain active.
 
-**中文：** v5.6 会在独立视觉簇足够时自动修复空留出集，并报告精确的来源、视觉簇和批准缺口。v5.5 的 YOLO × 分割仲裁、内容感知自愈和 Apple MPS 有界执行继续生效。
+**中文：** v5.7 会在每次批次结束后自动刷新跨会话本机反馈台账，并把技术数据就绪与治理审批拆开显示。本批次证据、v5.6 留出集修复、v5.5 YOLO × 分割仲裁、内容感知自愈和 Apple MPS 有界执行继续生效。
 
 It uses no AWS, Azure, Google Cloud, paid API, remote model, CDN, analytics, or telemetry. After dependencies and the model are present, the complete workflow can run without internet access.
 
@@ -77,17 +77,17 @@ Version 5.3 turns that single-image path into a **resilient batch autopilot**. K
 
 v5.3 把单图路径扩展为 **弹性批量自动驾驶**。保持自动驾驶开启，在一次文件选择中最多选择 100 张图片，即可观察每项依次进入等待、运行、完成或失败状态。浏览器刻意一次只处理一张图片，从而限制 Apple MPS 内存；但该图片内部的检测与候选仍并发执行。某一项发生异常时只会在当前队列中记录，不会取消后续图片。
 
-After the queue ends, `POST /api/metrology/autopilot-batches/finalize` sends only successful run IDs to the service. The service reloads every measurement, revalidates `machine_reviewed_candidate`, `machine_heuristic`, source SHA-256 provenance, and the matching arbitration record, scopes curation to this exact batch, and runs snapshot preflight once. The immutable `urbanvision-autopilot-batch-v1.2.0` record is saved under `results/metrology/autopilot-batches/`. It contains no original filename or absolute path, and `training_authorized` remains `false`; governance blockers are an honest result, not a batch failure.
+After the queue ends, `POST /api/metrology/autopilot-batches/finalize` sends only successful run IDs to the service. The service reloads every measurement, revalidates `machine_reviewed_candidate`, `machine_heuristic`, source SHA-256 provenance, and the matching arbitration record. It first creates an immutable curation and snapshot restricted to this exact batch, then automatically refreshes a second curation and snapshot over all local feedback from current and earlier sessions. The immutable `urbanvision-autopilot-batch-v1.3.0` record binds both scopes under `governance` and `cumulative_registry`. Historical samples never enter the current-batch evidence.
 
-队列结束后，`POST /api/metrology/autopilot-batches/finalize` 只把成功运行编号交给服务端。服务端重新读取每份量测，复核 `machine_reviewed_candidate`、`machine_heuristic`、原图 SHA-256 与对应仲裁记录，把策划范围严格限制为本批次，并只运行一次快照预检。不可覆盖的 `urbanvision-autopilot-batch-v1.2.0` 记录保存在 `results/metrology/autopilot-batches/`。其中不含原文件名或绝对路径，且 `training_authorized` 仍为 `false`；出现治理阻断是诚实的安全结果，不代表批处理崩溃。
+队列结束后，`POST /api/metrology/autopilot-batches/finalize` 只把成功运行编号交给服务端。服务端重新读取每份量测，复核 `machine_reviewed_candidate`、`machine_heuristic`、原图 SHA-256 与对应仲裁记录；先生成严格限制于当前批次的不可变策划与快照，再自动刷新包含当前及历次会话全部本机反馈的第二套策划与快照。`urbanvision-autopilot-batch-v1.3.0` 通过 `governance` 与 `cumulative_registry` 同时绑定两种范围；历史样本绝不会进入本批次证据。
 
 Version 5.4 adds two independent deduplication boundaries. The browser hashes each eligible file with `crypto.subtle.digest("SHA-256", ...)`, retains the first occurrence, and marks later byte-identical selections as `duplicate`. The service does not trust that decision: it compares each browser digest with the SHA-256 already preserved in `measurement.json`, rejects repeated server-side source evidence, and verifies that completed + failed + duplicate counts equal the selected count.
 
 v5.4 增加两道相互独立的去重边界。浏览器使用 `crypto.subtle.digest("SHA-256", ...)` 计算每个合格文件的摘要，只保留第一次出现的内容，后续完全相同文件标记为 `duplicate`。服务端不会盲信浏览器：它把浏览器摘要与 `measurement.json` 已保存的 SHA-256 逐项比较，拒绝服务端重复来源，并验证完成数 + 失败数 + 去重数必须等于选择总数。
 
-Only `pipeline_incomplete` and `unexpected_error` are retryable, with `MAX_BATCH_ATTEMPTS = 2`. Unsupported format, over 15 MiB, decode failure, and over 20 megapixels are deterministic failures and are not retried. The `urbanvision-autopilot-batch-v1.2.0` ledger records validated aggregate counts, retry policy, digest-match count, unique-source count, arbitration bindings, and governance references without persisting the live queue's filenames.
+Only `pipeline_incomplete` and `unexpected_error` are retryable, with `MAX_BATCH_ATTEMPTS = 2`. Unsupported format, over 15 MiB, decode failure, and over 20 megapixels are deterministic failures and are not retried. The `urbanvision-autopilot-batch-v1.3.0` ledger records validated aggregate counts, retry policy, digest-match count, unique-source count, arbitration bindings, batch governance, and cumulative-registry references without persisting the live queue's filenames.
 
-只有 `pipeline_incomplete` 与 `unexpected_error` 可以重试，且 `MAX_BATCH_ATTEMPTS = 2`。格式不支持、超过 15 MiB、解码失败或超过 2000 万像素属于确定性失败，不会重试。`urbanvision-autopilot-batch-v1.2.0` 账本记录已校验汇总数、重试策略、摘要匹配数、唯一来源数、仲裁绑定和治理引用，但不会保存页面队列里的文件名。
+只有 `pipeline_incomplete` 与 `unexpected_error` 可以重试，且 `MAX_BATCH_ATTEMPTS = 2`。格式不支持、超过 15 MiB、解码失败或超过 2000 万像素属于确定性失败，不会重试。`urbanvision-autopilot-batch-v1.3.0` 账本记录已校验汇总数、重试策略、摘要匹配数、唯一来源数、仲裁绑定、本批次治理与累计台账引用，但不会保存页面队列里的文件名。
 
 Version 5.5 adds **YOLO × segmentation evidence arbitration** automatically after both parallel channels finish. `POST /api/evidence/arbitrate` reloads the immutable inspection manifest, prediction, risk, measurement, and final mask. It rejects a mismatched upload SHA-256, changed JSON hash, run identity mismatch, dimension mismatch, or mask-evidence mismatch before comparing pixels.
 
@@ -105,9 +105,13 @@ Version 5.6 adds **self-remediating data readiness**. The allocator first orders
 
 v5.6 增加 **自修复数据就绪**。分配器先对完整视觉簇做确定性排序，只要视觉簇数量足够，就为每个正比例切分预留一个视觉簇。因此三个独立簇会自动形成非空 train、val、test；任何 ROI 或精确来源都不会跨切分，剩余视觉簇再按比例缺口分配。
 
-`urbanvision-feedback-curation-v2.2.0` now contains structured `readiness.remediation`: observed counts, requirements, exact deficits, additional images needed by the cumulative local registry, the minimum size of a fresh batch-scoped run, machine candidates pending independent approval, completed automatic protections, and required actions. `urbanvision-feedback-snapshot-preflight-v1.1.0` carries the same upstream remediation instead of reducing the explanation to `upstream_curation_not_ready`.
+Version 5.7 writes `urbanvision-feedback-curation-v2.3.0`. Its backward-compatible `readiness.blockers` list is now classified into `readiness.technical` and `readiness.governance`. Too few independent sources, empty positive-ratio splits, corrupt packages, truncated inventories, and leakage are technical blockers. Privacy review, label QA, and independent approval of machine labels are governance blockers. `urbanvision-feedback-snapshot-preflight-v1.2.0` separately reports byte-integrity status and inherited governance state.
 
-`urbanvision-feedback-curation-v2.2.0` 现在包含结构化 `readiness.remediation`：当前数量、要求、精确缺口、本机累计台账需要补充的图片数、全新批次范围运行的最小图片数、待独立批准的机器候选、已完成的自动保护以及仍需执行的动作。`urbanvision-feedback-snapshot-preflight-v1.1.0` 会继承同一修复建议，不再只显示笼统的 `upstream_curation_not_ready`。
+v5.7 写入 `urbanvision-feedback-curation-v2.3.0`。兼容旧调用者的 `readiness.blockers` 仍保留，但现在被分类到 `readiness.technical` 与 `readiness.governance`：独立来源不足、正比例切分为空、包损坏、清单截断和泄漏属于技术阻断；隐私复核、标签抽检和机器标签独立批准属于治理阻断。`urbanvision-feedback-snapshot-preflight-v1.2.0` 会分别报告字节完整性状态和继承的治理状态。
+
+This distinction explains the earlier “67/67 verified but not ready” output. It means all 67 referenced image-mask pairs passed structural and hash verification, while the registry still lacked enough independent full-frame sources and machine labels lacked accountable approval. v5.7 displays those facts independently. Across later uploads, the cumulative source and visual-group counts increase automatically; no manual merge button is required.
+
+这也解释了之前“67/67 已验证但尚未就绪”：67 个原图—掩膜引用都通过了结构和摘要验证，但独立全幅原图仍不足，且机器标签尚无责任人批准。v5.7 会把这些事实分开显示；以后继续上传时，累计独立原图和视觉簇数量会自动增加，不需要手动合并按钮。
 
 The vetted external reference is the official [RDD2022 repository](https://github.com/sekilab/RoadDamageDetector), which provides multi-country D00/D10/D20/D40 bounding-box annotations and identifies the image license as CC BY-SA 4.0. It remains a detector benchmark, not a substitute for approving locally generated segmentation masks. A newly published RDD2022-derived mask record was not auto-imported because its Zenodo CC BY metadata does not by itself resolve the upstream ShareAlike obligation.
 

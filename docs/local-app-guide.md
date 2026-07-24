@@ -1,4 +1,4 @@
-# UrbanVision-Risk v5.0 Reliability-Aware Local App / 可靠性本地应用指南
+# UrbanVision-Risk v5.1 Reliability-Aware Local App / 可靠性本地应用指南
 
 ## Finished product / 最终产品
 
@@ -55,6 +55,18 @@ In the feedback panel, choose a seed, minimum independent visual-group count, an
 The plan remains immutable JSON under `results/metrology/curations/` and references preserved ZIP members rather than extracting or deleting them. A perceptual link is deliberately one-way safety evidence: it forces co-location in a split, but it does not prove two files are identical or show the same physical road.
 
 策划仍以不可覆盖 JSON 保存到 `results/metrology/curations/`，只引用保留 ZIP 内的成员，不解压或删除原包。感知连接只是单向安全证据：它会强制两个来源进入同一切分，但不能证明两个文件完全相同或拍摄了同一实际路段。
+
+Version 5.1 adds **Verify content-addressed snapshot** directly below the curation result. It binds the current curation JSON by SHA-256, confirms that every package manifest still matches the curated inventory, and reads only each selected `source_roi` and `final_mask` member. Every member is size-bounded and hash-verified before OpenCV decoding. The source and target must share dimensions, remain under the ROI pixel ceiling, and the target may contain only 0 and 255.
+
+v5.1 在策划结果下方直接加入 **验证内容寻址快照**。它用 SHA-256 绑定当前策划 JSON，确认每个反馈包清单仍与策划时的清单一致，并且只读取入选数据对的 `source_roi` 和 `final_mask` 成员。每个成员先经过大小限制和摘要核对，再由 OpenCV 解码；原图与目标掩膜必须同尺寸、不超过 ROI 像素上限，目标只能包含 0 和 255。
+
+Preflight independently recomputes exact-source, visual-group, and identical source-member overlaps across splits. It reports verified/invalid pairs, bytes read, empty-mask counts, foreground ratios, and dispositions. Canonical sorted leaves bind split, run, hotspot, source, visual group, source-member hash, and target-member hash. Leaf and parent domains use distinct `0x00` and `0x01` prefixes; odd nodes are duplicated. The resulting immutable JSON is stored under `results/metrology/snapshots/`.
+
+预检会独立重算精确来源、视觉簇和相同原图成员在切分间的交集，并报告通过/无效数据对、读取字节、空掩膜、前景比例和处置分布。规范化排序叶节点绑定切分、运行、热点、来源、视觉簇、原图成员摘要和目标成员摘要；叶与父节点分别使用 `0x00`、`0x01` 域前缀，奇数节点复制末项。最终不可覆盖 JSON 保存到 `results/metrology/snapshots/`。
+
+The Merkle root proves that one exact set of references produced the recorded root; it does not prove privacy clearance, label correctness, or model quality. `training_authorized` remains `false`.
+
+Merkle 根只能证明某一精确引用集合产生了记录中的根，不能证明隐私合规、标签正确或模型质量；`training_authorized` 仍为 `false`。
 
 ## What happens after upload / 上传后发生什么
 

@@ -274,9 +274,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v5.0 · Visual-scene leakage firewall</p>
+        <p class="eyebrow">v5.1 · Content-addressed snapshot preflight</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>训练前防火墙不仅阻止同一原图跨切分，还用 ROI 感知指纹的汉明距离连接视觉近重复来源；传递相似的完整场景簇只能进入 train、val 或 test 之一，并保留可机器复核的连接证据。</span><span data-en class="hidden-lang">The pre-training firewall blocks both exact-source leakage and visually near-duplicate leakage. Hamming-distance links over ROI fingerprints form transitive source-scene groups that must stay wholly in train, validation, or test, with machine-auditable evidence.</span></p>
+        <p class="hero-copy"><span data-zh>防泄漏策划完成后，快照预检会在原 ZIP 内逐项核对 ROI 与最终二值掩膜的 SHA-256、尺寸和格式，重新审计切分隔离，并用规范化 Merkle 根绑定整个候选快照；不解压、不复制，也不自动训练。</span><span data-en class="hidden-lang">After leakage-safe curation, snapshot preflight verifies every ROI and final binary mask in-place—SHA-256, geometry, format, and split isolation—then binds the candidate snapshot with a canonical Merkle root. Nothing is extracted, copied, or trained automatically.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -470,6 +470,8 @@ METROLOGY_HTML = """<!doctype html>
               <label class="privacy"><input id="curation-label-qa" type="checkbox"> <span data-zh>我已完成标签质量抽检</span><span data-en class="hidden-lang">Label-quality review is complete</span></label>
               <button id="curation-button" class="utility-button" type="button" disabled><span data-zh>生成防泄漏候选策划</span><span data-en class="hidden-lang">Build leakage-safe candidate plan</span></button>
               <div id="curation-result" class="utility-result hidden"></div>
+              <button id="snapshot-button" class="utility-button" type="button" disabled><span data-zh>验证内容寻址快照</span><span data-en class="hidden-lang">Verify content-addressed snapshot</span></button>
+              <div id="snapshot-result" class="utility-result hidden"></div>
             </div>
             <div class="practical-grid">
               <section class="utility-panel">
@@ -512,7 +514,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v5.0 · Visual-Scene Leakage Firewall · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v5.1 · Merkle Snapshot Preflight · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -547,6 +549,7 @@ METROLOGY_HTML = """<!doctype html>
       let latestNarrative = null;
       let latestFeedbackCatalog = null;
       let latestFeedbackCuration = null;
+      let latestFeedbackSnapshot = null;
       let activeProposalId = null;
       let proposalSuppressed = false;
       let reviewHotspotsVisible = true;
@@ -674,6 +677,14 @@ METROLOGY_HTML = """<!doctype html>
           duplicateRemoved: "重复指纹排除",
           sourceLeakage: "原图跨切分泄漏",
           visualSceneLeakage: "视觉簇跨切分泄漏",
+          snapshotRunning: "正在原 ZIP 内验证数据对并计算 Merkle 根…",
+          snapshotComplete: "内容寻址快照预检通过",
+          snapshotBlocked: "快照预检完成，但存在阻断项",
+          verifiedPairs: "已验证数据对",
+          invalidPairs: "无效数据对",
+          memberBytes: "读取成员字节",
+          merkleRoot: "Merkle 根",
+          contentDuplicates: "跨切分相同 ROI 内容",
           readinessBlockers: "阻断项",
           trainingAuthorization: "训练授权",
           downloadJson: "下载审计 JSON"
@@ -786,6 +797,14 @@ METROLOGY_HTML = """<!doctype html>
           duplicateRemoved: "Duplicate fingerprints excluded",
           sourceLeakage: "Cross-split source leakage",
           visualSceneLeakage: "Cross-split visual-group leakage",
+          snapshotRunning: "Verifying ZIP pairs in place and computing the Merkle root…",
+          snapshotComplete: "Content-addressed snapshot preflight passed",
+          snapshotBlocked: "Snapshot preflight completed with blockers",
+          verifiedPairs: "Verified pairs",
+          invalidPairs: "Invalid pairs",
+          memberBytes: "Member bytes read",
+          merkleRoot: "Merkle root",
+          contentDuplicates: "Cross-split identical ROI content",
           readinessBlockers: "Blockers",
           trainingAuthorization: "Training authorization",
           downloadJson: "Download audit JSON"
@@ -828,7 +847,16 @@ METROLOGY_HTML = """<!doctype html>
           feedback_inventory_truncated: "反馈清单超过本次读取上限",
           scene_fingerprint_inventory_truncated: "视觉指纹超过单个来源读取上限",
           source_group_leakage_detected: "发现原图跨切分泄漏",
-          visual_scene_group_leakage_detected: "发现视觉簇跨切分泄漏"
+          visual_scene_group_leakage_detected: "发现视觉簇跨切分泄漏",
+          unsupported_curation_schema: "策划版本不支持快照预检",
+          upstream_curation_not_ready: "上游策划尚未就绪",
+          curation_inventory_invalid: "策划清单结构无效",
+          feedback_inventory_changed: "反馈清单缺失或已经变化",
+          invalid_training_pairs: "存在损坏或格式无效的数据对",
+          snapshot_item_limit_exceeded: "数据对数量超过预检上限",
+          snapshot_read_budget_exceeded: "成员读取量超过安全上限",
+          incomplete_snapshot_pairs: "并非所有候选数据对都通过验证",
+          cross_split_source_content_duplicate: "相同 ROI 字节出现在不同切分"
         },
         en: {
           no_quality_passing_candidates: "No quality-passing candidates",
@@ -843,7 +871,16 @@ METROLOGY_HTML = """<!doctype html>
           feedback_inventory_truncated: "Feedback inventory exceeded the read limit",
           scene_fingerprint_inventory_truncated: "Per-source visual-fingerprint inventory was truncated",
           source_group_leakage_detected: "Cross-split source leakage detected",
-          visual_scene_group_leakage_detected: "Cross-split visual-group leakage detected"
+          visual_scene_group_leakage_detected: "Cross-split visual-group leakage detected",
+          unsupported_curation_schema: "Curation schema is unsupported by snapshot preflight",
+          upstream_curation_not_ready: "Upstream curation is not ready",
+          curation_inventory_invalid: "Curation inventory is invalid",
+          feedback_inventory_changed: "Feedback inventory is missing or changed",
+          invalid_training_pairs: "Damaged or structurally invalid pairs exist",
+          snapshot_item_limit_exceeded: "Pair count exceeds the preflight limit",
+          snapshot_read_budget_exceeded: "Member-read budget was exceeded",
+          incomplete_snapshot_pairs: "Not every candidate pair passed verification",
+          cross_split_source_content_duplicate: "Identical ROI bytes cross splits"
         }
       };
       const tierLabels = {
@@ -1234,6 +1271,7 @@ METROLOGY_HTML = """<!doctype html>
         if (latestNarrative) renderNarrative(latestNarrative);
         if (latestFeedbackCatalog) renderFeedbackCatalog(latestFeedbackCatalog);
         if (latestFeedbackCuration) renderFeedbackCuration(latestFeedbackCuration);
+        if (latestFeedbackSnapshot) renderFeedbackSnapshot(latestFeedbackSnapshot);
         renderProposalState();
         renderHotspotReview();
         setPipeline(pipelineStage);
@@ -1903,9 +1941,12 @@ METROLOGY_HTML = """<!doctype html>
         if (feedbackUrl) byId("feedback-download").href = feedbackUrl;
         else byId("feedback-download").removeAttribute("href");
         byId("curation-button").disabled = !feedbackUrl;
+        byId("snapshot-button").disabled = true;
         if (feedbackUrl && newRun) {
           latestFeedbackCuration = null;
+          latestFeedbackSnapshot = null;
           byId("curation-result").classList.add("hidden");
+          byId("snapshot-result").classList.add("hidden");
         }
         if (feedbackUrl && (newRun || !latestFeedbackCatalog)) {
           byId("feedback-catalog-summary").textContent = language === "zh"
@@ -1998,6 +2039,7 @@ METROLOGY_HTML = """<!doctype html>
           payload.curation_url,
           blocked
         );
+        byId("snapshot-button").disabled = false;
       }
 
       async function createFeedbackCuration() {
@@ -2020,6 +2062,8 @@ METROLOGY_HTML = """<!doctype html>
           });
           const payload = await response.json();
           if (!response.ok) throw payload.error || payload;
+          latestFeedbackSnapshot = null;
+          byId("snapshot-result").classList.add("hidden");
           renderFeedbackCuration(payload);
           setStatus(
             payload.curation.status === "not_training_ready"
@@ -2032,6 +2076,71 @@ METROLOGY_HTML = """<!doctype html>
           setStatus(message || t("failed"), true);
         } finally {
           button.disabled = !byId("feedback-download").getAttribute("href");
+        }
+      }
+
+      function renderFeedbackSnapshot(payload) {
+        latestFeedbackSnapshot = payload;
+        const snapshot = payload.snapshot;
+        const integrity = snapshot.integrity;
+        const merkle = snapshot.merkle;
+        const blockers = snapshot.readiness.blockers || [];
+        const blockerText = blockers.length
+          ? blockers.map((code) => curationBlockerLabels[language][code] || code).join("；")
+          : (language === "zh" ? "无；仍需单独批准训练" : "None; training still requires separate approval");
+        const splitSummary = ["train", "val", "test"].map((split) => {
+          const value = snapshot.splits[split];
+          return `${split}: ${value.pair_count} / ${value.empty_mask_count}`;
+        }).join(" · ");
+        const bytes = Number(integrity.member_bytes_read || 0);
+        const byteLabel = bytes >= 1048576
+          ? `${(bytes / 1048576).toFixed(2)} MiB`
+          : `${(bytes / 1024).toFixed(2)} KiB`;
+        const lines = [
+          `${t("verifiedPairs")}: ${integrity.verified_pair_count}/${integrity.expected_pair_count} · ${t("invalidPairs")}: ${integrity.invalid_pair_count}`,
+          `${splitSummary} (${language === "zh" ? "数据对 / 空掩膜" : "pairs / empty masks"})`,
+          `${t("memberBytes")}: ${byteLabel}`,
+          `${t("contentDuplicates")}: ${(integrity.source_roi_content_overlaps || []).length}`,
+          `${t("merkleRoot")}: ${merkle.root_sha256}`,
+          `${t("readinessBlockers")}: ${blockerText}`,
+          `${t("trainingAuthorization")}: ${snapshot.training_authorized ? (language === "zh" ? "已授权" : "authorized") : (language === "zh" ? "未授权" : "not authorized")}`
+        ];
+        const blocked = snapshot.status === "not_snapshot_ready";
+        renderUtilityResult(
+          byId("snapshot-result"),
+          blocked ? t("snapshotBlocked") : t("snapshotComplete"),
+          lines,
+          payload.snapshot_url,
+          blocked
+        );
+      }
+
+      async function createFeedbackSnapshot() {
+        if (!latestFeedbackCuration) return;
+        const button = byId("snapshot-button");
+        button.disabled = true;
+        setStatus(t("snapshotRunning"));
+        try {
+          const curationId = encodeURIComponent(
+            latestFeedbackCuration.curation.curation_id
+          );
+          const response = await fetch(
+            `/api/metrology/feedback-curations/${curationId}/snapshot-preflight`,
+            { method: "POST" }
+          );
+          const payload = await response.json();
+          if (!response.ok) throw payload.error || payload;
+          renderFeedbackSnapshot(payload);
+          const blocked = payload.snapshot.status === "not_snapshot_ready";
+          setStatus(
+            blocked ? t("snapshotBlocked") : t("snapshotComplete"),
+            blocked
+          );
+        } catch (error) {
+          const message = error && (language === "zh" ? error.message_zh : error.message_en);
+          setStatus(message || t("failed"), true);
+        } finally {
+          button.disabled = !latestFeedbackCuration;
         }
       }
 
@@ -2330,6 +2439,7 @@ METROLOGY_HTML = """<!doctype html>
       byId("demo-button").addEventListener("click", runDemo);
       byId("narrative-button").addEventListener("click", generateNarrative);
       byId("curation-button").addEventListener("click", createFeedbackCuration);
+      byId("snapshot-button").addEventListener("click", createFeedbackSnapshot);
       byId("plan-button").addEventListener("click", createPlan);
       byId("compare-button").addEventListener("click", compareGrowth);
       byId("baseline-run").addEventListener("change", () => {

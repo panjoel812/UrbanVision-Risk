@@ -1,4 +1,4 @@
-# UrbanVision-Risk v5.0 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v5.1 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -208,6 +208,24 @@ The links enter deterministic single-linkage union-find. Therefore A≈B and B�
 This is intentionally conservative. Difference hashes can collide, single linkage can chain unrelated scenes, and ROI similarity is not geolocation. Raising the threshold reduces leakage risk but increases false grouping and may leave validation or test empty. Every link stores both source digests, both fingerprints, and the measured distance so a reviewer can audit the grouping rather than trust a hidden heuristic.
 
 该机制有意保持保守。差分指纹可能碰撞，单链可能把无关场景串联，ROI 相似也不等于地理位置相同。调高阈值会降低泄漏风险，但增加误合并概率，并可能使验证集或测试集为空。每条连接保存两侧来源摘要、指纹和实际距离，让复核者审计分组，而不是盲目信任隐藏启发式规则。
+
+### Content-addressed snapshot preflight / 内容寻址快照预检
+
+`POST /api/metrology/feedback-curations/{curation_id}/snapshot-preflight` verifies a v5.0 curation without extracting a dataset. It SHA-256 binds the curation JSON, reloads the current bounded manifest inventory, and rejects missing or changed manifests. For every selected pair, it revalidates the run/hotspot/manifest binding and reads only the referenced source ROI and final mask from the preserved ZIP.
+
+`POST /api/metrology/feedback-curations/{curation_id}/snapshot-preflight` 在不解压数据集的情况下验证 v5.0 策划。它用 SHA-256 绑定策划 JSON，重新加载当前有界清单，并拒绝缺失或变化的清单。对每个入选数据对，它重新校验运行、热点与清单绑定，只从保留 ZIP 中读取被引用的原图 ROI 和最终掩膜。
+
+Each member is capped at 8 MiB and the full read is capped at 512 MiB. SHA-256 is checked before decoding. The source and mask must decode, share dimensions, remain within 512,000 pixels, and the final mask may contain only binary 0/255 values. A valid all-zero final mask is retained and counted because reviewed negative segmentation examples can be meaningful.
+
+每个成员上限为 8 MiB，完整读取预算为 512 MiB；解码前先验证 SHA-256。原图与掩膜必须可解码、尺寸一致、不超过 512,000 像素，最终掩膜只能含 0/255 二值。合法全零最终掩膜会被保留并计数，因为人工复核后的负分割样本同样可能有价值。
+
+Preflight independently recomputes cross-split exact-source, visual-group, and identical source-member overlaps. Canonical JSON leaves contain split, run, hotspot, source digest, visual group, source-member digest, and target-member digest. Sorted leaves use SHA-256 with `0x00` leaf-domain separation; parents use `0x01`; the final node is duplicated on odd levels. The result is an immutable `urbanvision-feedback-snapshot-preflight-v1.0.0` JSON with a reproducible Merkle root.
+
+预检会独立重算切分间的精确来源、视觉簇和相同原图成员交集。规范化 JSON 叶节点包含切分、运行、热点、来源摘要、视觉簇、原图成员摘要和目标成员摘要。排序叶使用带 `0x00` 叶域分离的 SHA-256，父节点使用 `0x01`，奇数层复制最后节点。结果是带可复现 Merkle 根的不可覆盖 `urbanvision-feedback-snapshot-preflight-v1.0.0` JSON。
+
+Passing status is `verified_candidate_snapshot_requires_training_approval`, never “training ready.” Member integrity and Merkle reproducibility do not establish privacy clearance, semantic label correctness, field validity, or model performance.
+
+通过状态是 `verified_candidate_snapshot_requires_training_approval`，绝不是“训练就绪”。成员完整性和 Merkle 可复现性不能证明隐私许可、语义标签正确、现场有效性或模型性能。
 
 Images larger than two million pixels are processed on a downsampled work raster and the binary proposal is restored to the exact source resolution. This bounds memory and runtime without sending pixels to a cloud service. The sensitivity slider changes proposal recall; it is not a calibrated probability or YOLO confidence.
 

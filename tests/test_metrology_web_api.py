@@ -41,6 +41,7 @@ class MetrologyStub:
         self.failure: ProjectError | None = None
         self.feedback_catalog_limit: int | None = None
         self.feedback_curation_arguments: dict[str, Any] | None = None
+        self.feedback_snapshot_curation_id: str | None = None
 
     def demo(self) -> dict[str, object]:
         return {
@@ -167,6 +168,29 @@ class MetrologyStub:
             raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
         return self.artifact
 
+    def create_feedback_snapshot_preflight(
+        self,
+        curation_id: str,
+    ) -> dict[str, object]:
+        self.feedback_snapshot_curation_id = curation_id
+        return {
+            "local_only": True,
+            "snapshot": {
+                "snapshot_id": "feedback-snapshot-001",
+                "status": "not_snapshot_ready",
+                "training_authorized": False,
+            },
+            "snapshot_url": (
+                "/api/metrology/feedback-snapshots/"
+                "feedback-snapshot-001.json"
+            ),
+        }
+
+    def feedback_snapshot_path(self, snapshot_id: str) -> Path:
+        if snapshot_id != "feedback-snapshot-001":
+            raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
+        return self.artifact
+
     def create_maintenance_plan(
         self,
         run_id: str,
@@ -265,6 +289,8 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="curation-label-qa"' in response.text
     assert 'id="curation-scene-distance"' in response.text
     assert 'id="curation-result"' in response.text
+    assert 'id="snapshot-button"' in response.text
+    assert 'id="snapshot-result"' in response.text
     assert "calculateLoupeViewport" in response.text
     assert "loupeCanvasPosition" in response.text
     assert "synchronized_hotspot_loupe" in response.text
@@ -276,6 +302,9 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "/api/metrology/feedback-curations" in response.text
     assert "loadFeedbackCatalog" in response.text
     assert "createFeedbackCuration" in response.text
+    assert "createFeedbackSnapshot" in response.text
+    assert "snapshot-preflight" in response.text
+    assert "payload.snapshot_url" in response.text
     assert 'form.append("max_scene_hamming_distance"' in response.text
     assert 'hotspotLoupe.addEventListener("pointerdown"' in response.text
     assert 'id="inspection-section"' in response.text
@@ -374,6 +403,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["feedback_quality_registry"] is True
     assert health.json()["leakage_safe_feedback_curation"] is True
     assert health.json()["visual_near_duplicate_split_firewall"] is True
+    assert health.json()["content_addressed_snapshot_preflight"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
@@ -430,6 +460,10 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
             "label_qa_confirmed": "false",
         },
     )
+    feedback_snapshot = client.post(
+        "/api/metrology/feedback-curations/"
+        "feedback-curation-001/snapshot-preflight"
+    )
     plan = client.post(
         "/api/metrology/runs/metrology-web-001/maintenance-plan",
         data={
@@ -454,6 +488,9 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     downloaded_curation = client.get(
         "/api/metrology/feedback-curations/feedback-curation-001.json"
     )
+    downloaded_snapshot = client.get(
+        "/api/metrology/feedback-snapshots/feedback-snapshot-001.json"
+    )
     downloaded_comparison = client.get("/api/metrology/comparisons/comparison-001.json")
     downloaded_change_map = client.get("/api/metrology/comparisons/comparison-001/change-map.png")
 
@@ -474,6 +511,9 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
         "privacy_review_confirmed": True,
         "label_qa_confirmed": False,
     }
+    assert feedback_snapshot.status_code == 200
+    assert feedback_snapshot.json()["snapshot"]["training_authorized"] is False
+    assert metrology.feedback_snapshot_curation_id == "feedback-curation-001"
     assert plan.status_code == 200
     assert metrology.plan_arguments == {
         "run_id": "metrology-web-001",
@@ -495,6 +535,8 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     assert downloaded_plan.headers["content-type"] == "application/json"
     assert downloaded_curation.status_code == 200
     assert downloaded_curation.headers["content-type"] == "application/json"
+    assert downloaded_snapshot.status_code == 200
+    assert downloaded_snapshot.headers["content-type"] == "application/json"
     assert downloaded_comparison.status_code == 200
     assert downloaded_comparison.headers["content-type"] == "application/json"
     assert downloaded_change_map.status_code == 200

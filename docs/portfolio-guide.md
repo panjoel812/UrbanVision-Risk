@@ -1,10 +1,10 @@
 # Portfolio and Interview Guide / 简历与面试表达
 
-## What makes v5.0 different / v5.0 的差异化
+## What makes v5.1 different / v5.1 的差异化
 
-Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v5.0 implements a defensible pre-training leakage firewall: it checks operator semantics against ROI pixel deltas, filters non-passing feedback, deduplicates without deleting evidence, clusters different source files by bounded perceptual-fingerprint distance, assigns complete transitive visual groups to deterministic splits, audits both exact-source and visual-group intersections, and refuses to authorize training. This demonstrates dataset-similarity graph engineering and accountable readiness—not merely model inference or an export button.
+Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v5.1 extends its leakage firewall into a content-addressed dataset preflight: it verifies every selected ZIP member against immutable manifests, checks decoded source-mask geometry and binary targets, independently audits three kinds of cross-split leakage, and commits canonical pair references to a domain-separated SHA-256 Merkle root. It detects member tampering even when `manifest.json` is unchanged, without extracting private imagery or pretending integrity equals training approval.
 
-许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v5.0 实现了可辩护的训练前泄漏防火墙：用 ROI 像素差核对操作员语义，过滤未通过反馈，在不删除证据的前提下去重，按有界感知指纹距离聚类不同源文件，把完整传递视觉簇确定性分配到不同切分，同时审计精确来源和视觉簇交集，并拒绝自动授权训练。这展示的是数据集相似图工程与可问责就绪判断，而不只是模型推理或导出按钮。
+许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v5.1 把泄漏防火墙推进为内容寻址数据集预检：逐个按不可变清单验证入选 ZIP 成员，检查解码后的原图—掩膜尺寸和二值目标，独立审计三类跨切分泄漏，再把规范化数据对引用提交到带域分离的 SHA-256 Merkle 根。即使 `manifest.json` 未变化，它也能发现成员篡改，而且不解压隐私图片、不把完整性偷换成训练授权。
 
 ## Resume bullets / 简历要点
 
@@ -20,6 +20,7 @@ Use only metrics you can reproduce. A concise English version:
 - Built a deterministic active-learning export that packages bounded source/proposal/final/disagreement ROI layers, per-file SHA-256 evidence, measurement binding, privacy boundaries, and reproducible ZIP metadata for governed error analysis.
 - Implemented pre-training feedback quality gates and a bounded local registry, validating disposition-to-pixel consistency, surfacing duplicate ROI fingerprints, and aggregating package/source/quality statistics without extracting private data to cloud services.
 - Engineered a visual-scene leakage firewall using bounded ROI dHash sets, pairwise minimum Hamming distance, deterministic single-linkage union-find, transitive-group 80/10/10 allocation, dual exact-source/visual-group audits, and immutable link evidence.
+- Built a content-addressed segmentation snapshot preflight that validates in-ZIP member hashes and source-mask structure, detects unchanged-manifest byte tampering and cross-split content duplicates, and produces a reproducible domain-separated SHA-256 Merkle root.
 - Shipped the model as a loopback-only FastAPI product with bilingual UI, MPS inference, optional local Ollama narratives, privacy headers, structured failure recovery, and a comprehensive automated test suite.
 
 中文版本：
@@ -34,6 +35,7 @@ Use only metrics you can reproduce. A concise English version:
 - 构建确定性主动学习导出，把有界原图/候选/最终/分歧 ROI、逐文件 SHA-256、量测绑定、隐私边界和可复现 ZIP 元数据打包，用于受治理的误差分析。
 - 实现训练前反馈质量门控与有上限的本地台账，校验处置—像素一致性、暴露重复 ROI 指纹并聚合反馈包/来源/质量统计，且不把隐私数据提取到云端。
 - 实现视觉场景泄漏防火墙：有界 ROI dHash 集合、两两最小汉明距离、确定性单链并查集、按传递簇进行 80/10/10 分配、精确来源/视觉簇双层审计与不可变连接证据。
+- 构建内容寻址分割快照预检：验证 ZIP 内成员摘要和原图—掩膜结构，检测清单未变时的字节篡改及跨切分内容重复，并生成可复现的带域分离 SHA-256 Merkle 根。
 - 使用 FastAPI 交付仅监听本机回环地址的双语产品，支持 Apple MPS、本地 Ollama 可选说明、隐私响应头、结构化故障恢复与完整自动化测试。
 
 ## Interview deep-dive / 面试追问
@@ -56,6 +58,8 @@ Be prepared to explain these decisions:
 14. Why privacy and label-QA confirmations still do not constitute automatic training authorization.
 15. Why single-linkage grouping deliberately favors false grouping over silent near-duplicate leakage, and how transitive chaining can empty a holdout split.
 16. Why a 64-bit ROI dHash graph is an auditable heuristic rather than image identity, geolocation, or semantic equivalence.
+17. How leaf/parent domain separation prevents Merkle structural ambiguity and why odd nodes are duplicated deterministically.
+18. Why cryptographic byte integrity cannot establish privacy permission, semantic correctness, or generalization quality.
 
 准备回答：为什么不取最高置信度、镜像一致性有什么局限、为什么聚类必须限制每个视图只贡献一次、主动学习如何形成数据闭环、为什么零检测不能解释为安全、为什么框不能量测裂缝宽度、单应性何时失效、骨架像素数为什么不等于测地长度，以及敏感性区间为什么不是认证置信区间。
 

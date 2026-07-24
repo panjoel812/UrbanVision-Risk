@@ -64,6 +64,15 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "visual_scene_group_id" in guide
     assert "pairwise minimum Hamming distance" in portfolio
     assert "视觉场景泄漏防火墙" in portfolio
+    assert "Content-addressed snapshot preflight" in guide
+    assert "snapshot-preflight" in guide
+    assert "512 MiB" in guide
+    assert "0x00" in guide
+    assert "0x01" in guide
+    assert "verified_candidate_snapshot_requires_training_approval" in guide
+    assert "Verify content-addressed snapshot" in readme
+    assert "unchanged-manifest byte tampering" in portfolio
+    assert "内容寻址分割快照预检" in portfolio
     assert "不是模型不确定性校准" in guide
     assert "local_proposal_automatic_draft" in guide
     assert "ArUco" in portfolio

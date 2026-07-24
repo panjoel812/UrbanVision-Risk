@@ -13,6 +13,7 @@ from urbanvision_risk.app.metrology_service import (
     LocalMetrologyService,
     _assign_curation_groups,
     _bounded_feedback_layers,
+    _canonical_merkle_root,
     _curation_ratios,
     _deterministic_zip_bytes,
     _difference_hash64,
@@ -181,6 +182,28 @@ def test_visual_scene_clustering_is_deterministic_transitive_and_auditable() -> 
         _near_duplicate_scene_groups(fingerprints, max_hamming_distance=17)
 
 
+def test_canonical_merkle_root_is_order_independent_and_content_sensitive() -> None:
+    records = [
+        {"split": "train", "source_roi_sha256": "a" * 64},
+        {"split": "test", "source_roi_sha256": "b" * 64},
+        {"split": "val", "source_roi_sha256": "c" * 64},
+    ]
+
+    first = _canonical_merkle_root(records)
+    reordered = _canonical_merkle_root(list(reversed(records)))
+    changed = _canonical_merkle_root(
+        [
+            *records[:-1],
+            {"split": "val", "source_roi_sha256": "d" * 64},
+        ]
+    )
+
+    assert len(first) == 64
+    assert first == reordered
+    assert first != changed
+    assert _canonical_merkle_root([]) == _canonical_merkle_root([])
+
+
 def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
     tmp_path: Path,
 ) -> None:
@@ -198,13 +221,35 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
         "0f0f0f0f0f0f0f0f",
         "9696969696969696",
     ]
+    archive_entries_by_run: dict[str, dict[str, bytes]] = {}
     for index in range(10):
         run_id = f"feedback-source-{index:03d}"
         run_dir = paths.metrology / run_id
         run_dir.mkdir(parents=True)
         item_root = f"items/01-hotspot-{index:03d}"
-        file_digest = f"{index + 100:064x}"
         scene_fingerprint = scene_fingerprints[index]
+        source_roi = np.full(
+            (48, 36, 3),
+            80 + index,
+            dtype=np.uint8,
+        )
+        final_mask = np.zeros((48, 36), dtype=np.uint8)
+        final_mask[8:24, 10:22] = 255
+        role_contents = {
+            "source_roi": _encode_image(source_roi),
+            "proposal_mask": _encode_image(final_mask),
+            "final_mask": _encode_image(final_mask),
+            "disagreement_layer": _encode_image(
+                np.zeros_like(final_mask)
+            ),
+        }
+        files = {
+            role: {
+                "path": f"{item_root}/{role}.png",
+                "sha256": hashlib.sha256(content).hexdigest(),
+            }
+            for role, content in role_contents.items()
+        }
         manifest = {
             "schema_version": "urbanvision-active-learning-feedback-v1.1.0",
             "run_id": run_id,
@@ -234,29 +279,20 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
                         "export_width": 36,
                         "export_height": 48,
                     },
-                    "files": {
-                        role: {
-                            "path": f"{item_root}/{role}.png",
-                            "sha256": file_digest,
-                        }
-                        for role in (
-                            "source_roi",
-                            "proposal_mask",
-                            "final_mask",
-                            "disagreement_layer",
-                        )
-                    },
+                    "files": files,
                 }
             ],
         }
+        entries = {
+            evidence["path"]: role_contents[role]
+            for role, evidence in files.items()
+        }
+        entries["manifest.json"] = (
+            json.dumps(manifest, sort_keys=True) + "\n"
+        ).encode()
+        archive_entries_by_run[run_id] = entries
         (run_dir / feedback_name).write_bytes(
-            _deterministic_zip_bytes(
-                {
-                    "manifest.json": (
-                        json.dumps(manifest, sort_keys=True) + "\n"
-                    ).encode()
-                }
-            )
+            _deterministic_zip_bytes(entries)
         )
     service = LocalMetrologyService(
         paths=paths,
@@ -297,6 +333,62 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
         for source in split_payload["source_sha256s"]
     }
     assert split_by_source[f"{1:064x}"] == split_by_source[f"{2:064x}"]
+    snapshot_result = service.create_feedback_snapshot_preflight(
+        "feedback-curation-governed-001"
+    )
+    snapshot = snapshot_result["snapshot"]
+    assert snapshot["status"] == (
+        "verified_candidate_snapshot_requires_training_approval"
+    )
+    assert snapshot["training_authorized"] is False
+    assert snapshot["readiness"]["blockers"] == []
+    assert snapshot["integrity"]["inventory_matches"] is True
+    assert snapshot["integrity"]["expected_pair_count"] == 10
+    assert snapshot["integrity"]["verified_pair_count"] == 10
+    assert snapshot["integrity"]["invalid_pair_count"] == 0
+    assert snapshot["merkle"]["leaf_count"] == 10
+    assert len(snapshot["merkle"]["root_sha256"]) == 64
+    assert {
+        split: snapshot["splits"][split]["pair_count"]
+        for split in ("train", "val", "test")
+    } == {"train": 8, "val": 1, "test": 1}
+    snapshot_path = service.feedback_snapshot_path(
+        "feedback-snapshot-governed-001"
+    )
+    assert snapshot_path.is_file()
+    assert "/Users/" not in snapshot_path.read_text(encoding="utf-8")
+
+    tampered_run_id = "feedback-source-000"
+    tampered_entries = dict(archive_entries_by_run[tampered_run_id])
+    tampered_source_path = (
+        "items/01-hotspot-000/source_roi.png"
+    )
+    tampered_entries[tampered_source_path] = _encode_image(
+        np.full((48, 36, 3), 250, dtype=np.uint8)
+    )
+    (
+        paths.metrology / tampered_run_id / feedback_name
+    ).write_bytes(_deterministic_zip_bytes(tampered_entries))
+    tampered_service = LocalMetrologyService(
+        paths=paths,
+        record_id_factory=lambda prefix: f"{prefix}-tampered-001",
+    )
+    tampered_result = (
+        tampered_service.create_feedback_snapshot_preflight(
+            "feedback-curation-governed-001"
+        )
+    )
+    tampered_snapshot = tampered_result["snapshot"]
+    assert tampered_snapshot["status"] == "not_snapshot_ready"
+    assert set(tampered_snapshot["readiness"]["blockers"]) >= {
+        "invalid_training_pairs",
+        "incomplete_snapshot_pairs",
+    }
+    assert tampered_snapshot["integrity"]["verified_pair_count"] == 9
+    assert "source_roi_digest_mismatch" in {
+        finding["code"]
+        for finding in tampered_snapshot["integrity"]["findings"]
+    }
 
 
 def _textured_crack_source() -> bytes:

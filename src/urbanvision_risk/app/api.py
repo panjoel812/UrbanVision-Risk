@@ -57,7 +57,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="5.0.0",
+        version="5.1.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -133,6 +133,7 @@ def create_app(
         payload["feedback_quality_registry"] = True
         payload["leakage_safe_feedback_curation"] = True
         payload["visual_near_duplicate_split_firewall"] = True
+        payload["content_addressed_snapshot_preflight"] = True
         return payload
 
     @app.get("/api/review-queue")
@@ -270,6 +271,27 @@ def create_app(
         curation_id: str,
     ) -> FileResponse:
         path = active_metrology.feedback_curation_path(curation_id)
+        return FileResponse(
+            path,
+            media_type="application/json",
+            filename=path.name,
+        )
+
+    @app.post(
+        "/api/metrology/feedback-curations/{curation_id}/snapshot-preflight"
+    )
+    async def metrology_feedback_snapshot_preflight(
+        curation_id: str,
+    ) -> dict[str, object]:
+        return active_metrology.create_feedback_snapshot_preflight(
+            curation_id
+        )
+
+    @app.get("/api/metrology/feedback-snapshots/{snapshot_id}.json")
+    async def metrology_feedback_snapshot_record(
+        snapshot_id: str,
+    ) -> FileResponse:
+        path = active_metrology.feedback_snapshot_path(snapshot_id)
         return FileResponse(
             path,
             media_type="application/json",

@@ -8,6 +8,7 @@ import secrets
 import threading
 import zipfile
 from collections.abc import Callable
+from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -49,6 +50,10 @@ MAX_FEEDBACK_CROP_PIXELS = 512_000
 MAX_FEEDBACK_CATALOG_PACKAGES = 100
 MAX_FEEDBACK_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_SCENE_FINGERPRINTS_PER_SOURCE = 128
+MAX_FEEDBACK_SNAPSHOT_ITEMS = 5_000
+MAX_FEEDBACK_SNAPSHOT_MEMBER_BYTES = 8 * 1024 * 1024
+MAX_FEEDBACK_SNAPSHOT_TOTAL_BYTES = 512 * 1024 * 1024
+MAX_FEEDBACK_SNAPSHOT_FINDINGS = 500
 CURATION_SPLITS = ("train", "val", "test")
 FEEDBACK_FILE_ROLES = (
     "source_roi",
@@ -583,6 +588,32 @@ def _near_duplicate_scene_groups(
         "groups": groups,
         "links": links,
     }
+
+
+def _canonical_merkle_root(records: list[dict[str, object]]) -> str:
+    canonical_leaves = sorted(
+        json.dumps(
+            record,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+        for record in records
+    )
+    if not canonical_leaves:
+        return hashlib.sha256(b"\x00").hexdigest()
+    level = [
+        hashlib.sha256(b"\x00" + canonical).digest()
+        for canonical in canonical_leaves
+    ]
+    while len(level) > 1:
+        if len(level) % 2:
+            level.append(level[-1])
+        level = [
+            hashlib.sha256(b"\x01" + level[index] + level[index + 1]).digest()
+            for index in range(0, len(level), 2)
+        ]
+    return level[0].hex()
 
 
 def _assign_curation_groups(
@@ -2354,6 +2385,592 @@ class LocalMetrologyService:
             ),
         }
 
+    def create_feedback_snapshot_preflight(
+        self,
+        curation_id: str,
+    ) -> dict[str, object]:
+        safe_curation_id = validate_run_name(curation_id)
+        curation_path = self.feedback_curation_path(safe_curation_id)
+        try:
+            curation_bytes = curation_path.read_bytes()
+            curation = json.loads(curation_bytes)
+        except (OSError, json.JSONDecodeError) as error:
+            raise _input_error(
+                f"curation {safe_curation_id} cannot be read"
+            ) from error
+        if not isinstance(curation, dict):
+            raise _input_error(
+                f"curation {safe_curation_id} is not an object"
+            )
+        blockers: list[str] = []
+        findings: list[dict[str, str]] = []
+        truncated_finding_count = 0
+
+        def add_blocker(code: str) -> None:
+            if code not in blockers:
+                blockers.append(code)
+
+        def add_finding(
+            code: str,
+            *,
+            run_id: str | None = None,
+            hotspot_id: str | None = None,
+        ) -> None:
+            nonlocal truncated_finding_count
+            if len(findings) >= MAX_FEEDBACK_SNAPSHOT_FINDINGS:
+                truncated_finding_count += 1
+                return
+            finding = {"code": code}
+            if run_id is not None:
+                finding["run_id"] = run_id
+            if hotspot_id is not None:
+                finding["hotspot_id"] = hotspot_id
+            findings.append(finding)
+
+        if curation.get("schema_version") != (
+            "urbanvision-feedback-curation-v2.0.0"
+        ):
+            add_blocker("unsupported_curation_schema")
+        readiness = curation.get("readiness")
+        upstream_blockers = (
+            readiness.get("blockers")
+            if isinstance(readiness, dict)
+            else None
+        )
+        if (
+            curation.get("status")
+            != "candidate_plan_requires_training_approval"
+            or not isinstance(upstream_blockers, list)
+            or upstream_blockers
+        ):
+            add_blocker("upstream_curation_not_ready")
+        current_packages, current_invalid_package_count = (
+            self._feedback_packages()
+        )
+        current_packages_by_run = {
+            str(package["run_id"]): package
+            for package in current_packages
+        }
+        if current_invalid_package_count:
+            add_blocker("invalid_feedback_packages_present")
+        inventory = curation.get("inventory")
+        inventory_refs = (
+            inventory.get("manifests")
+            if isinstance(inventory, dict)
+            else None
+        )
+        expected_manifest_by_run: dict[str, str] = {}
+        inventory_matches = True
+        if not isinstance(inventory_refs, list):
+            inventory_matches = False
+            add_blocker("curation_inventory_invalid")
+        else:
+            for reference in inventory_refs:
+                if not isinstance(reference, dict):
+                    inventory_matches = False
+                    continue
+                run_id = reference.get("run_id")
+                manifest_sha256 = reference.get("manifest_sha256")
+                if (
+                    not isinstance(run_id, str)
+                    or not _is_hex_digest(manifest_sha256, 64)
+                ):
+                    inventory_matches = False
+                    continue
+                try:
+                    safe_run_id = validate_run_name(run_id)
+                except ProjectError:
+                    inventory_matches = False
+                    continue
+                expected_manifest_by_run[safe_run_id] = str(
+                    manifest_sha256
+                )
+                current = current_packages_by_run.get(safe_run_id)
+                if (
+                    current is None
+                    or current.get("manifest_sha256")
+                    != manifest_sha256
+                ):
+                    inventory_matches = False
+                    add_finding(
+                        "manifest_missing_or_changed",
+                        run_id=safe_run_id,
+                    )
+        if not inventory_matches:
+            add_blocker("feedback_inventory_changed")
+        splits = curation.get("splits")
+        if not isinstance(splits, dict):
+            raise _input_error(
+                f"curation {safe_curation_id} has no split payload"
+            )
+        requested_items: list[tuple[str, dict[str, object]]] = []
+        for split in CURATION_SPLITS:
+            split_payload = splits.get(split)
+            split_items = (
+                split_payload.get("items")
+                if isinstance(split_payload, dict)
+                else None
+            )
+            if not isinstance(split_items, list):
+                add_blocker(f"invalid_{split}_split")
+                continue
+            requested_items.extend(
+                (split, item)
+                for item in split_items
+                if isinstance(item, dict)
+            )
+            if any(not isinstance(item, dict) for item in split_items):
+                add_blocker("invalid_training_pairs")
+        expected_pair_count = len(requested_items)
+        if expected_pair_count > MAX_FEEDBACK_SNAPSHOT_ITEMS:
+            add_blocker("snapshot_item_limit_exceeded")
+            requested_items = requested_items[
+                :MAX_FEEDBACK_SNAPSHOT_ITEMS
+            ]
+        requested_items.sort(
+            key=lambda entry: (
+                CURATION_SPLITS.index(entry[0]),
+                str(entry[1].get("run_id") or ""),
+                (
+                    int(entry[1]["rank"])
+                    if isinstance(entry[1].get("rank"), int)
+                    and not isinstance(entry[1].get("rank"), bool)
+                    else 0
+                ),
+                str(entry[1].get("hotspot_id") or ""),
+            )
+        )
+        verified_pairs: list[dict[str, object]] = []
+        total_member_bytes = 0
+        read_budget_exceeded = False
+        with ExitStack() as archive_stack:
+            archives: dict[str, zipfile.ZipFile] = {}
+            for split, item in requested_items:
+                if read_budget_exceeded:
+                    break
+                run_id = item.get("run_id")
+                hotspot_id = item.get("hotspot_id")
+                rank = item.get("rank")
+                if (
+                    not isinstance(run_id, str)
+                    or not isinstance(hotspot_id, str)
+                    or isinstance(rank, bool)
+                    or not isinstance(rank, int)
+                ):
+                    add_blocker("invalid_training_pairs")
+                    add_finding("invalid_pair_identity")
+                    continue
+                try:
+                    safe_run_id = validate_run_name(run_id)
+                    safe_hotspot_id = validate_run_name(hotspot_id)
+                except ProjectError:
+                    add_blocker("invalid_training_pairs")
+                    add_finding("invalid_pair_identity")
+                    continue
+                package = current_packages_by_run.get(safe_run_id)
+                expected_manifest = expected_manifest_by_run.get(
+                    safe_run_id
+                )
+                if (
+                    package is None
+                    or expected_manifest is None
+                    or item.get("manifest_sha256") != expected_manifest
+                    or package.get("manifest_sha256") != expected_manifest
+                ):
+                    add_blocker("feedback_inventory_changed")
+                    add_finding(
+                        "pair_manifest_binding_failed",
+                        run_id=safe_run_id,
+                        hotspot_id=safe_hotspot_id,
+                    )
+                    continue
+                package_items = package.get("items")
+                current_item = next(
+                    (
+                        candidate
+                        for candidate in package_items
+                        if isinstance(candidate, dict)
+                        and candidate.get("hotspot_id")
+                        == safe_hotspot_id
+                        and candidate.get("rank") == rank
+                    ),
+                    None,
+                ) if isinstance(package_items, list) else None
+                files = _curation_file_evidence(item.get("files"))
+                current_files = (
+                    _curation_file_evidence(current_item.get("files"))
+                    if isinstance(current_item, dict)
+                    else None
+                )
+                source_sha256 = item.get("source_sha256")
+                visual_scene_group_id = item.get(
+                    "visual_scene_group_id"
+                )
+                if (
+                    files is None
+                    or current_files != files
+                    or package.get("source_sha256") != source_sha256
+                    or not _is_hex_digest(source_sha256, 64)
+                    or not isinstance(visual_scene_group_id, str)
+                    or not visual_scene_group_id.startswith(
+                        "visual-scene-"
+                    )
+                ):
+                    add_blocker("invalid_training_pairs")
+                    add_finding(
+                        "pair_manifest_content_mismatch",
+                        run_id=safe_run_id,
+                        hotspot_id=safe_hotspot_id,
+                    )
+                    continue
+                archive = archives.get(safe_run_id)
+                if archive is None:
+                    package_path = (
+                        self.paths.metrology
+                        / safe_run_id
+                        / ACTIVE_LEARNING_FEEDBACK_ARTIFACT
+                    )
+                    try:
+                        archive = archive_stack.enter_context(
+                            zipfile.ZipFile(package_path)
+                        )
+                    except (OSError, zipfile.BadZipFile):
+                        add_blocker("invalid_training_pairs")
+                        add_finding(
+                            "feedback_archive_unreadable",
+                            run_id=safe_run_id,
+                            hotspot_id=safe_hotspot_id,
+                        )
+                        continue
+                    archives[safe_run_id] = archive
+                member_infos: dict[str, zipfile.ZipInfo] = {}
+                invalid_member = False
+                for role in ("source_roi", "final_mask"):
+                    member_path = files[role]["path"]
+                    try:
+                        member_info = archive.getinfo(member_path)
+                    except KeyError:
+                        invalid_member = True
+                        add_finding(
+                            f"{role}_member_missing",
+                            run_id=safe_run_id,
+                            hotspot_id=safe_hotspot_id,
+                        )
+                        continue
+                    if (
+                        member_info.file_size <= 0
+                        or member_info.file_size
+                        > MAX_FEEDBACK_SNAPSHOT_MEMBER_BYTES
+                    ):
+                        invalid_member = True
+                        add_finding(
+                            f"{role}_member_size_invalid",
+                            run_id=safe_run_id,
+                            hotspot_id=safe_hotspot_id,
+                        )
+                    member_infos[role] = member_info
+                if invalid_member:
+                    add_blocker("invalid_training_pairs")
+                    continue
+                pair_bytes = sum(
+                    info.file_size for info in member_infos.values()
+                )
+                if (
+                    total_member_bytes + pair_bytes
+                    > MAX_FEEDBACK_SNAPSHOT_TOTAL_BYTES
+                ):
+                    read_budget_exceeded = True
+                    add_blocker("snapshot_read_budget_exceeded")
+                    continue
+                total_member_bytes += pair_bytes
+                contents: dict[str, bytes] = {}
+                for role, info in member_infos.items():
+                    try:
+                        content = archive.read(info)
+                    except (OSError, RuntimeError, zipfile.BadZipFile):
+                        invalid_member = True
+                        add_finding(
+                            f"{role}_member_unreadable",
+                            run_id=safe_run_id,
+                            hotspot_id=safe_hotspot_id,
+                        )
+                        continue
+                    if _sha256(content) != files[role]["sha256"]:
+                        invalid_member = True
+                        add_finding(
+                            f"{role}_digest_mismatch",
+                            run_id=safe_run_id,
+                            hotspot_id=safe_hotspot_id,
+                        )
+                    contents[role] = content
+                if invalid_member:
+                    add_blocker("invalid_training_pairs")
+                    continue
+                source_image = cv2.imdecode(
+                    np.frombuffer(contents["source_roi"], dtype=np.uint8),
+                    cv2.IMREAD_UNCHANGED,
+                )
+                final_mask = cv2.imdecode(
+                    np.frombuffer(contents["final_mask"], dtype=np.uint8),
+                    cv2.IMREAD_GRAYSCALE,
+                )
+                if (
+                    source_image is None
+                    or source_image.ndim not in {2, 3}
+                    or final_mask is None
+                    or final_mask.ndim != 2
+                    or source_image.shape[:2] != final_mask.shape
+                    or final_mask.size > MAX_FEEDBACK_CROP_PIXELS
+                ):
+                    add_blocker("invalid_training_pairs")
+                    add_finding(
+                        "source_mask_geometry_invalid",
+                        run_id=safe_run_id,
+                        hotspot_id=safe_hotspot_id,
+                    )
+                    continue
+                mask_values = {
+                    int(value) for value in np.unique(final_mask)
+                }
+                if not mask_values.issubset({0, 255}):
+                    add_blocker("invalid_training_pairs")
+                    add_finding(
+                        "final_mask_not_binary",
+                        run_id=safe_run_id,
+                        hotspot_id=safe_hotspot_id,
+                    )
+                    continue
+                foreground_pixels = int(
+                    np.count_nonzero(final_mask == 255)
+                )
+                pair = {
+                    "split": split,
+                    "run_id": safe_run_id,
+                    "hotspot_id": safe_hotspot_id,
+                    "rank": rank,
+                    "source_sha256": source_sha256,
+                    "visual_scene_group_id": visual_scene_group_id,
+                    "disposition": item.get("disposition"),
+                    "width": int(final_mask.shape[1]),
+                    "height": int(final_mask.shape[0]),
+                    "foreground_pixels": foreground_pixels,
+                    "foreground_ratio": round(
+                        foreground_pixels / final_mask.size,
+                        8,
+                    ),
+                    "source_roi": {
+                        "feedback_url": package["feedback_url"],
+                        **files["source_roi"],
+                    },
+                    "final_mask": {
+                        "feedback_url": package["feedback_url"],
+                        **files["final_mask"],
+                    },
+                }
+                verified_pairs.append(pair)
+        if len(verified_pairs) != expected_pair_count:
+            add_blocker("incomplete_snapshot_pairs")
+        split_sources = {split: set() for split in CURATION_SPLITS}
+        split_scenes = {split: set() for split in CURATION_SPLITS}
+        source_content_splits: dict[str, set[str]] = {}
+        for pair in verified_pairs:
+            split = str(pair["split"])
+            split_sources[split].add(str(pair["source_sha256"]))
+            split_scenes[split].add(
+                str(pair["visual_scene_group_id"])
+            )
+            source_roi = pair["source_roi"]
+            if isinstance(source_roi, dict):
+                digest = source_roi.get("sha256")
+                if isinstance(digest, str):
+                    source_content_splits.setdefault(
+                        digest,
+                        set(),
+                    ).add(split)
+        source_overlaps = {
+            "train_val": sorted(
+                split_sources["train"] & split_sources["val"]
+            ),
+            "train_test": sorted(
+                split_sources["train"] & split_sources["test"]
+            ),
+            "val_test": sorted(
+                split_sources["val"] & split_sources["test"]
+            ),
+        }
+        scene_overlaps = {
+            "train_val": sorted(
+                split_scenes["train"] & split_scenes["val"]
+            ),
+            "train_test": sorted(
+                split_scenes["train"] & split_scenes["test"]
+            ),
+            "val_test": sorted(
+                split_scenes["val"] & split_scenes["test"]
+            ),
+        }
+        source_content_overlaps = [
+            {
+                "source_roi_sha256": digest,
+                "splits": sorted(split_names),
+            }
+            for digest, split_names in sorted(
+                source_content_splits.items()
+            )
+            if len(split_names) > 1
+        ]
+        if any(source_overlaps.values()):
+            add_blocker("source_group_leakage_detected")
+        if any(scene_overlaps.values()):
+            add_blocker("visual_scene_group_leakage_detected")
+        if source_content_overlaps:
+            add_blocker("cross_split_source_content_duplicate")
+        split_payloads: dict[str, dict[str, object]] = {}
+        for split in CURATION_SPLITS:
+            pairs = [
+                pair
+                for pair in verified_pairs
+                if pair["split"] == split
+            ]
+            total_pixels = sum(
+                int(pair["width"]) * int(pair["height"])
+                for pair in pairs
+            )
+            foreground_pixels = sum(
+                int(pair["foreground_pixels"]) for pair in pairs
+            )
+            split_payloads[split] = {
+                "pair_count": len(pairs),
+                "unique_source_count": len(split_sources[split]),
+                "visual_scene_group_count": len(split_scenes[split]),
+                "empty_mask_count": sum(
+                    int(pair["foreground_pixels"]) == 0
+                    for pair in pairs
+                ),
+                "total_pixels": total_pixels,
+                "foreground_pixels": foreground_pixels,
+                "foreground_ratio": (
+                    round(foreground_pixels / total_pixels, 8)
+                    if total_pixels
+                    else None
+                ),
+                "disposition_counts": {
+                    disposition: sum(
+                        pair["disposition"] == disposition
+                        for pair in pairs
+                    )
+                    for disposition in sorted(HOTSPOT_DISPOSITIONS)
+                },
+                "pairs": pairs,
+            }
+        merkle_records = [
+            {
+                "split": pair["split"],
+                "run_id": pair["run_id"],
+                "hotspot_id": pair["hotspot_id"],
+                "source_sha256": pair["source_sha256"],
+                "visual_scene_group_id": pair[
+                    "visual_scene_group_id"
+                ],
+                "source_roi_sha256": pair["source_roi"]["sha256"],
+                "final_mask_sha256": pair["final_mask"]["sha256"],
+            }
+            for pair in verified_pairs
+        ]
+        snapshot_id = validate_run_name(
+            self._record_id_factory("feedback-snapshot")
+        )
+        payload: dict[str, object] = {
+            "schema_version": (
+                "urbanvision-feedback-snapshot-preflight-v1.0.0"
+            ),
+            "snapshot_id": snapshot_id,
+            "created_at_utc": datetime.now(UTC).isoformat(),
+            "local_only": True,
+            "status": (
+                "not_snapshot_ready"
+                if blockers
+                else (
+                    "verified_candidate_snapshot_requires_"
+                    "training_approval"
+                )
+            ),
+            "training_authorized": False,
+            "curation_binding": {
+                "curation_id": safe_curation_id,
+                "curation_sha256": _sha256(curation_bytes),
+                "curation_url": (
+                    f"/api/metrology/feedback-curations/"
+                    f"{safe_curation_id}.json"
+                ),
+            },
+            "integrity": {
+                "inventory_matches": inventory_matches,
+                "current_invalid_package_count": (
+                    current_invalid_package_count
+                ),
+                "expected_pair_count": expected_pair_count,
+                "verified_pair_count": len(verified_pairs),
+                "invalid_pair_count": (
+                    expected_pair_count - len(verified_pairs)
+                ),
+                "member_bytes_read": total_member_bytes,
+                "source_overlaps": source_overlaps,
+                "visual_scene_group_overlaps": scene_overlaps,
+                "source_roi_content_overlaps": (
+                    source_content_overlaps
+                ),
+                "findings": findings,
+                "truncated_finding_count": truncated_finding_count,
+            },
+            "merkle": {
+                "root_sha256": _canonical_merkle_root(
+                    merkle_records
+                ),
+                "leaf_count": len(merkle_records),
+                "scheme": (
+                    "sorted canonical JSON leaves; SHA-256 0x00 leaf "
+                    "domain; duplicated odd node; SHA-256 0x01 parent "
+                    "domain"
+                ),
+                "leaf_fields": [
+                    "split",
+                    "run_id",
+                    "hotspot_id",
+                    "source_sha256",
+                    "visual_scene_group_id",
+                    "source_roi_sha256",
+                    "final_mask_sha256",
+                ],
+            },
+            "splits": split_payloads,
+            "readiness": {
+                "blockers": blockers,
+                "requires_separate_training_approval": True,
+            },
+            "claim_boundary": (
+                "This preflight verifies referenced bytes, image-mask "
+                "structure, split isolation, and a content-addressed root. "
+                "It is not extracted training data, privacy clearance, "
+                "label correctness, training authorization, or model "
+                "performance evidence"
+            ),
+        }
+        path = (
+            self.paths.metrology
+            / "snapshots"
+            / f"{snapshot_id}.json"
+        )
+        with self._write_lock:
+            self._write_json_exclusive(path, payload)
+        return {
+            "local_only": True,
+            "snapshot": payload,
+            "snapshot_url": (
+                f"/api/metrology/feedback-snapshots/{snapshot_id}.json"
+            ),
+        }
+
     def demo(self) -> dict[str, object]:
         run_id = validate_run_name(self._id_factory())
         source, mask, calibration = synthetic_field_sample(seed=42)
@@ -2713,6 +3330,20 @@ class LocalMetrologyService:
                 "The feedback-curation record does not exist",
                 "检查策划编号，或重新生成防泄漏策划",
                 "Check the curation ID or build another leakage-safe plan",
+                safe_id,
+            )
+        return path
+
+    def feedback_snapshot_path(self, snapshot_id: str) -> Path:
+        safe_id = validate_run_name(snapshot_id)
+        path = self.paths.metrology / "snapshots" / f"{safe_id}.json"
+        if not path.is_file():
+            raise ProjectError(
+                "E201",
+                "反馈数据快照预检不存在",
+                "The feedback-snapshot preflight does not exist",
+                "检查快照编号，或重新运行数据快照预检",
+                "Check the snapshot ID or run snapshot preflight again",
                 safe_id,
             )
         return path

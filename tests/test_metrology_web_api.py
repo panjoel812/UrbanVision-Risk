@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Any
 
@@ -366,6 +367,13 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "runAutopilotBatch" in response.text
     assert "finalizeAutopilotBatch" in response.text
     assert "/api/metrology/autopilot-batches/finalize" in response.text
+    assert "fileSha256" in response.text
+    assert 'globalThis.crypto.subtle.digest(' in response.text
+    assert "MAX_BATCH_ATTEMPTS = 2" in response.text
+    assert 'setBatchItemState(index, "hashing")' in response.text
+    assert 'setBatchItemState(index, "duplicate"' in response.text
+    assert '"source_digests"' in response.text
+    assert '"retry_count"' in response.text
     assert "proposalSuppressed" in response.text
     assert '"machine_reviewed_candidate"' in response.text
     assert 'form.append("review_state", reviewState)' in response.text
@@ -457,6 +465,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["content_addressed_snapshot_preflight"] is True
     assert health.json()["policy_bounded_local_autopilot"] is True
     assert health.json()["resilient_batch_autopilot"] is True
+    assert health.json()["self_healing_content_deduplication"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
@@ -521,6 +530,12 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
         "/api/metrology/autopilot-batches/finalize",
         data={
             "run_ids": '["metrology-web-001"]',
+            "source_digests": json.dumps(["a" * 64]),
+            "selected_count": "3",
+            "failed_count": "1",
+            "duplicate_count": "1",
+            "retry_count": "1",
+            "max_attempts": "2",
             "seed": "9",
             "minimum_unique_sources": "6",
             "max_scene_hamming_distance": "3",
@@ -583,6 +598,12 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     assert autopilot_batch.json()["batch"]["training_authorized"] is False
     assert metrology.autopilot_batch_arguments == {
         "run_ids": '["metrology-web-001"]',
+        "source_digests": json.dumps(["a" * 64]),
+        "selected_count": 3,
+        "failed_count": 1,
+        "duplicate_count": 1,
+        "retry_count": 1,
+        "max_attempts": 2,
         "seed": 9,
         "minimum_unique_sources": 6,
         "max_scene_hamming_distance": 3,

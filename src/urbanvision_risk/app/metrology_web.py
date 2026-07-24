@@ -117,9 +117,10 @@ METROLOGY_HTML = """<!doctype html>
     .batch-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--soft); font-size: .65rem; }
     .batch-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .batch-item-state { color: var(--muted); font-weight: 720; }
-    .batch-item.running .batch-item-state { color: var(--amber); }
+    .batch-item.hashing .batch-item-state, .batch-item.running .batch-item-state, .batch-item.retrying .batch-item-state { color: var(--amber); }
     .batch-item.complete .batch-item-state { color: var(--forest-2); }
     .batch-item.failed .batch-item-state { color: var(--red); }
+    .batch-item.duplicate .batch-item-state { color: var(--cyan); }
     .inspection-loading { display: flex; align-items: center; gap: 9px; padding: 12px; border-radius: 12px; background: var(--soft); color: var(--muted); font-size: .76rem; }
     .spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--line); border-top-color: var(--forest-2); border-radius: 50%; animation: spin 800ms linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -286,9 +287,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v5.3 · Resilient batch autopilot</p>
+        <p class="eyebrow">v5.4 · Self-healing content-aware autopilot</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>一次选择最多 100 张图片，机器会逐张完成检测、掩膜、热点处置和候选量测；单张失败不会中断整批。最后统一生成批次审计、防泄漏策划与内容寻址快照。机器结论不会冒充人工确认，也不会自动授权训练。</span><span data-en class="hidden-lang">Choose up to 100 images once. The machine runs detection, masking, hotspot disposition, and candidate metrology for each image; one failure cannot stop the batch. It then creates one batch audit, leakage-safe curation, and content-addressed snapshot. Machine conclusions never impersonate human confirmation or authorize training.</span></p>
+        <p class="hero-copy"><span data-zh>一次选择最多 100 张图片，机器先计算内容 SHA-256 并自动跳过重复文件，再逐张完成检测、掩膜、热点处置和候选量测；可恢复故障会自动重试，单张失败不会中断整批。最后由服务端复核摘要、去重和批次账目，再生成防泄漏策划与内容寻址快照。</span><span data-en class="hidden-lang">Choose up to 100 images once. The machine hashes content, skips duplicates, retries recoverable failures, and continues after per-image failure. The service then revalidates digests, uniqueness, and batch accounting before leakage-safe curation and a content-addressed snapshot.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -532,7 +533,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v5.3 · Resilient Batch Autopilot · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v5.4 · Self-Healing Content-Aware Autopilot · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -589,6 +590,7 @@ METROLOGY_HTML = """<!doctype html>
       let batchRunning = false;
       let batchQueue = [];
       const AUTOPILOT_ACCEPT_OVERLAP = 0.10;
+      const MAX_BATCH_ATTEMPTS = 2;
 
       const text = {
         zh: {
@@ -632,13 +634,19 @@ METROLOGY_HTML = """<!doctype html>
           batchTooLarge: "一次最多处理 100 张图片。",
           batchRequiresAutopilot: "多图队列需要开启自动驾驶；当前只处理第一张。",
           batchPending: "等待",
+          batchHashing: "计算 SHA-256",
           batchRunning: "处理中",
+          batchRetrying: "自动重试",
           batchComplete: "完成",
           batchFailed: "失败，已跳过",
+          batchDuplicate: "重复内容，已跳过",
           batchGovernance: "图片处理结束，正在一次性生成批次策划与 Merkle 快照…",
           batchFinished: "批量自动驾驶完成",
           batchFinishedWithFailures: "批次已完成，部分图片失败但没有中断其他图片",
           batchFinalizeFailed: "图片候选已保存，但批次治理记录生成失败。",
+          batchAttempts: "尝试",
+          batchDuplicates: "去重",
+          batchRetries: "自动重试",
           editedState: "绿色掩膜已有尚未保存的人工修改；右侧仍显示上一次自动草稿。",
           reviewedState: "这是已保存的人工复核版本；真实尺寸仍只在有效标定后成立。",
           demoState: "这是确定性算法演示，不代表人工复核或现场精度验证。",
@@ -767,13 +775,19 @@ METROLOGY_HTML = """<!doctype html>
           batchTooLarge: "A batch may contain at most 100 images.",
           batchRequiresAutopilot: "Multiple-image queues require Autopilot; only the first image will be processed.",
           batchPending: "Pending",
+          batchHashing: "Hashing SHA-256",
           batchRunning: "Running",
+          batchRetrying: "Automatic retry",
           batchComplete: "Complete",
           batchFailed: "Failed; skipped",
+          batchDuplicate: "Duplicate content; skipped",
           batchGovernance: "Image processing is complete; building one batch curation and Merkle snapshot…",
           batchFinished: "Batch autopilot complete",
           batchFinishedWithFailures: "Batch complete; some images failed without interrupting the others",
           batchFinalizeFailed: "Image candidates were saved, but finalizing the batch-governance record failed.",
+          batchAttempts: "attempts",
+          batchDuplicates: "deduplicated",
+          batchRetries: "automatic retries",
           editedState: "The green mask has unsaved human changes; the right side still shows the previous automatic draft.",
           reviewedState: "This is a saved human-reviewed version. Physical dimensions still require valid calibration.",
           demoState: "This is a deterministic algorithm demo, not human review or field-accuracy validation.",
@@ -883,6 +897,30 @@ METROLOGY_HTML = """<!doctype html>
           false_positive_removed: "False positive removed",
           missed_crack_added: "Missed crack added",
           deferred_for_follow_up: "Defer follow-up"
+        }
+      };
+      const batchFailureLabels = {
+        zh: {
+          missing_file: "文件不存在",
+          invalid_type: "格式不支持",
+          file_too_large: "超过 15 MiB",
+          digest_failed: "内容摘要失败",
+          decode_failed: "图片解码失败",
+          superseded: "任务已被替换",
+          pixel_limit: "超过 2000 万像素",
+          pipeline_incomplete: "自动量测未完成",
+          unexpected_error: "未预期运行错误"
+        },
+        en: {
+          missing_file: "Missing file",
+          invalid_type: "Unsupported format",
+          file_too_large: "Larger than 15 MiB",
+          digest_failed: "Content hashing failed",
+          decode_failed: "Image decode failed",
+          superseded: "Task was superseded",
+          pixel_limit: "More than 20 megapixels",
+          pipeline_incomplete: "Automatic metrology incomplete",
+          unexpected_error: "Unexpected runtime error"
         }
       };
       const curationBlockerLabels = {
@@ -1552,6 +1590,32 @@ METROLOGY_HTML = """<!doctype html>
         updateControls();
       }
 
+      function sourcePreflight(file) {
+        if (!file) {
+          return { ok: false, reason: "missing_file" };
+        }
+        if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+          return { ok: false, reason: "invalid_type" };
+        }
+        if (file.size > 15 * 1024 * 1024) {
+          return { ok: false, reason: "file_too_large" };
+        }
+        return { ok: true, reason: null };
+      }
+
+      async function fileSha256(file) {
+        if (!globalThis.crypto || !globalThis.crypto.subtle) {
+          throw new Error("Web Crypto SHA-256 is unavailable");
+        }
+        const digest = await globalThis.crypto.subtle.digest(
+          "SHA-256",
+          await file.arrayBuffer()
+        );
+        return Array.from(new Uint8Array(digest))
+          .map((value) => value.toString(16).padStart(2, "0"))
+          .join("");
+      }
+
       function renderBatchQueue() {
         const panel = byId("batch-panel");
         panel.classList.toggle("hidden", batchQueue.length === 0);
@@ -1559,8 +1623,10 @@ METROLOGY_HTML = """<!doctype html>
         list.replaceChildren();
         const complete = batchQueue.filter((item) => item.state === "complete").length;
         const failed = batchQueue.filter((item) => item.state === "failed").length;
+        const duplicate = batchQueue.filter((item) => item.state === "duplicate").length;
+        const terminal = complete + failed + duplicate;
         byId("batch-summary").textContent = batchQueue.length
-          ? `${complete + failed}/${batchQueue.length} · ${language === "zh" ? "成功" : "success"} ${complete} · ${language === "zh" ? "失败" : "failed"} ${failed}`
+          ? `${terminal}/${batchQueue.length} · ${language === "zh" ? "成功" : "success"} ${complete} · ${language === "zh" ? "失败" : "failed"} ${failed} · ${t("batchDuplicates")} ${duplicate}`
           : "—";
         batchQueue.forEach((item, index) => {
           const row = document.createElement("div");
@@ -1570,26 +1636,41 @@ METROLOGY_HTML = """<!doctype html>
           name.textContent = `${index + 1}. ${item.name}`;
           const state = document.createElement("span");
           state.className = "batch-item-state";
-          state.textContent = t(`batch${item.state[0].toUpperCase()}${item.state.slice(1)}`);
+          const parts = [
+            t(`batch${item.state[0].toUpperCase()}${item.state.slice(1)}`)
+          ];
+          if (item.attempts > 1) {
+            parts.push(`${t("batchAttempts")} ${item.attempts}`);
+          }
+          if (item.reason) {
+            parts.push(batchFailureLabels[language][item.reason] || item.reason);
+          }
+          state.textContent = parts.join(" · ");
           row.append(name, state);
           list.appendChild(row);
         });
       }
 
-      function setBatchItemState(index, state, runId = null) {
+      function setBatchItemState(index, state, updates = {}) {
         if (!batchQueue[index]) return;
-        batchQueue[index] = { ...batchQueue[index], state, run_id: runId };
+        batchQueue[index] = { ...batchQueue[index], state, ...updates };
         renderBatchQueue();
       }
 
       async function loadSource(file, { deferGovernance = false } = {}) {
-        if (!file) return { success: false, run_id: null };
+        const preflight = sourcePreflight(file);
+        if (!preflight.ok) {
+          const message = batchFailureLabels[language][preflight.reason];
+          setStatus(message, true);
+          return {
+            success: false,
+            run_id: null,
+            reason: preflight.reason,
+            retryable: false
+          };
+        }
         const generation = ++sourceGeneration;
         setPipeline("upload");
-        if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 15 * 1024 * 1024) {
-          setStatus(language === "zh" ? "请选择不超过 15 MiB 的 JPEG、PNG 或 WebP。" : "Choose a JPEG, PNG, or WebP no larger than 15 MiB.", true);
-          return { success: false, run_id: null };
-        }
         if (sourceUrl) URL.revokeObjectURL(sourceUrl);
         sourceUrl = URL.createObjectURL(file);
         const image = new Image();
@@ -1598,12 +1679,29 @@ METROLOGY_HTML = """<!doctype html>
           await image.decode();
         } catch {
           setStatus(language === "zh" ? "浏览器无法解码这张图片。" : "The browser cannot decode this image.", true);
-          return { success: false, run_id: null };
+          return {
+            success: false,
+            run_id: null,
+            reason: "decode_failed",
+            retryable: false
+          };
         }
-        if (generation !== sourceGeneration) return { success: false, run_id: null };
+        if (generation !== sourceGeneration) {
+          return {
+            success: false,
+            run_id: null,
+            reason: "superseded",
+            retryable: false
+          };
+        }
         if (image.naturalWidth * image.naturalHeight > 20_000_000) {
           setStatus(language === "zh" ? "量测工作台限制为 2000 万像素。" : "The metrology workbench is limited to 20 megapixels.", true);
-          return { success: false, run_id: null };
+          return {
+            success: false,
+            run_id: null,
+            reason: "pixel_limit",
+            retryable: false
+          };
         }
         sourceFile = file;
         sourceImage = image;
@@ -1633,7 +1731,14 @@ METROLOGY_HTML = """<!doctype html>
           runAutomaticInspection(file, generation),
           generateProposalAndDraft(file, generation, { deferGovernance })
         ]);
-        if (generation !== sourceGeneration) return { success: false, run_id: null };
+        if (generation !== sourceGeneration) {
+          return {
+            success: false,
+            run_id: null,
+            reason: "superseded",
+            retryable: false
+          };
+        }
         const inspectionSucceeded = tasks[0].status === "fulfilled" && tasks[0].value === true;
         const draftSucceeded = tasks[1].status === "fulfilled" && tasks[1].value === true;
         if (!inspectionSucceeded) {
@@ -1645,7 +1750,9 @@ METROLOGY_HTML = """<!doctype html>
         return {
           success: draftSucceeded,
           run_id: draftSucceeded && latestResult ? latestResult.run_id : null,
-          inspection_succeeded: inspectionSucceeded
+          inspection_succeeded: inspectionSucceeded,
+          reason: draftSucceeded ? null : "pipeline_incomplete",
+          retryable: !draftSucceeded
         };
       }
 
@@ -2294,6 +2401,8 @@ METROLOGY_HTML = """<!doctype html>
       function renderAutopilotBatch(payload) {
         latestAutopilotBatch = payload;
         const batch = payload.batch;
+        const accounting = batch.input_accounting || {};
+        const integrity = batch.source_integrity || {};
         const blockers = batch.governance && Array.isArray(batch.governance.blockers)
           ? batch.governance.blockers
           : [];
@@ -2304,7 +2413,12 @@ METROLOGY_HTML = """<!doctype html>
           byId("batch-result"),
           t("batchFinished"),
           [
+            `${language === "zh" ? "选择图片" : "Selected images"}: ${accounting.selected_count ?? batch.run_count}`,
             `${language === "zh" ? "完成量测" : "Completed runs"}: ${batch.run_count}`,
+            `${language === "zh" ? "失败" : "Failed"}: ${accounting.failed_count ?? 0}`,
+            `${t("batchDuplicates")}: ${accounting.duplicate_skipped_count ?? 0}`,
+            `${t("batchRetries")}: ${accounting.retry_count ?? 0}`,
+            `${language === "zh" ? "服务端摘要匹配" : "Server digest matches"}: ${integrity.browser_digest_match_count ?? "—"}`,
             `${language === "zh" ? "反馈包" : "Feedback packages"}: ${batch.feedback_run_count}`,
             `${t("readinessBlockers")}: ${blockerText}`,
             `${t("trainingAuthorization")}: ${batch.training_authorized ? (language === "zh" ? "已授权" : "authorized") : (language === "zh" ? "未授权" : "not authorized")}`
@@ -2314,9 +2428,21 @@ METROLOGY_HTML = """<!doctype html>
         );
       }
 
-      async function finalizeAutopilotBatch(runIds) {
+      async function finalizeAutopilotBatch(completedItems, accounting) {
         const form = new FormData();
-        form.append("run_ids", JSON.stringify(runIds));
+        form.append(
+          "run_ids",
+          JSON.stringify(completedItems.map((item) => item.run_id))
+        );
+        form.append(
+          "source_digests",
+          JSON.stringify(completedItems.map((item) => item.digest))
+        );
+        form.append("selected_count", String(accounting.selected_count));
+        form.append("failed_count", String(accounting.failed_count));
+        form.append("duplicate_count", String(accounting.duplicate_count));
+        form.append("retry_count", String(accounting.retry_count));
+        form.append("max_attempts", String(MAX_BATCH_ATTEMPTS));
         form.append("seed", String(inputNumber("curation-seed")));
         form.append("minimum_unique_sources", String(inputNumber("curation-min-sources")));
         form.append("max_scene_hamming_distance", String(inputNumber("curation-scene-distance")));
@@ -2351,38 +2477,110 @@ METROLOGY_HTML = """<!doctype html>
         batchQueue = files.map((file) => ({
           name: file.name,
           state: "pending",
-          run_id: null
+          run_id: null,
+          digest: null,
+          attempts: 0,
+          reason: null
         }));
         byId("batch-result").classList.add("hidden");
         renderBatchQueue();
         updateControls();
-        const completedRunIds = [];
+        const completedItems = [];
+        const seenDigests = new Set();
+        let duplicateCount = 0;
+        let retryCount = 0;
         try {
           for (let index = 0; index < files.length; index += 1) {
-            setBatchItemState(index, "running");
-            let outcome = { success: false, run_id: null };
+            const preflight = sourcePreflight(files[index]);
+            if (!preflight.ok) {
+              setBatchItemState(index, "failed", {
+                reason: preflight.reason
+              });
+              continue;
+            }
+            setBatchItemState(index, "hashing");
+            let digest = null;
             try {
-              outcome = await loadSource(
-                files[index],
-                { deferGovernance: true }
-              );
+              digest = await fileSha256(files[index]);
             } catch {
-              outcome = { success: false, run_id: null };
+              setBatchItemState(index, "failed", {
+                reason: "digest_failed"
+              });
+              continue;
+            }
+            if (seenDigests.has(digest)) {
+              duplicateCount += 1;
+              setBatchItemState(index, "duplicate", { digest });
+              continue;
+            }
+            seenDigests.add(digest);
+            let outcome = {
+              success: false,
+              run_id: null,
+              reason: "unexpected_error",
+              retryable: true
+            };
+            for (
+              let attempt = 1;
+              attempt <= MAX_BATCH_ATTEMPTS;
+              attempt += 1
+            ) {
+              if (attempt > 1) retryCount += 1;
+              setBatchItemState(
+                index,
+                attempt === 1 ? "running" : "retrying",
+                { attempts: attempt, reason: null, digest }
+              );
+              try {
+                outcome = await loadSource(
+                  files[index],
+                  { deferGovernance: true }
+                );
+              } catch {
+                outcome = {
+                  success: false,
+                  run_id: null,
+                  reason: "unexpected_error",
+                  retryable: true
+                };
+              }
+              if (
+                outcome.success
+                || !outcome.retryable
+                || attempt === MAX_BATCH_ATTEMPTS
+              ) {
+                break;
+              }
             }
             if (outcome.success && outcome.run_id) {
-              completedRunIds.push(outcome.run_id);
-              setBatchItemState(index, "complete", outcome.run_id);
+              completedItems.push({
+                run_id: outcome.run_id,
+                digest
+              });
+              setBatchItemState(index, "complete", {
+                run_id: outcome.run_id,
+                digest,
+                reason: null
+              });
             } else {
-              setBatchItemState(index, "failed");
+              setBatchItemState(index, "failed", {
+                digest,
+                reason: outcome.reason || "unexpected_error"
+              });
             }
           }
           const failedCount = batchQueue.filter((item) => item.state === "failed").length;
-          if (!completedRunIds.length) {
+          if (!completedItems.length) {
             setStatus(t("batchFinishedWithFailures"), true);
             return;
           }
           setStatus(t("batchGovernance"));
-          await finalizeAutopilotBatch(completedRunIds);
+          await finalizeAutopilotBatch(completedItems, {
+            selected_count: files.length,
+            failed_count: failedCount,
+            duplicate_count: duplicateCount,
+            retry_count: retryCount
+          });
           setStatus(
             failedCount ? t("batchFinishedWithFailures") : t("batchFinished"),
             failedCount > 0

@@ -137,6 +137,7 @@ def create_app(
         payload["content_addressed_snapshot_preflight"] = True
         payload["policy_bounded_local_autopilot"] = True
         payload["resilient_batch_autopilot"] = True
+        payload["self_healing_content_deduplication"] = True
         return payload
 
     @app.get("/api/review-queue")
@@ -304,12 +305,24 @@ def create_app(
     @app.post("/api/metrology/autopilot-batches/finalize")
     async def metrology_finalize_autopilot_batch(
         run_ids: Annotated[str, Form()],
+        source_digests: Annotated[str | None, Form()] = None,
+        selected_count: Annotated[int | None, Form()] = None,
+        failed_count: Annotated[int, Form()] = 0,
+        duplicate_count: Annotated[int, Form()] = 0,
+        retry_count: Annotated[int, Form()] = 0,
+        max_attempts: Annotated[int, Form()] = 1,
         seed: Annotated[int, Form()] = 42,
         minimum_unique_sources: Annotated[int, Form()] = 10,
         max_scene_hamming_distance: Annotated[int, Form()] = 4,
     ) -> dict[str, object]:
         return active_metrology.finalize_autopilot_batch(
             run_ids=run_ids,
+            source_digests=source_digests,
+            selected_count=selected_count,
+            failed_count=failed_count,
+            duplicate_count=duplicate_count,
+            retry_count=retry_count,
+            max_attempts=max_attempts,
             seed=seed,
             minimum_unique_sources=minimum_unique_sources,
             max_scene_hamming_distance=max_scene_hamming_distance,

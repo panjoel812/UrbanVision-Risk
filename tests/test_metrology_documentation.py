@@ -60,7 +60,7 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "candidate_plan_requires_training_approval" in guide
     assert "`training_authorized` remains `false`" in guide
     assert "防泄漏候选数据策划" in guide
-    assert "batch-scoped quality gate, leakage-safe split" in readme
+    assert "before batch-scoped governance" in readme
     assert "Visual-scene leakage firewall" in guide
     assert "single-linkage union-find" in guide
     assert "max_scene_hamming_distance" in guide
@@ -84,11 +84,19 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "local_proposal_machine_reviewed_candidate" in guide
     assert "Resilient batch autopilot" in guide
     assert "POST /api/metrology/autopilot-batches/finalize" in guide
-    assert "urbanvision-autopilot-batch-v1.0.0" in guide
+    assert "urbanvision-autopilot-batch-v1.1.0" in guide
     assert "omits original filenames and absolute paths" in guide
     assert "up to 100 images" in portfolio
     assert "per-item failure isolation" in portfolio
     assert "隐私最小化账本" in portfolio
+    assert "Content-aware self-healing" in guide
+    assert 'crypto.subtle.digest("SHA-256", ...)' in guide
+    assert "MAX_BATCH_ATTEMPTS = 2" in guide
+    assert "browser_digest_match_count" in guide
+    assert "server_duplicate_source_rejection" in guide
+    assert "content-aware self-healing control plane" in portfolio
+    assert "内容感知自愈控制平面" in portfolio
+    assert "Version 5.4 makes the resilient queue" in readme
     assert "ArUco" in portfolio
     assert "Ground truth / 人工参考值" in template
     assert "Absolute length error" in template

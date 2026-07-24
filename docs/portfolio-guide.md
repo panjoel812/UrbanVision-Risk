@@ -1,10 +1,10 @@
 # Portfolio and Interview Guide / 简历与面试表达
 
-## What makes v5.3 different / v5.3 的差异化
+## What makes v5.4 different / v5.4 的差异化
 
-Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v5.3 adds a failure-isolated local batch autopilot for up to 100 images. It bounds Apple MPS memory by serializing images while retaining per-image detector/proposal concurrency, continues after item failures, and closes all successful runs through one batch-scoped curation and content-addressed preflight. The backend revalidates every machine candidate instead of trusting browser state, while the privacy-minimized ledger omits filenames and absolute paths. Machine-authored labels remain blocked from training pending independent approval.
+Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v5.4 adds a self-healing, content-aware batch control plane: Web Crypto SHA-256 deduplicates before MPS inference, typed failures control bounded automatic retries, and the service independently checks browser/server digest equality, unique sources, immutable run identity, machine authority, and accounting invariants. Successful unique runs still close through one leakage-safe curation and content-addressed preflight, while filenames and absolute paths remain outside the ledger.
 
-许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v5.3 加入最多 100 张图片、单项故障隔离的本地批量自动驾驶。图片间串行以限制 Apple MPS 内存，每张图片内部仍并发运行检测与候选；单项失败后继续，所有成功运行最终只经过一次批次范围策划与内容寻址预检。后端会重新验证每个机器候选，而不是信任浏览器状态；隐私最小化账本不保存文件名和绝对路径。机器生成标签在获得独立批准前仍被训练防火墙阻止。
+许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v5.4 加入自愈、内容感知的批量控制平面：Web Crypto SHA-256 在 MPS 推理前去重，结构化失败类型控制有界自动重试，服务端再独立验证浏览器/服务端摘要相等、来源唯一、不可变运行身份、机器权限和账目不变量。成功且唯一的运行仍统一进入防泄漏策划与内容寻址预检，文件名和绝对路径不会进入账本。
 
 ## Resume bullets / 简历要点
 
@@ -23,6 +23,7 @@ Use only metrics you can reproduce. A concise English version:
 - Built a content-addressed segmentation snapshot preflight that validates in-ZIP member hashes and source-mask structure, detects unchanged-manifest byte tampering and cross-split content duplicates, and produces a reproducible domain-separated SHA-256 Merkle root.
 - Shipped a policy-bounded local autopilot that deterministically dispositions review hotspots, separates `machine_heuristic` from `human_operator` authority, automatically runs curation and snapshot preflight, and blocks machine-authored labels from training pending accountable approval.
 - Engineered a resilient batch-autopilot state machine for up to 100 images with bounded MPS memory, per-item failure isolation, backend candidate revalidation, batch-scoped curation/preflight, and privacy-minimized SHA-256 ledgers.
+- Added a content-aware self-healing control plane with Web Crypto pre-inference deduplication, typed retry eligibility, bounded automatic recovery, browser/server digest binding, duplicate-source rejection, and validated batch-accounting invariants.
 - Shipped the model as a loopback-only FastAPI product with bilingual UI, MPS inference, optional local Ollama narratives, privacy headers, structured failure recovery, and a comprehensive automated test suite.
 
 中文版本：
@@ -40,6 +41,7 @@ Use only metrics you can reproduce. A concise English version:
 - 构建内容寻址分割快照预检：验证 ZIP 内成员摘要和原图—掩膜结构，检测清单未变时的字节篡改及跨切分内容重复，并生成可复现的带域分离 SHA-256 Merkle 根。
 - 交付受策略约束的本地自动驾驶：确定性处置复核热点，严格区分 `machine_heuristic` 与 `human_operator` 身份，自动执行策划和快照预检，并阻止机器标签在责任审批前进入训练。
 - 设计最多 100 张图片的弹性批量自动驾驶状态机，实现 MPS 内存有界、单项故障隔离、后端候选重验证、批次范围策划/预检，以及仅记录 SHA-256 的隐私最小化账本。
+- 增加内容感知自愈控制平面，实现 Web Crypto 推理前去重、按失败类型决定重试资格、有界自动恢复、浏览器/服务端摘要绑定、重复来源拒绝和批次账目不变量校验。
 - 使用 FastAPI 交付仅监听本机回环地址的双语产品，支持 Apple MPS、本地 Ollama 可选说明、隐私响应头、结构化故障恢复与完整自动化测试。
 
 ## Interview deep-dive / 面试追问
@@ -75,7 +77,7 @@ Be prepared to explain these decisions:
 3. Show the four generated ArUco SVG files and describe the marker-center field measurement.
 4. Show that deleting calibration from the command produces `pixel_only` rather than fake millimetres.
 5. Start the app in default `consensus` mode, select several mixed images, and show that the queue continues when one item fails.
-6. Open the resulting `urbanvision-autopilot-batch-v1.0.0` JSON and explain serial cross-image execution, per-image concurrency, backend revalidation, batch scope, privacy omission, and why `training_authorized` is still false.
+6. Open the resulting `urbanvision-autopilot-batch-v1.1.0` JSON and explain pre-inference SHA-256 deduplication, typed retry policy, browser/server digest matching, accounting invariants, privacy omission, and why `training_authorized` is still false.
 7. Open `/api/review-queue?limit=20` and connect detection uncertainty to human review.
 8. Finish with your own held-out field errors and limitations, not a certified-safety claim.
 

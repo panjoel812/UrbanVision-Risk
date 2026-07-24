@@ -61,6 +61,7 @@ MAX_FEEDBACK_SNAPSHOT_MEMBER_BYTES = 8 * 1024 * 1024
 MAX_FEEDBACK_SNAPSHOT_TOTAL_BYTES = 512 * 1024 * 1024
 MAX_FEEDBACK_SNAPSHOT_FINDINGS = 500
 MAX_AUTOPILOT_BATCH_IMAGES = 100
+MAX_AUTOPILOT_BATCH_ATTEMPTS = 3
 CURATION_SPLITS = ("train", "val", "test")
 FEEDBACK_FILE_ROLES = (
     "source_roi",
@@ -240,6 +241,95 @@ def _autopilot_batch_run_ids(value: str) -> list[str]:
             )
         result.append(safe_id)
     return result
+
+
+def _autopilot_batch_source_digests(
+    value: str | None,
+    *,
+    run_count: int,
+) -> list[str] | None:
+    if value is None:
+        return None
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise _input_error(
+            "autopilot batch source_digests is not valid JSON"
+        ) from error
+    if not isinstance(payload, list) or len(payload) != run_count:
+        raise _input_error(
+            "autopilot batch source_digests must match the run count"
+        )
+    result: list[str] = []
+    for digest in payload:
+        if not _is_hex_digest(digest, 64):
+            raise _input_error(
+                "autopilot batch source_digests contains an invalid digest"
+            )
+        normalized = str(digest).lower()
+        if normalized in result:
+            raise _input_error(
+                "autopilot batch source_digests contains a duplicate digest"
+            )
+        result.append(normalized)
+    return result
+
+
+def _autopilot_batch_accounting(
+    *,
+    run_count: int,
+    selected_count: int | None,
+    failed_count: int,
+    duplicate_count: int,
+    retry_count: int,
+    max_attempts: int,
+) -> dict[str, int | bool | str]:
+    actual_selected_count = (
+        run_count if selected_count is None else selected_count
+    )
+    values = {
+        "selected_count": actual_selected_count,
+        "failed_count": failed_count,
+        "duplicate_skipped_count": duplicate_count,
+        "retry_count": retry_count,
+        "max_attempts": max_attempts,
+    }
+    if any(
+        isinstance(value, bool) or not isinstance(value, int)
+        for value in values.values()
+    ):
+        raise _input_error("autopilot batch accounting must contain integers")
+    if not 1 <= actual_selected_count <= MAX_AUTOPILOT_BATCH_IMAGES:
+        raise _input_error(
+            "autopilot batch selected_count is outside the batch limit"
+        )
+    if failed_count < 0 or duplicate_count < 0 or retry_count < 0:
+        raise _input_error(
+            "autopilot batch accounting cannot contain negative counts"
+        )
+    if not 1 <= max_attempts <= MAX_AUTOPILOT_BATCH_ATTEMPTS:
+        raise _input_error(
+            "autopilot batch max_attempts is outside the retry limit"
+        )
+    if run_count + failed_count + duplicate_count != actual_selected_count:
+        raise _input_error(
+            "autopilot batch accounting does not match completed runs"
+        )
+    processed_count = run_count + failed_count
+    if retry_count > processed_count * (max_attempts - 1):
+        raise _input_error(
+            "autopilot batch retry_count exceeds the retry policy"
+        )
+    return {
+        "selected_count": actual_selected_count,
+        "completed_count": run_count,
+        "failed_count": failed_count,
+        "duplicate_skipped_count": duplicate_count,
+        "retry_count": retry_count,
+        "max_attempts": max_attempts,
+        "accounting_validated": True,
+        "failure_counts_source": "local_browser_queue",
+    }
 
 
 def _hotspot_decisions(value: str | None) -> list[dict[str, str]]:
@@ -3210,16 +3300,39 @@ class LocalMetrologyService:
         self,
         *,
         run_ids: str,
+        source_digests: str | None = None,
+        selected_count: int | None = None,
+        failed_count: int = 0,
+        duplicate_count: int = 0,
+        retry_count: int = 0,
+        max_attempts: int = 1,
         seed: int = 42,
         minimum_unique_sources: int = 10,
         max_scene_hamming_distance: int = 4,
     ) -> dict[str, object]:
         safe_run_ids = _autopilot_batch_run_ids(run_ids)
+        browser_source_digests = _autopilot_batch_source_digests(
+            source_digests,
+            run_count=len(safe_run_ids),
+        )
+        accounting = _autopilot_batch_accounting(
+            run_count=len(safe_run_ids),
+            selected_count=selected_count,
+            failed_count=failed_count,
+            duplicate_count=duplicate_count,
+            retry_count=retry_count,
+            max_attempts=max_attempts,
+        )
         run_records: list[dict[str, object]] = []
         feedback_run_ids: list[str] = []
-        for run_id in safe_run_ids:
+        source_run_ids: dict[str, str] = {}
+        for index, run_id in enumerate(safe_run_ids):
             measurement_bytes, measurement = self._measurement_bytes(run_id)
             run = measurement.get("run")
+            if not isinstance(run, dict) or run.get("output_name") != run_id:
+                raise _input_error(
+                    f"autopilot batch run {run_id} has mismatched identity"
+                )
             input_evidence = (
                 run.get("input_evidence")
                 if isinstance(run, dict)
@@ -3246,6 +3359,23 @@ class LocalMetrologyService:
                 raise _input_error(
                     f"autopilot batch run {run_id} has invalid source evidence"
                 )
+            normalized_source_sha256 = str(source_sha256).lower()
+            if (
+                browser_source_digests is not None
+                and browser_source_digests[index]
+                != normalized_source_sha256
+            ):
+                raise _input_error(
+                    f"autopilot batch run {run_id} does not match its "
+                    "browser source digest"
+                )
+            duplicate_run_id = source_run_ids.get(normalized_source_sha256)
+            if duplicate_run_id is not None:
+                raise _input_error(
+                    "autopilot batch contains duplicate source evidence in "
+                    f"runs {duplicate_run_id} and {run_id}"
+                )
+            source_run_ids[normalized_source_sha256] = run_id
             feedback_path = (
                 self.paths.metrology
                 / run_id
@@ -3258,7 +3388,7 @@ class LocalMetrologyService:
                 {
                     "run_id": run_id,
                     "measurement_sha256": _sha256(measurement_bytes),
-                    "source_sha256": source_sha256,
+                    "source_sha256": normalized_source_sha256,
                     "feedback_exported": feedback_exported,
                 }
             )
@@ -3293,7 +3423,7 @@ class LocalMetrologyService:
             else []
         )
         payload: dict[str, object] = {
-            "schema_version": "urbanvision-autopilot-batch-v1.0.0",
+            "schema_version": "urbanvision-autopilot-batch-v1.1.0",
             "batch_id": batch_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "local_only": True,
@@ -3305,6 +3435,16 @@ class LocalMetrologyService:
             "training_authorized": False,
             "run_count": len(run_records),
             "feedback_run_count": len(feedback_run_ids),
+            "input_accounting": accounting,
+            "source_integrity": {
+                "unique_source_count": len(source_run_ids),
+                "browser_digest_match_count": (
+                    len(browser_source_digests)
+                    if browser_source_digests is not None
+                    else None
+                ),
+                "server_duplicate_source_rejection": True,
+            },
             "runs": run_records,
             "governance": {
                 "curation_id": curation_id,
@@ -3323,6 +3463,14 @@ class LocalMetrologyService:
                     "browser serial queue; per-image detection and proposal "
                     "may run concurrently"
                 ),
+                "self_healing": {
+                    "content_sha256_deduplication": True,
+                    "retry_scope": [
+                        "pipeline_incomplete",
+                        "unexpected_error",
+                    ],
+                    "max_attempts": max_attempts,
+                },
             },
             "claim_boundary": (
                 "This record proves which completed machine-candidate runs "

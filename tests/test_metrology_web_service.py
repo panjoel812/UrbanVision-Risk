@@ -12,7 +12,9 @@ from PIL import Image
 from urbanvision_risk.app.metrology_service import (
     LocalMetrologyService,
     _assign_curation_groups,
+    _autopilot_batch_accounting,
     _autopilot_batch_run_ids,
+    _autopilot_batch_source_digests,
     _bounded_feedback_layers,
     _canonical_merkle_root,
     _curation_ratios,
@@ -61,6 +63,40 @@ def test_autopilot_batch_run_ids_are_bounded_unique_and_path_safe() -> None:
     for value in invalid_values:
         with pytest.raises(ProjectError):
             _autopilot_batch_run_ids(value)
+
+    digests = ["1" * 64, "2" * 64]
+    assert _autopilot_batch_source_digests(
+        json.dumps(digests),
+        run_count=2,
+    ) == digests
+    with pytest.raises(ProjectError):
+        _autopilot_batch_source_digests(
+            json.dumps([digests[0], digests[0]]),
+            run_count=2,
+        )
+    with pytest.raises(ProjectError):
+        _autopilot_batch_source_digests(
+            json.dumps([digests[0]]),
+            run_count=2,
+        )
+
+    assert _autopilot_batch_accounting(
+        run_count=2,
+        selected_count=5,
+        failed_count=2,
+        duplicate_count=1,
+        retry_count=2,
+        max_attempts=2,
+    )["accounting_validated"] is True
+    with pytest.raises(ProjectError):
+        _autopilot_batch_accounting(
+            run_count=2,
+            selected_count=4,
+            failed_count=2,
+            duplicate_count=1,
+            retry_count=0,
+            max_attempts=2,
+        )
 
 
 def test_active_learning_feedback_layers_are_size_bounded() -> None:
@@ -1018,8 +1054,41 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
             hotspot_decisions=json.dumps(invalid_decisions),
         )
 
+    source_sha256 = input_evidence["source"]["sha256"]
+    with pytest.raises(ProjectError, match="browser source digest"):
+        service.finalize_autopilot_batch(
+            run_ids=json.dumps([result["run_id"]]),
+            source_digests=json.dumps(["0" * 64]),
+            minimum_unique_sources=1,
+        )
+
+    duplicate_run_id = "machine-candidate-copy-001"
+    duplicate_dir = service.paths.metrology / duplicate_run_id
+    duplicate_dir.mkdir()
+    duplicate_measurement = json.loads(
+        (service.paths.metrology / result["run_id"] / "measurement.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    duplicate_measurement["run"]["output_name"] = duplicate_run_id
+    (duplicate_dir / "measurement.json").write_text(
+        json.dumps(duplicate_measurement, sort_keys=True),
+        encoding="utf-8",
+    )
+    with pytest.raises(ProjectError, match="duplicate source evidence"):
+        service.finalize_autopilot_batch(
+            run_ids=json.dumps([result["run_id"], duplicate_run_id]),
+            minimum_unique_sources=1,
+        )
+
     batch_result = service.finalize_autopilot_batch(
         run_ids=json.dumps([result["run_id"]]),
+        source_digests=json.dumps([source_sha256]),
+        selected_count=3,
+        failed_count=1,
+        duplicate_count=1,
+        retry_count=1,
+        max_attempts=2,
         minimum_unique_sources=1,
     )
     curation = batch_result["curation"]
@@ -1036,11 +1105,26 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
         "run_ids": [result["run_id"]],
     }
     batch = batch_result["batch"]
-    assert batch["schema_version"] == "urbanvision-autopilot-batch-v1.0.0"
+    assert batch["schema_version"] == "urbanvision-autopilot-batch-v1.1.0"
     assert batch["status"] == "completed_with_governance_blockers"
     assert batch["run_count"] == 1
     assert batch["feedback_run_count"] == 1
     assert batch["training_authorized"] is False
+    assert batch["input_accounting"] == {
+        "selected_count": 3,
+        "completed_count": 1,
+        "failed_count": 1,
+        "duplicate_skipped_count": 1,
+        "retry_count": 1,
+        "max_attempts": 2,
+        "accounting_validated": True,
+        "failure_counts_source": "local_browser_queue",
+    }
+    assert batch["source_integrity"] == {
+        "unique_source_count": 1,
+        "browser_digest_match_count": 1,
+        "server_duplicate_source_rejection": True,
+    }
     assert batch["runs"][0]["run_id"] == result["run_id"]
     assert batch["runs"][0]["feedback_exported"] is True
     assert batch["governance"]["curation_id"] == (

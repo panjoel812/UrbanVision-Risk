@@ -1,10 +1,10 @@
-# UrbanVision-Risk v5.3 Resilient Batch Local App / 弹性批量本地应用指南
+# UrbanVision-Risk v5.4 Self-Healing Batch Local App / 自愈批量本地应用指南
 
 ## Finished product / 最终产品
 
-**English:** v5.3 runs a resilient, policy-bounded inspection queue locally on Apple MPS. Up to 100 selected road images are processed serially to bound accelerator memory, while three-view detection and crack proposal run concurrently within each image. Per-image failures are isolated, successful machine candidates are finalized through one batch-scoped governance pass, and the privacy-minimized ledger stores hashes and run IDs rather than filenames or local paths.
+**English:** v5.4 adds content-aware self-healing to the resilient Apple MPS queue. Web Crypto SHA-256 removes exact duplicate selections before inference, recoverable pipeline failures receive one automatic retry, and deterministic input failures are classified without wasteful retry. The service independently verifies source digests, source uniqueness, measurement identity, machine authority, and aggregate queue accounting before governance.
 
-**中文：** v5.3 在 Apple MPS 上运行受策略约束的弹性巡检队列。一次最多选择 100 张道路图片；图片之间串行处理以限制加速器内存，每张图片内部并行运行三视图检测与裂缝候选。单张失败会被隔离，成功机器候选统一经过一次批次范围治理；隐私最小化账本只保存摘要与运行编号，不保存原文件名或本机路径。
+**中文：** v5.4 为 Apple MPS 弹性队列增加内容感知自愈。Web Crypto SHA-256 会在推理前排除完全重复的选择；可恢复流水线故障自动再试一次，确定性输入错误只分类、不浪费重试。进入治理前，服务端会独立核对来源摘要、来源唯一性、量测身份、机器权限和队列汇总账目。
 
 It uses no AWS, Azure, Google Cloud, paid API, remote model, CDN, analytics, or telemetry. After dependencies and the model are present, the complete workflow can run without internet access.
 
@@ -77,9 +77,17 @@ Version 5.3 turns that single-image path into a **resilient batch autopilot**. K
 
 v5.3 把单图路径扩展为 **弹性批量自动驾驶**。保持自动驾驶开启，在一次文件选择中最多选择 100 张图片，即可观察每项依次进入等待、运行、完成或失败状态。浏览器刻意一次只处理一张图片，从而限制 Apple MPS 内存；但该图片内部的检测与候选仍并发执行。某一项发生异常时只会在当前队列中记录，不会取消后续图片。
 
-After the queue ends, `POST /api/metrology/autopilot-batches/finalize` sends only successful run IDs to the service. The service reloads every measurement, revalidates `machine_reviewed_candidate`, `machine_heuristic`, and source SHA-256 provenance, scopes curation to this exact batch, and runs snapshot preflight once. The immutable `urbanvision-autopilot-batch-v1.0.0` record is saved under `results/metrology/autopilot-batches/`. It contains no original filename or absolute path, and `training_authorized` remains `false`; governance blockers are an honest result, not a batch failure.
+After the queue ends, `POST /api/metrology/autopilot-batches/finalize` sends only successful run IDs to the service. The service reloads every measurement, revalidates `machine_reviewed_candidate`, `machine_heuristic`, and source SHA-256 provenance, scopes curation to this exact batch, and runs snapshot preflight once. The immutable `urbanvision-autopilot-batch-v1.1.0` record is saved under `results/metrology/autopilot-batches/`. It contains no original filename or absolute path, and `training_authorized` remains `false`; governance blockers are an honest result, not a batch failure.
 
-队列结束后，`POST /api/metrology/autopilot-batches/finalize` 只把成功运行编号交给服务端。服务端重新读取每份量测，复核 `machine_reviewed_candidate`、`machine_heuristic` 与原图 SHA-256 来源，把策划范围严格限制为本批次，并只运行一次快照预检。不可覆盖的 `urbanvision-autopilot-batch-v1.0.0` 记录保存在 `results/metrology/autopilot-batches/`。其中不含原文件名或绝对路径，且 `training_authorized` 仍为 `false`；出现治理阻断是诚实的安全结果，不代表批处理崩溃。
+队列结束后，`POST /api/metrology/autopilot-batches/finalize` 只把成功运行编号交给服务端。服务端重新读取每份量测，复核 `machine_reviewed_candidate`、`machine_heuristic` 与原图 SHA-256 来源，把策划范围严格限制为本批次，并只运行一次快照预检。不可覆盖的 `urbanvision-autopilot-batch-v1.1.0` 记录保存在 `results/metrology/autopilot-batches/`。其中不含原文件名或绝对路径，且 `training_authorized` 仍为 `false`；出现治理阻断是诚实的安全结果，不代表批处理崩溃。
+
+Version 5.4 adds two independent deduplication boundaries. The browser hashes each eligible file with `crypto.subtle.digest("SHA-256", ...)`, retains the first occurrence, and marks later byte-identical selections as `duplicate`. The service does not trust that decision: it compares each browser digest with the SHA-256 already preserved in `measurement.json`, rejects repeated server-side source evidence, and verifies that completed + failed + duplicate counts equal the selected count.
+
+v5.4 增加两道相互独立的去重边界。浏览器使用 `crypto.subtle.digest("SHA-256", ...)` 计算每个合格文件的摘要，只保留第一次出现的内容，后续完全相同文件标记为 `duplicate`。服务端不会盲信浏览器：它把浏览器摘要与 `measurement.json` 已保存的 SHA-256 逐项比较，拒绝服务端重复来源，并验证完成数 + 失败数 + 去重数必须等于选择总数。
+
+Only `pipeline_incomplete` and `unexpected_error` are retryable, with `MAX_BATCH_ATTEMPTS = 2`. Unsupported format, over 15 MiB, decode failure, and over 20 megapixels are deterministic failures and are not retried. The `urbanvision-autopilot-batch-v1.1.0` ledger records validated aggregate counts, retry policy, digest-match count, unique-source count, and governance references without persisting the live queue's filenames.
+
+只有 `pipeline_incomplete` 与 `unexpected_error` 可以重试，且 `MAX_BATCH_ATTEMPTS = 2`。格式不支持、超过 15 MiB、解码失败或超过 2000 万像素属于确定性失败，不会重试。`urbanvision-autopilot-batch-v1.1.0` 账本记录已校验汇总数、重试策略、摘要匹配数、唯一来源数和治理引用，但不会保存页面队列里的文件名。
 
 ## What happens after upload / 上传后发生什么
 

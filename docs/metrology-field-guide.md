@@ -1,4 +1,4 @@
-# UrbanVision-Risk v5.3 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v5.4 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -183,9 +183,23 @@ The browser defers governance during the queue and submits only successful metro
 
 浏览器在队列期间暂缓治理，只把成功量测编号提交给 `POST /api/metrology/autopilot-batches/finalize`。服务端重新读取每份不可变 `measurement.json`，强制要求 `machine_reviewed_candidate` 与 `machine_heuristic`，并拒绝重复编号、缺失运行或非机器记录。策划仅限该明确运行集合的反馈包，防止不相关历史包混入本批次。
 
-The immutable `urbanvision-autopilot-batch-v1.0.0` record binds measurement SHA-256, source SHA-256, feedback presence, curation ID, snapshot ID, configuration, and blockers. It deliberately omits original filenames and absolute paths. A completed batch is operational automation evidence, not privacy clearance, label certification, physical calibration, training authorization, or road-safety evidence.
+The immutable `urbanvision-autopilot-batch-v1.1.0` record binds measurement SHA-256, source SHA-256, feedback presence, curation ID, snapshot ID, configuration, and blockers. It deliberately omits original filenames and absolute paths. A completed batch is operational automation evidence, not privacy clearance, label certification, physical calibration, training authorization, or road-safety evidence.
 
-不可覆盖的 `urbanvision-autopilot-batch-v1.0.0` 记录绑定量测 SHA-256、来源 SHA-256、反馈是否存在、策划编号、快照编号、配置和阻断项，并有意省略原文件名与绝对路径。完成批次只能证明自动流程执行过，不代表隐私许可、标签认证、物理标定、训练授权或道路安全结论。
+不可覆盖的 `urbanvision-autopilot-batch-v1.1.0` 记录绑定量测 SHA-256、来源 SHA-256、反馈是否存在、策划编号、快照编号、配置和阻断项，并有意省略原文件名与绝对路径。完成批次只能证明自动流程执行过，不代表隐私许可、标签认证、物理标定、训练授权或道路安全结论。
+
+### Content-aware self-healing / 内容感知自愈
+
+Version 5.4 computes each eligible browser file's content digest with `crypto.subtle.digest("SHA-256", ...)` before inference. The first digest enters the serial queue; later exact matches become `duplicate` and consume no MPS inference. This is byte-level equality, not perceptual similarity. Filenames remain visible only in live browser memory so the operator can follow progress.
+
+v5.4 在推理前使用 `crypto.subtle.digest("SHA-256", ...)` 计算每个合格浏览器文件的内容摘要。第一次出现的摘要进入串行队列，后续完全相同内容标为 `duplicate`，不再消耗 MPS 推理。这证明的是字节级相等，不是感知相似；文件名只停留在当前浏览器内存中，供操作员查看进度。
+
+Failures are classified before retry. Unsupported content type, more than 15 MiB, decode failure, and more than 20 megapixels are deterministic and immediately skipped. Only `pipeline_incomplete` and `unexpected_error` are recoverable; `MAX_BATCH_ATTEMPTS = 2` gives them one automatic retry. The live queue exposes `hashing`, `running`, `retrying`, `complete`, `failed`, and `duplicate` rather than hiding recovery.
+
+系统会先分类再决定是否重试。格式不支持、超过 15 MiB、解码失败和超过 2000 万像素属于确定性错误，直接跳过；只有 `pipeline_incomplete` 和 `unexpected_error` 属于可恢复错误，`MAX_BATCH_ATTEMPTS = 2` 表示自动再试一次。页面明确显示 `hashing`、`running`、`retrying`、`complete`、`failed` 和 `duplicate`，不会隐藏恢复过程。
+
+The finalize request sends successful run IDs, same-order browser digests, and aggregate selected/failed/duplicate/retry counts. The service reloads immutable measurements, verifies run identity and `machine_heuristic` authority, compares every browser digest with server-preserved source SHA-256, rejects repeated sources, and requires accounting equality. The v1.1 ledger exposes `browser_digest_match_count` and `server_duplicate_source_rejection`; client-reported failure counts never authorize labels or training.
+
+最终请求提交成功运行编号、同顺序浏览器摘要，以及选择/失败/重复/重试汇总数。服务端重新读取不可变量测，验证运行身份和 `machine_heuristic` 权限，把每个浏览器摘要与服务端保存的来源 SHA-256 比较，拒绝重复来源，并强制账目等式成立。v1.1 账本公开 `browser_digest_match_count` 和 `server_duplicate_source_rejection`；客户端报告的失败数量绝不会授权标签或训练。
 
 This package is a candidate pool for separately governed relabeling, error analysis, and future training—not an automatic training set. Source ROIs may contain people, vehicles, licence plates, or location cues, so a dataset owner must apply privacy review, split control, deduplication, and label QA before training.
 

@@ -1,14 +1,14 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。选择一张图片会并行启动三视图检测和裂缝候选，画笔/橡皮修订把 `automatic_draft` 更新为 `human_reviewed`。v4.7 把“模型建议→热点排序→同步放大修订→结构化处置”继续连接到主动学习反馈：保存带处置的人工版本时，系统自动生成 `active-learning-feedback.zip`。每个热点包含原图 ROI、不可变候选掩膜、最终复核掩膜、灵敏度分歧层以及 SHA-256 文件摘要；`manifest.json` 绑定源图和 `measurement.json` 摘要、处置分类、优先级与裁剪坐标。大 ROI 会按面积上限等比例缩放，避免反馈包失控；压缩包成员采用固定时间戳以保证相同内容可复现。整个过程只在本机进行。处置仍是操作员工作记录，不是真值或道路安全结论。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。选择一张图片会在本机并行启动三视图检测和裂缝候选；画笔/橡皮修订把 `automatic_draft` 更新为 `human_reviewed`。v4.8 在主动学习反馈之上加入质量门控和本地台账：每个 ROI 会计算候选—最终掩膜的增加、删除、改动像素和 IoU，检查处置语义是否一致；例如“漏检已补画”却没有增加像素会形成明确警告。64 位差分感知指纹用于发现重复候选。`/api/metrology/feedback-catalog` 汇总反馈包、样本、独立源图、处置分布、质量状态和重复组。它是训练前的数据治理信号，不是真值证明或自动删除依据。
 
-**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Choosing one image starts three-view detection and a crack proposal locally in parallel; brush/eraser correction advances `automatic_draft` to `human_reviewed`. Version 4.7 connects model proposal, ranked hotspots, synchronized correction, and structured dispositions to active-learning feedback. Saving a dispositioned human review creates `active-learning-feedback.zip`. Every target includes its source ROI, immutable proposal mask, final reviewed mask, sensitivity-disagreement layer, and SHA-256 file evidence. `manifest.json` binds source and `measurement.json` digests to disposition, priority, and crop coordinates. Large ROIs are proportionally bounded, while fixed ZIP member timestamps make identical content reproducible. Processing remains local. A disposition is still an operator workflow record, not ground truth or a road-safety conclusion.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Choosing one image starts three-view detection and a crack proposal locally in parallel; brush/eraser correction advances `automatic_draft` to `human_reviewed`. Version 4.8 adds quality gates and a local registry above active-learning feedback. Every ROI records proposal-to-final added, removed, and changed pixels plus IoU, then checks semantic consistency—for example, “missed crack added” with zero added pixels becomes an explicit warning. A 64-bit difference fingerprint identifies duplicate candidates. `/api/metrology/feedback-catalog` aggregates packages, examples, independent sources, dispositions, quality states, and duplicate groups. These are pre-training data-governance signals, not proof of truth or grounds for automatic deletion.
 
 **v3.0 Calibrated Metrology / 标定量测：** printable field fiducials, semantic marker detection (`TL/TR/BR/BL`), homography rectification, graph-geodesic length, skeleton distance-transform width, immutable artifacts, privacy-minimized provenance, deterministic uncertainty analysis, and a first-hand field-validation protocol. / 可打印现场标记、语义标记检测、单应性矫正、图测地长度、骨架距离变换宽度、不可覆盖结果、最小化隐私来源记录、确定性不确定性分析和亲身现场验证方案。
 
 **v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v4.7 Quick Start / v4.7 快速启动
+## v4.8 Quick Start / v4.8 快速启动
 
 ```bash
 uv sync --extra dev
@@ -23,9 +23,9 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`: upload once; reliability-aware detection and the editable mask proposal run in parallel; green candidates, yellow review hotspots, a ranked queue, synchronized magnified editing, and an automatic pixel-metrology draft appear next. After at least one structured disposition is saved, the result panel offers a local active-learning ZIP containing bounded source/mask ROIs and a hashed manifest. The reviewed mask, feedback package, calibration, uncertainty, material planning, multi-date physical alignment, spatial change, and audit JSON remain together.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`: upload once; reliability-aware detection and the editable mask proposal run in parallel; green candidates, yellow review hotspots, a ranked queue, synchronized magnified editing, and an automatic pixel-metrology draft appear next. Saving a structured disposition creates the local feedback ZIP and refreshes the registry summary with package, example, source, warning, and duplicate-candidate counts. The reviewed mask, governed feedback evidence, calibration, uncertainty, planning, comparison, and audit JSON remain together.
 
-第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程。上传一次后自动显示绿色候选、黄色热点、排序队列、同步放大编辑窗和像素量测草稿。至少保存一个结构化处置后，结果区会提供完全本地的主动学习 ZIP，内含有界原图/掩膜 ROI 和带摘要清单。复核掩膜、反馈包、标定、不确定性、材料计划、多期变化和审计 JSON 会保存在同一量测记录中。端口被占用时使用 `--port 8001`。
+第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程。保存结构化处置后会生成本地反馈 ZIP，并刷新台账中的反馈包、样本、来源、质量警告和重复候选数量。复核掩膜、受治理反馈证据、标定、不确定性、材料计划、多期变化和审计 JSON 会保存在同一量测记录中。端口被占用时使用 `--port 8001`。
 
 The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
 

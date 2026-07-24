@@ -39,6 +39,7 @@ class MetrologyStub:
         self.compare_arguments: dict[str, Any] | None = None
         self.proposal_arguments: dict[str, Any] | None = None
         self.failure: ProjectError | None = None
+        self.feedback_catalog_limit: int | None = None
 
     def demo(self) -> dict[str, object]:
         return {
@@ -126,6 +127,24 @@ class MetrologyStub:
             "local_only": True,
             "returned_count": 1,
             "items": [{"run_id": "metrology-baseline-001"}],
+        }
+
+    def feedback_catalog(self, *, limit: int = 50) -> dict[str, object]:
+        self.feedback_catalog_limit = limit
+        return {
+            "local_only": True,
+            "available_package_count": 1,
+            "returned_package_count": 1,
+            "item_count": 2,
+            "unique_source_count": 1,
+            "quality_counts": {
+                "pass": 1,
+                "warning": 0,
+                "deferred": 1,
+                "unknown": 0,
+            },
+            "duplicate_fingerprint_group_count": 0,
+            "packages": [],
         }
 
     def create_maintenance_plan(
@@ -220,6 +239,7 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="hotspot-note"' in response.text
     assert 'id="feedback-panel"' in response.text
     assert 'id="feedback-download"' in response.text
+    assert 'id="feedback-catalog-summary"' in response.text
     assert "calculateLoupeViewport" in response.text
     assert "loupeCanvasPosition" in response.text
     assert "synchronized_hotspot_loupe" in response.text
@@ -227,6 +247,8 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "false_positive_removed" in response.text
     assert "missed_crack_added" in response.text
     assert "active-learning-feedback.zip" in response.text
+    assert "/api/metrology/feedback-catalog?limit=100" in response.text
+    assert "loadFeedbackCatalog" in response.text
     assert 'hotspotLoupe.addEventListener("pointerdown"' in response.text
     assert 'id="inspection-section"' in response.text
     assert 'id="narrative-button"' in response.text
@@ -321,6 +343,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["synchronized_review_loupe"] is True
     assert health.json()["auditable_hotspot_dispositions"] is True
     assert health.json()["active_learning_feedback_export"] is True
+    assert health.json()["feedback_quality_registry"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
@@ -363,6 +386,7 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     client, metrology = _client(tmp_path)
 
     runs = client.get("/api/metrology/runs?limit=12")
+    feedback_catalog = client.get("/api/metrology/feedback-catalog?limit=25")
     plan = client.post(
         "/api/metrology/runs/metrology-web-001/maintenance-plan",
         data={
@@ -389,6 +413,9 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
 
     assert runs.status_code == 200
     assert runs.json()["returned_count"] == 1
+    assert feedback_catalog.status_code == 200
+    assert feedback_catalog.json()["item_count"] == 2
+    assert metrology.feedback_catalog_limit == 25
     assert plan.status_code == 200
     assert metrology.plan_arguments == {
         "run_id": "metrology-web-001",

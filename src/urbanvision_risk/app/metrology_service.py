@@ -46,6 +46,8 @@ HOTSPOT_DISPOSITIONS = frozenset(
 MAX_HOTSPOT_NOTE_CHARS = 160
 ACTIVE_LEARNING_FEEDBACK_ARTIFACT = "active-learning-feedback.zip"
 MAX_FEEDBACK_CROP_PIXELS = 512_000
+MAX_FEEDBACK_CATALOG_PACKAGES = 100
+MAX_FEEDBACK_MANIFEST_BYTES = 2 * 1024 * 1024
 COMPARISON_ARTIFACTS = frozenset({"change-map.png"})
 PROPOSAL_ARTIFACTS = frozenset(
     {"proposal-mask.png", "review-hotspots.png", "evidence.json"}
@@ -313,6 +315,69 @@ def _bounded_feedback_layers(
     )
 
 
+def _feedback_quality_gate(
+    disposition: str,
+    proposal: np.ndarray,
+    final: np.ndarray,
+) -> dict[str, object]:
+    proposed = proposal >= 128
+    reviewed = final >= 128
+    added = int(np.count_nonzero(reviewed & ~proposed))
+    removed = int(np.count_nonzero(proposed & ~reviewed))
+    changed = added + removed
+    intersection = int(np.count_nonzero(proposed & reviewed))
+    union = int(np.count_nonzero(proposed | reviewed))
+    warning_codes: list[str] = []
+    if disposition == "accepted_as_proposed" and changed:
+        warning_codes.append("accepted_but_mask_changed")
+    elif disposition == "false_positive_removed":
+        if removed == 0:
+            warning_codes.append("removal_disposition_without_removed_pixels")
+        if added:
+            warning_codes.append("removal_disposition_also_added_pixels")
+    elif disposition == "missed_crack_added":
+        if added == 0:
+            warning_codes.append("addition_disposition_without_added_pixels")
+        if removed:
+            warning_codes.append("addition_disposition_also_removed_pixels")
+    status = (
+        "deferred"
+        if disposition == "deferred_for_follow_up"
+        else "warning"
+        if warning_codes
+        else "pass"
+    )
+    return {
+        "status": status,
+        "warning_codes": warning_codes,
+        "proposal_foreground_pixels": int(np.count_nonzero(proposed)),
+        "final_foreground_pixels": int(np.count_nonzero(reviewed)),
+        "added_pixels": added,
+        "removed_pixels": removed,
+        "changed_pixels": changed,
+        "proposal_final_iou": round(intersection / union, 8) if union else None,
+        "interpretation": (
+            "A workflow consistency check between the operator disposition and "
+            "ROI pixel changes; not label correctness or field validation"
+        ),
+    }
+
+
+def _difference_hash64(image: np.ndarray) -> str:
+    if image.ndim == 3:
+        grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    elif image.ndim == 2:
+        grayscale = image
+    else:
+        raise _input_error(f"feedback fingerprint image shape={image.shape}")
+    resized = cv2.resize(grayscale, (9, 8), interpolation=cv2.INTER_AREA)
+    differences = resized[:, 1:] > resized[:, :-1]
+    fingerprint = 0
+    for value in differences.ravel():
+        fingerprint = (fingerprint << 1) | int(value)
+    return f"{fingerprint:016x}"
+
+
 def _deterministic_zip_bytes(entries: dict[str, bytes]) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(
@@ -328,6 +393,29 @@ def _deterministic_zip_bytes(entries: dict[str, bytes]) -> bytes:
             member.external_attr = 0o644 << 16
             archive.writestr(member, entries[name])
     return buffer.getvalue()
+
+
+def _feedback_manifest(path: Path) -> dict[str, object]:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            info = archive.getinfo("manifest.json")
+            if info.file_size <= 0 or info.file_size > MAX_FEEDBACK_MANIFEST_BYTES:
+                raise ValueError(
+                    f"feedback manifest bytes={info.file_size}"
+                )
+            payload = json.loads(archive.read(info).decode("utf-8"))
+    except (
+        KeyError,
+        OSError,
+        UnicodeDecodeError,
+        ValueError,
+        json.JSONDecodeError,
+        zipfile.BadZipFile,
+    ) as error:
+        raise _input_error(f"feedback package {path.name} is malformed") from error
+    if not isinstance(payload, dict):
+        raise _input_error(f"feedback package {path.name} manifest is not an object")
+    return payload
 
 
 def _calibration(
@@ -1103,6 +1191,7 @@ class LocalMetrologyService:
                 proposal_dir / "review-hotspots.png"
             ).read_bytes()
             measurement_bytes = (output_dir / "measurement.json").read_bytes()
+            measurement_payload = json.loads(measurement_bytes)
         except (OSError, json.JSONDecodeError) as error:
             raise _input_error(
                 f"proposal {safe_proposal_id} cannot produce feedback"
@@ -1184,6 +1273,13 @@ class LocalMetrologyService:
                 np.uint8
             )
             disagreement_crop = disagreement_image[y0:y1, x0:x1]
+            decision = decisions_by_id[hotspot_id]
+            source_fingerprint = _difference_hash64(source_crop)
+            quality_gate = _feedback_quality_gate(
+                decision["disposition"],
+                proposal_crop,
+                final_crop,
+            )
             (
                 source_crop,
                 proposal_crop,
@@ -1226,7 +1322,6 @@ class LocalMetrologyService:
                     "path": path,
                     "sha256": _sha256(content),
                 }
-            decision = decisions_by_id[hotspot_id]
             manifest_items.append(
                 {
                     "hotspot_id": hotspot_id,
@@ -1252,6 +1347,8 @@ class LocalMetrologyService:
                     "candidate_overlap_ratio": hotspot.get(
                         "candidate_overlap_ratio"
                     ),
+                    "source_roi_difference_hash64": source_fingerprint,
+                    "quality_gate": quality_gate,
                     "files": file_evidence,
                 }
             )
@@ -1270,14 +1367,43 @@ class LocalMetrologyService:
             )
             for disposition in sorted(HOTSPOT_DISPOSITIONS)
         }
+        quality_counts = {
+            status: sum(
+                isinstance(item.get("quality_gate"), dict)
+                and item["quality_gate"].get("status") == status
+                for item in manifest_items
+            )
+            for status in ("pass", "warning", "deferred")
+        }
+        fingerprint_counts: dict[str, int] = {}
+        for item in manifest_items:
+            fingerprint = str(item["source_roi_difference_hash64"])
+            fingerprint_counts[fingerprint] = fingerprint_counts.get(fingerprint, 0) + 1
+        duplicate_fingerprint_groups = sum(
+            count > 1 for count in fingerprint_counts.values()
+        )
+        measurement_run = (
+            measurement_payload.get("run")
+            if isinstance(measurement_payload, dict)
+            else None
+        )
         manifest = {
-            "schema_version": "urbanvision-active-learning-feedback-v1.0.0",
+            "schema_version": "urbanvision-active-learning-feedback-v1.1.0",
             "run_id": run_id,
             "proposal_id": safe_proposal_id,
+            "created_at_utc": (
+                measurement_run.get("created_at_utc")
+                if isinstance(measurement_run, dict)
+                else None
+            ),
             "source_sha256": source_sha256,
             "measurement_sha256": _sha256(measurement_bytes),
             "item_count": len(manifest_items),
             "disposition_counts": disposition_counts,
+            "quality_summary": {
+                **quality_counts,
+                "duplicate_fingerprint_group_count": duplicate_fingerprint_groups,
+            },
             "items": manifest_items,
             "privacy": (
                 "Local-only export; source ROIs may contain identifiable people, "
@@ -1425,6 +1551,152 @@ class LocalMetrologyService:
                     feedback_bytes,
                 )
         return self._response(run_id, output_dir)
+
+    def feedback_catalog(self, *, limit: int = 50) -> dict[str, object]:
+        if not 1 <= limit <= MAX_FEEDBACK_CATALOG_PACKAGES:
+            raise _input_error(f"feedback catalog limit={limit}")
+        packages: list[dict[str, object]] = []
+        invalid_package_count = 0
+        if self.paths.metrology.is_dir():
+            for run_dir in self.paths.metrology.iterdir():
+                package_path = run_dir / ACTIVE_LEARNING_FEEDBACK_ARTIFACT
+                if not run_dir.is_dir() or not package_path.is_file():
+                    continue
+                try:
+                    run_id = validate_run_name(run_dir.name)
+                    manifest = _feedback_manifest(package_path)
+                except ProjectError:
+                    invalid_package_count += 1
+                    continue
+                items = manifest.get("items")
+                if not isinstance(items, list):
+                    invalid_package_count += 1
+                    continue
+                packages.append(
+                    {
+                        "run_id": run_id,
+                        "proposal_id": manifest.get("proposal_id"),
+                        "created_at_utc": manifest.get("created_at_utc"),
+                        "source_sha256": manifest.get("source_sha256"),
+                        "schema_version": manifest.get("schema_version"),
+                        "items": [item for item in items if isinstance(item, dict)],
+                        "feedback_url": (
+                            f"/api/metrology/runs/{run_id}/"
+                            f"{ACTIVE_LEARNING_FEEDBACK_ARTIFACT}"
+                        ),
+                    }
+                )
+        packages.sort(
+            key=lambda package: (
+                str(package.get("created_at_utc") or ""),
+                str(package["run_id"]),
+            ),
+            reverse=True,
+        )
+        available_package_count = len(packages)
+        returned_packages = packages[:limit]
+        disposition_counts = {
+            disposition: 0 for disposition in sorted(HOTSPOT_DISPOSITIONS)
+        }
+        quality_counts = {
+            "pass": 0,
+            "warning": 0,
+            "deferred": 0,
+            "unknown": 0,
+        }
+        fingerprints: dict[str, list[dict[str, str]]] = {}
+        unique_sources: set[str] = set()
+        item_count = 0
+        package_summaries: list[dict[str, object]] = []
+        for package in returned_packages:
+            source_sha256 = package.get("source_sha256")
+            if isinstance(source_sha256, str) and source_sha256:
+                unique_sources.add(source_sha256)
+            package_items = package["items"]
+            if not isinstance(package_items, list):
+                continue
+            package_quality = {
+                "pass": 0,
+                "warning": 0,
+                "deferred": 0,
+                "unknown": 0,
+            }
+            package_dispositions = {
+                disposition: 0 for disposition in sorted(HOTSPOT_DISPOSITIONS)
+            }
+            for item in package_items:
+                if not isinstance(item, dict):
+                    continue
+                item_count += 1
+                disposition = item.get("disposition")
+                if (
+                    isinstance(disposition, str)
+                    and disposition in disposition_counts
+                ):
+                    disposition_counts[disposition] += 1
+                    package_dispositions[disposition] += 1
+                gate = item.get("quality_gate")
+                quality_status = (
+                    gate.get("status") if isinstance(gate, dict) else "unknown"
+                )
+                if (
+                    not isinstance(quality_status, str)
+                    or quality_status not in quality_counts
+                ):
+                    quality_status = "unknown"
+                quality_counts[quality_status] += 1
+                package_quality[quality_status] += 1
+                fingerprint = item.get("source_roi_difference_hash64")
+                hotspot_id = item.get("hotspot_id")
+                if isinstance(fingerprint, str) and isinstance(hotspot_id, str):
+                    fingerprints.setdefault(fingerprint, []).append(
+                        {
+                            "run_id": str(package["run_id"]),
+                            "hotspot_id": hotspot_id,
+                        }
+                    )
+            package_summaries.append(
+                {
+                    key: value
+                    for key, value in package.items()
+                    if key != "items"
+                }
+                | {
+                    "item_count": len(package_items),
+                    "disposition_counts": package_dispositions,
+                    "quality_counts": package_quality,
+                }
+            )
+        duplicate_groups = [
+            {
+                "difference_hash64": fingerprint,
+                "item_count": len(items),
+                "items": items,
+            }
+            for fingerprint, items in sorted(fingerprints.items())
+            if len(items) > 1
+        ]
+        return {
+            "local_only": True,
+            "available_package_count": available_package_count,
+            "returned_package_count": len(package_summaries),
+            "invalid_package_count": invalid_package_count,
+            "item_count": item_count,
+            "unique_source_count": len(unique_sources),
+            "disposition_counts": disposition_counts,
+            "quality_counts": quality_counts,
+            "duplicate_fingerprint_group_count": len(duplicate_groups),
+            "duplicate_fingerprint_item_count": sum(
+                group["item_count"] for group in duplicate_groups
+            ),
+            "duplicate_fingerprint_groups": duplicate_groups,
+            "packages": package_summaries,
+            "interpretation": (
+                "A local curation registry. Quality gates check workflow "
+                "consistency, and equal difference hashes are duplicate candidates; "
+                "neither proves label correctness or image identity"
+            ),
+        }
 
     def demo(self) -> dict[str, object]:
         run_id = validate_run_name(self._id_factory())

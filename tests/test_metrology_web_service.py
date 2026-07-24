@@ -13,6 +13,8 @@ from urbanvision_risk.app.metrology_service import (
     LocalMetrologyService,
     _bounded_feedback_layers,
     _deterministic_zip_bytes,
+    _difference_hash64,
+    _feedback_quality_gate,
 )
 from urbanvision_risk.errors import ProjectError
 from urbanvision_risk.paths import get_paths
@@ -74,6 +76,41 @@ def test_active_learning_feedback_zip_is_deterministic_and_sorted() -> None:
             info.date_time == (1980, 1, 1, 0, 0, 0)
             for info in archive.infolist()
         )
+
+
+def test_feedback_quality_gate_and_fingerprint_are_deterministic() -> None:
+    proposal = np.zeros((40, 40), dtype=np.uint8)
+    proposal[10:30, 10:30] = 255
+    unchanged = proposal.copy()
+    removed = proposal.copy()
+    removed[10:20, 10:20] = 0
+
+    accepted = _feedback_quality_gate(
+        "accepted_as_proposed",
+        proposal,
+        unchanged,
+    )
+    inconsistent = _feedback_quality_gate(
+        "missed_crack_added",
+        proposal,
+        unchanged,
+    )
+    corrected = _feedback_quality_gate(
+        "false_positive_removed",
+        proposal,
+        removed,
+    )
+
+    assert accepted["status"] == "pass"
+    assert inconsistent["status"] == "warning"
+    assert inconsistent["warning_codes"] == [
+        "addition_disposition_without_added_pixels"
+    ]
+    assert corrected["status"] == "pass"
+    assert corrected["removed_pixels"] == 100
+    gradient = np.tile(np.arange(40, dtype=np.uint8), (40, 1))
+    assert _difference_hash64(gradient) == _difference_hash64(gradient.copy())
+    assert len(_difference_hash64(gradient)) == 16
 
 
 def _textured_crack_source() -> bytes:
@@ -438,7 +475,7 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
         manifest_bytes = archive.read("manifest.json")
         manifest = json.loads(manifest_bytes)
         assert manifest["schema_version"] == (
-            "urbanvision-active-learning-feedback-v1.0.0"
+            "urbanvision-active-learning-feedback-v1.1.0"
         )
         assert manifest["item_count"] == 2
         assert manifest["source_sha256"] == proposal["evidence"]["source"]["sha256"]
@@ -450,7 +487,12 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
         ).hexdigest()
         assert manifest["items"][0]["disposition"] == "accepted_as_proposed"
         assert manifest["items"][0]["note"] == "No correction required"
+        assert manifest["items"][0]["quality_gate"]["status"] == "pass"
+        assert len(manifest["items"][0]["source_roi_difference_hash64"]) == 16
         assert manifest["items"][1]["disposition"] == "deferred_for_follow_up"
+        assert manifest["items"][1]["quality_gate"]["status"] == "deferred"
+        assert manifest["quality_summary"]["pass"] == 1
+        assert manifest["quality_summary"]["deferred"] == 1
         for item in manifest["items"]:
             export = item["export_crop"]
             assert export["export_width"] * export["export_height"] <= 512_000
@@ -465,6 +507,38 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
             for info in archive.infolist()
         )
         assert "/Users/" not in manifest_bytes.decode("utf-8")
+    duplicate_manifest = {
+        "schema_version": manifest["schema_version"],
+        "run_id": "duplicate-feedback-001",
+        "proposal_id": manifest["proposal_id"],
+        "created_at_utc": "2026-07-24T00:00:00+00:00",
+        "source_sha256": manifest["source_sha256"],
+        "items": [manifest["items"][0]],
+    }
+    duplicate_dir = feedback_path.parent.parent / "duplicate-feedback-001"
+    duplicate_dir.mkdir()
+    (duplicate_dir / feedback_name).write_bytes(
+        _deterministic_zip_bytes(
+            {
+                "manifest.json": (
+                    json.dumps(duplicate_manifest, sort_keys=True) + "\n"
+                ).encode()
+            }
+        )
+    )
+    corrupt_dir = feedback_path.parent.parent / "corrupt-feedback-001"
+    corrupt_dir.mkdir()
+    (corrupt_dir / feedback_name).write_bytes(b"not-a-zip")
+    catalog = service.feedback_catalog(limit=100)
+    assert catalog["available_package_count"] == 2
+    assert catalog["returned_package_count"] == 2
+    assert catalog["item_count"] == 3
+    assert catalog["unique_source_count"] == 1
+    assert catalog["invalid_package_count"] == 1
+    assert catalog["quality_counts"]["pass"] == 2
+    assert catalog["quality_counts"]["deferred"] == 1
+    assert catalog["duplicate_fingerprint_group_count"] >= 1
+    assert catalog["duplicate_fingerprint_item_count"] >= 2
 
 
 def test_aruco_web_calibration_preserves_detection_quality(tmp_path: Path) -> None:

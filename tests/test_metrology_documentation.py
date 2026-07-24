@@ -47,6 +47,9 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "active-learning-feedback.zip" in guide
     assert "512,000" in guide
     assert "No absolute path is stored" in guide
+    assert "Feedback quality gates and registry" in guide
+    assert "feedback-catalog?limit=100" in guide
+    assert "64-bit difference hash" in guide
     assert "不是模型不确定性校准" in guide
     assert "local_proposal_automatic_draft" in guide
     assert "ArUco" in portfolio

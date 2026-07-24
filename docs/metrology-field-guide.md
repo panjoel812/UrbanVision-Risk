@@ -1,4 +1,4 @@
-# UrbanVision-Risk v4.7 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v4.8 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -166,6 +166,20 @@ When a saved human review contains at least one structured disposition, Version 
 This package is a candidate pool for separately governed relabeling, error analysis, and future training—not an automatic training set. Source ROIs may contain people, vehicles, licence plates, or location cues, so a dataset owner must apply privacy review, split control, deduplication, and label QA before training.
 
 该反馈包只是供独立治理的再标注、误差分析和未来训练候选池，不是可以直接训练的自动数据集。原图 ROI 可能包含人员、车辆、车牌或地点线索；训练前必须由数据负责人执行隐私复核、数据划分控制、去重和标签质检。
+
+### Feedback quality gates and registry / 反馈质量门控与台账
+
+Version 4.8 compares proposal and final pixels inside every exported ROI. It records foreground, added, removed, and changed pixel counts plus proposal-to-final IoU. The gate reports `warning` when the observed change contradicts the disposition: accepted with changed pixels, removal without removed pixels, addition without added pixels, or a single-direction correction that also changes pixels in the opposite direction. Deferred items remain explicitly `deferred`; they do not silently pass.
+
+v4.8 会在每个导出 ROI 内比较候选与最终像素，记录前景、增加、删除、改动像素数和候选—最终 IoU。当观察变化与处置矛盾时，门控报告 `warning`：接受候选但像素发生变化、删除处置却没有删除像素、补画处置却没有增加像素，或单向修正同时出现反向像素变化。暂缓项明确保持 `deferred`，不会悄悄标为通过。
+
+Each source ROI also receives a deterministic 64-bit difference hash. Equal hashes are exposed as duplicate candidates, not automatically deleted or asserted to be identical. Difference hashing is deliberately a low-cost curation signal and can collide.
+
+每个原图 ROI 还会生成确定性 64 位差分指纹。相同指纹只会暴露为重复候选，不会自动删除，也不会断言图片完全相同。差分指纹只是低成本治理信号，可能发生碰撞。
+
+`GET /api/metrology/feedback-catalog?limit=100` reads only bounded `manifest.json` members and aggregates package count, item count, unique source digests, disposition distribution, quality states, malformed-package count, and duplicate-fingerprint groups. The endpoint never extracts source PNGs and remains loopback-only. Its counts support triage; they are not training-readiness certification.
+
+`GET /api/metrology/feedback-catalog?limit=100` 只读取有大小上限的 `manifest.json`，聚合反馈包数、样本数、唯一源图摘要、处置分布、质量状态、格式错误包数量和重复指纹组。接口不会解压原图 PNG，并且只监听本机回环地址。这些计数用于分流，不是训练就绪认证。
 
 Images larger than two million pixels are processed on a downsampled work raster and the binary proposal is restored to the exact source resolution. This bounds memory and runtime without sending pixels to a cloud service. The sensitivity slider changes proposal recall; it is not a calibrated probability or YOLO confidence.
 

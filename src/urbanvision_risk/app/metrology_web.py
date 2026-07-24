@@ -274,9 +274,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v4.7 · Active-learning feedback export</p>
+        <p class="eyebrow">v4.8 · Feedback quality registry</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>每个黄色分歧目标都进入同步放大复核；保存后自动打包原图 ROI、候选/最终掩膜、分歧层、处置结论和 SHA-256 清单，把人工纠错连接到下一轮数据治理与模型训练。</span><span data-en class="hidden-lang">Each yellow disagreement target enters synchronized review. Saving automatically packages source ROIs, proposal/final masks, disagreement layers, dispositions, and a SHA-256 manifest, connecting human correction to the next governed data and training cycle.</span></p>
+        <p class="hero-copy"><span data-zh>人工处置不仅会生成反馈包，还会经过像素一致性门控；本地台账汇总样本、来源、警告和重复 ROI 指纹，在进入再标注或训练前主动暴露数据质量问题。</span><span data-en class="hidden-lang">Operator dispositions now pass pixel-consistency gates. A local registry summarizes examples, sources, warnings, and duplicate ROI fingerprints, exposing data-quality problems before relabeling or training.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -458,6 +458,7 @@ METROLOGY_HTML = """<!doctype html>
             <div id="feedback-panel" class="utility-result hidden">
               <strong><span data-zh>主动学习反馈包已就绪</span><span data-en class="hidden-lang">Active-learning feedback package ready</span></strong>
               <p><span data-zh>包含已处置热点的原图 ROI、候选掩膜、最终掩膜、分歧层和带 SHA-256 的清单，仅保存在本机。</span><span data-en class="hidden-lang">Contains source ROIs, proposal masks, final masks, disagreement layers, and a SHA-256 manifest for dispositioned hotspots; stored locally only.</span></p>
+              <p id="feedback-catalog-summary" class="subcopy">—</p>
               <a id="feedback-download" class="download-link" href="" download><span data-zh>下载反馈 ZIP</span><span data-en class="hidden-lang">Download feedback ZIP</span></a>
             </div>
             <div class="practical-grid">
@@ -501,7 +502,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v4.7 · Active-Learning Feedback + Audited Review · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v4.8 · Quality-Gated Feedback Registry · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -534,6 +535,7 @@ METROLOGY_HTML = """<!doctype html>
       let latestProposal = null;
       let latestInspection = null;
       let latestNarrative = null;
+      let latestFeedbackCatalog = null;
       let activeProposalId = null;
       let proposalSuppressed = false;
       let reviewHotspotsVisible = true;
@@ -1163,6 +1165,7 @@ METROLOGY_HTML = """<!doctype html>
         if (latestComparison) renderComparison(latestComparison);
         if (latestInspection) renderInspection(latestInspection);
         if (latestNarrative) renderNarrative(latestNarrative);
+        if (latestFeedbackCatalog) renderFeedbackCatalog(latestFeedbackCatalog);
         renderProposalState();
         renderHotspotReview();
         setPipeline(pipelineStage);
@@ -1770,6 +1773,7 @@ METROLOGY_HTML = """<!doctype html>
         if (newRun) {
           latestPlan = null;
           latestComparison = null;
+          latestFeedbackCatalog = null;
           byId("plan-result").classList.add("hidden");
           byId("comparison-result").classList.add("hidden");
           byId("comparison-map").classList.add("hidden");
@@ -1830,6 +1834,12 @@ METROLOGY_HTML = """<!doctype html>
         byId("feedback-panel").classList.toggle("hidden", !feedbackUrl);
         if (feedbackUrl) byId("feedback-download").href = feedbackUrl;
         else byId("feedback-download").removeAttribute("href");
+        if (feedbackUrl && (newRun || !latestFeedbackCatalog)) {
+          byId("feedback-catalog-summary").textContent = language === "zh"
+            ? "正在汇总本机反馈台账…"
+            : "Summarizing the local feedback registry…";
+          loadFeedbackCatalog();
+        }
         if (revision) {
           addEvidence(t("humanAdded"), revision.human_added_pixels);
           addEvidence(t("humanRemoved"), revision.human_removed_pixels);
@@ -1854,6 +1864,28 @@ METROLOGY_HTML = """<!doctype html>
         byId("plan-note").textContent = physical ? t("planReady") : t("planPixel");
         updateReviewUI();
         loadRunHistory();
+      }
+
+      function renderFeedbackCatalog(payload) {
+        latestFeedbackCatalog = payload;
+        const quality = payload.quality_counts || {};
+        const duplicateGroups = Number(payload.duplicate_fingerprint_group_count || 0);
+        byId("feedback-catalog-summary").textContent = language === "zh"
+          ? `本机台账：${payload.returned_package_count} 个反馈包 · ${payload.item_count} 个样本 · ${payload.unique_source_count} 个来源 · ${Number(quality.warning || 0)} 项一致性警告 · ${duplicateGroups} 组重复候选`
+          : `Local registry: ${payload.returned_package_count} packages · ${payload.item_count} examples · ${payload.unique_source_count} sources · ${Number(quality.warning || 0)} consistency warnings · ${duplicateGroups} duplicate candidates`;
+      }
+
+      async function loadFeedbackCatalog() {
+        try {
+          const response = await fetch("/api/metrology/feedback-catalog?limit=100");
+          const payload = await response.json();
+          if (!response.ok) throw payload.error || payload;
+          renderFeedbackCatalog(payload);
+        } catch {
+          byId("feedback-catalog-summary").textContent = language === "zh"
+            ? "反馈包可下载，但本机台账暂时无法读取。"
+            : "The feedback ZIP is available, but the local registry could not be read.";
+        }
       }
 
       function inputNumber(id) {

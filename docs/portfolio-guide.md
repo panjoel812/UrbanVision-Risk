@@ -1,10 +1,10 @@
 # Portfolio and Interview Guide / 简历与面试表达
 
-## What makes v4.7 different / v4.7 的差异化
+## What makes v4.8 different / v4.8 的差异化
 
-Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v4.7 closes an additional MLOps loop: server-validated operator dispositions become bounded, content-addressed feedback examples. A deterministic ZIP binds source/proposal/final/disagreement ROI layers to the immutable measurement digest, making false positives and misses directly usable for governed relabeling and future training-candidate selection.
+Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v4.8 adds a pre-training governance layer: ROI pixel deltas are checked against operator semantics, difference hashes surface duplicate candidates, and a bounded local registry aggregates quality status across immutable feedback packages. It demonstrates that an MLOps loop needs data-quality controls, not only an export button.
 
-许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v4.7 进一步闭合 MLOps 环路：服务端校验后的操作员处置会成为有界、内容寻址的反馈样本。确定性 ZIP 把原图/候选/最终/分歧 ROI 与不可变量测摘要绑定，使误检与漏检可以直接进入受治理的再标注和未来训练候选筛选。
+许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v4.8 增加训练前治理层：用 ROI 像素差检查操作员语义，用差分指纹暴露重复候选，再通过有上限的本地台账聚合不可变反馈包的质量状态。这说明 MLOps 闭环需要数据质量控制，而不只是一个导出按钮。
 
 ## Resume bullets / 简历要点
 
@@ -18,6 +18,7 @@ Use only metrics you can reproduce. A concise English version:
 - Implemented a synchronized ROI loupe with aspect-preserving viewport math, CSS-to-canvas-to-source coordinate transforms, direct high-magnification brush/eraser editing, shared undo history, and original-resolution evidence output.
 - Added a server-validated operator-disposition workflow that automatically attributes loupe edits, captures bounded notes, rejects unknown hotspot IDs or decision categories, and audits decision completion and priority-weighted coverage.
 - Built a deterministic active-learning export that packages bounded source/proposal/final/disagreement ROI layers, per-file SHA-256 evidence, measurement binding, privacy boundaries, and reproducible ZIP metadata for governed error analysis.
+- Implemented pre-training feedback quality gates and a bounded local registry, validating disposition-to-pixel consistency, surfacing duplicate ROI fingerprints, and aggregating package/source/quality statistics without extracting private data to cloud services.
 - Shipped the model as a loopback-only FastAPI product with bilingual UI, MPS inference, optional local Ollama narratives, privacy headers, structured failure recovery, and a comprehensive automated test suite.
 
 中文版本：
@@ -30,6 +31,7 @@ Use only metrics you can reproduce. A concise English version:
 - 实现同步 ROI 放大编辑器，包括保持宽高比的视口计算、CSS—Canvas—原图坐标变换、高倍率画笔/橡皮修订、共享撤销历史与原分辨率证据输出。
 - 加入服务端严格校验的操作员处置工作流，自动归因放大窗修订、保存限长备注、拒绝未知热点编号或处置类别，并审计决策完成率与优先级加权覆盖率。
 - 构建确定性主动学习导出，把有界原图/候选/最终/分歧 ROI、逐文件 SHA-256、量测绑定、隐私边界和可复现 ZIP 元数据打包，用于受治理的误差分析。
+- 实现训练前反馈质量门控与有上限的本地台账，校验处置—像素一致性、暴露重复 ROI 指纹并聚合反馈包/来源/质量统计，且不把隐私数据提取到云端。
 - 使用 FastAPI 交付仅监听本机回环地址的双语产品，支持 Apple MPS、本地 Ollama 可选说明、隐私响应头、结构化故障恢复与完整自动化测试。
 
 ## Interview deep-dive / 面试追问

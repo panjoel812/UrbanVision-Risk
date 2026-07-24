@@ -57,7 +57,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="4.7.0",
+        version="4.8.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -130,6 +130,7 @@ def create_app(
         payload["synchronized_review_loupe"] = True
         payload["auditable_hotspot_dispositions"] = True
         payload["active_learning_feedback_export"] = True
+        payload["feedback_quality_registry"] = True
         return payload
 
     @app.get("/api/review-queue")
@@ -233,6 +234,12 @@ def create_app(
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
     ) -> dict[str, object]:
         return active_metrology.list_runs(limit=limit)
+
+    @app.get("/api/metrology/feedback-catalog")
+    async def metrology_feedback_catalog(
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    ) -> dict[str, object]:
+        return active_metrology.feedback_catalog(limit=limit)
 
     @app.post("/api/metrology/runs/{run_id}/maintenance-plan")
     async def metrology_maintenance_plan(

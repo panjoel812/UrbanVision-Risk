@@ -13,10 +13,12 @@ from urbanvision_risk.app.metrology_service import (
     LocalMetrologyService,
     _assign_curation_groups,
     _autopilot_batch_accounting,
+    _autopilot_batch_arbitration_ids,
     _autopilot_batch_run_ids,
     _autopilot_batch_source_digests,
     _bounded_feedback_layers,
     _canonical_merkle_root,
+    _cross_channel_evidence_state,
     _curation_ratios,
     _deterministic_zip_bytes,
     _difference_hash64,
@@ -79,6 +81,15 @@ def test_autopilot_batch_run_ids_are_bounded_unique_and_path_safe() -> None:
             json.dumps([digests[0]]),
             run_count=2,
         )
+    assert _autopilot_batch_arbitration_ids(
+        '["arbitration-001", "arbitration-002"]',
+        run_count=2,
+    ) == ["arbitration-001", "arbitration-002"]
+    with pytest.raises(ProjectError):
+        _autopilot_batch_arbitration_ids(
+            '["arbitration-001", "arbitration-001"]',
+            run_count=2,
+        )
 
     assert _autopilot_batch_accounting(
         run_count=2,
@@ -97,6 +108,29 @@ def test_autopilot_batch_run_ids_are_bounded_unique_and_path_safe() -> None:
             retry_count=0,
             max_attempts=2,
         )
+
+
+@pytest.mark.parametrize(
+    ("proposal", "semantic", "support", "expected"),
+    [
+        (True, False, 0.0, "proposal_only_semantic_miss"),
+        (False, True, 0.0, "detector_only_semantic_evidence"),
+        (True, True, 0.10, "cross_channel_supported"),
+        (True, True, 0.099, "spatial_disagreement"),
+        (False, False, 0.0, "inconclusive_no_positive_evidence"),
+    ],
+)
+def test_cross_channel_evidence_state_is_policy_bounded(
+    proposal: bool,
+    semantic: bool,
+    support: float,
+    expected: str,
+) -> None:
+    assert _cross_channel_evidence_state(
+        proposal_significant=proposal,
+        semantic_positive=semantic,
+        proposal_supported_ratio=support,
+    ) == expected
 
 
 def test_active_learning_feedback_layers_are_size_bounded() -> None:
@@ -987,6 +1021,9 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
     input_evidence = result["measurement"]["run"]["input_evidence"]
     assert input_evidence["review_state"] == "machine_reviewed_candidate"
     assert input_evidence["review_authority"] == "machine_heuristic"
+    assert len(
+        input_evidence["mask"]["normalized_binary_sha256"]
+    ) == 64
     assert input_evidence["mask"]["origin"] == (
         "local_proposal_machine_reviewed_candidate"
     )
@@ -1015,6 +1052,74 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
         "accepted_as_proposed",
         "deferred_for_follow_up",
     }
+
+    decoded_source = cv2.imdecode(
+        np.frombuffer(source, dtype=np.uint8),
+        cv2.IMREAD_COLOR,
+    )
+    assert decoded_source is not None
+    height, width = decoded_source.shape[:2]
+    prediction = {
+        "image_dimensions": {"width": width, "height": height},
+        "detections": [],
+    }
+    risk = {
+        "decision_status": "review_required",
+        "review_required": True,
+        "risk_score": 0.0,
+    }
+    prediction_bytes = (
+        json.dumps(prediction, sort_keys=True) + "\n"
+    ).encode()
+    risk_bytes = (json.dumps(risk, sort_keys=True) + "\n").encode()
+    inspection_run_name = "china-repair-mps-003"
+    inspection_id = "inspection-machine-001"
+    inspection_dir = (
+        service.paths.inspections / inspection_run_name / inspection_id
+    )
+    inspection_dir.mkdir(parents=True)
+    (inspection_dir / "prediction.json").write_bytes(prediction_bytes)
+    (inspection_dir / "risk.json").write_bytes(risk_bytes)
+    (inspection_dir / "inspection-manifest.json").write_text(
+        json.dumps(
+            {
+                "inspection_id": inspection_id,
+                "run_name": inspection_run_name,
+                "source_upload_sha256": input_evidence["source"]["sha256"],
+                "prediction_json_sha256": hashlib.sha256(
+                    prediction_bytes
+                ).hexdigest(),
+                "risk_json_sha256": hashlib.sha256(
+                    risk_bytes
+                ).hexdigest(),
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    arbitration_result = service.create_evidence_arbitration(
+        inspection_run_name=inspection_run_name,
+        inspection_id=inspection_id,
+        metrology_run_id=result["run_id"],
+    )
+    arbitration = arbitration_result["arbitration"]
+    assert arbitration["schema_version"] == (
+        "urbanvision-cross-channel-arbitration-v1.0.0"
+    )
+    assert arbitration["decision"]["evidence_state"] == (
+        "proposal_only_semantic_miss"
+    )
+    assert arbitration["decision"]["review_required"] is True
+    assert arbitration["decision"]["risk_score_display"] == (
+        "withheld_pending_review"
+    )
+    assert arbitration["source_binding"] == {
+        "source_sha256": input_evidence["source"]["sha256"],
+        "inspection_metrology_match": True,
+    }
+    arbitration_id = arbitration["arbitration_id"]
+    arbitration_path = service.evidence_arbitration_path(arbitration_id)
+    assert "/Users/" not in arbitration_path.read_text(encoding="utf-8")
 
     with pytest.raises(ProjectError, match="inspect every ranked hotspot"):
         service.analyze_bytes(
@@ -1084,6 +1189,7 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
     batch_result = service.finalize_autopilot_batch(
         run_ids=json.dumps([result["run_id"]]),
         source_digests=json.dumps([source_sha256]),
+        arbitration_ids=json.dumps([arbitration_id]),
         selected_count=3,
         failed_count=1,
         duplicate_count=1,
@@ -1105,7 +1211,7 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
         "run_ids": [result["run_id"]],
     }
     batch = batch_result["batch"]
-    assert batch["schema_version"] == "urbanvision-autopilot-batch-v1.1.0"
+    assert batch["schema_version"] == "urbanvision-autopilot-batch-v1.2.0"
     assert batch["status"] == "completed_with_governance_blockers"
     assert batch["run_count"] == 1
     assert batch["feedback_run_count"] == 1
@@ -1125,6 +1231,16 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
         "browser_digest_match_count": 1,
         "server_duplicate_source_rejection": True,
     }
+    assert batch["cross_channel_arbitration"] == {
+        "bound_count": 1,
+        "all_completed_runs_bound": True,
+    }
+    assert batch["runs"][0]["arbitration"]["arbitration_id"] == (
+        arbitration_id
+    )
+    assert batch["runs"][0]["arbitration"]["evidence_state"] == (
+        "proposal_only_semantic_miss"
+    )
     assert batch["runs"][0]["run_id"] == result["run_id"]
     assert batch["runs"][0]["feedback_exported"] is True
     assert batch["governance"]["curation_id"] == (
@@ -1138,6 +1254,29 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
     )
     assert batch_path.is_file()
     assert "/Users/" not in batch_path.read_text(encoding="utf-8")
+
+    saved_mask_path = (
+        service.paths.metrology / result["run_id"] / "mask.png"
+    )
+    saved_mask = cv2.imread(str(saved_mask_path), cv2.IMREAD_GRAYSCALE)
+    assert saved_mask is not None
+    shifted_mask = np.roll(saved_mask, 1, axis=1)
+    encoded, shifted_mask_bytes = cv2.imencode(".png", shifted_mask)
+    assert encoded
+    saved_mask_path.write_bytes(shifted_mask_bytes.tobytes())
+    with pytest.raises(ProjectError, match="mask evidence does not match"):
+        service.create_evidence_arbitration(
+            inspection_run_name=inspection_run_name,
+            inspection_id=inspection_id,
+            metrology_run_id=result["run_id"],
+        )
+    with pytest.raises(ProjectError, match="mask digest does not match"):
+        service.finalize_autopilot_batch(
+            run_ids=json.dumps([result["run_id"]]),
+            source_digests=json.dumps([source_sha256]),
+            arbitration_ids=json.dumps([arbitration_id]),
+            minimum_unique_sources=1,
+        )
 
 
 def test_aruco_web_calibration_preserves_detection_quality(tmp_path: Path) -> None:

@@ -62,6 +62,10 @@ MAX_FEEDBACK_SNAPSHOT_TOTAL_BYTES = 512 * 1024 * 1024
 MAX_FEEDBACK_SNAPSHOT_FINDINGS = 500
 MAX_AUTOPILOT_BATCH_IMAGES = 100
 MAX_AUTOPILOT_BATCH_ATTEMPTS = 3
+ARBITRATION_CRACK_CODES = frozenset({"D00", "D10", "D20"})
+ARBITRATION_MIN_PROPOSAL_PIXELS = 64
+ARBITRATION_MIN_PROPOSAL_COVERAGE = 0.00005
+ARBITRATION_MIN_SUPPORTED_PROPOSAL_RATIO = 0.10
 CURATION_SPLITS = ("train", "val", "test")
 FEEDBACK_FILE_ROLES = (
     "source_roi",
@@ -272,6 +276,38 @@ def _autopilot_batch_source_digests(
                 "autopilot batch source_digests contains a duplicate digest"
             )
         result.append(normalized)
+    return result
+
+
+def _autopilot_batch_arbitration_ids(
+    value: str | None,
+    *,
+    run_count: int,
+) -> list[str] | None:
+    if value is None:
+        return None
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise _input_error(
+            "autopilot batch arbitration_ids is not valid JSON"
+        ) from error
+    if not isinstance(payload, list) or len(payload) != run_count:
+        raise _input_error(
+            "autopilot batch arbitration_ids must match the run count"
+        )
+    result: list[str] = []
+    for arbitration_id in payload:
+        if not isinstance(arbitration_id, str):
+            raise _input_error(
+                "autopilot batch arbitration_ids contains a non-string ID"
+            )
+        safe_id = validate_run_name(arbitration_id)
+        if safe_id in result:
+            raise _input_error(
+                "autopilot batch arbitration_ids contains a duplicate ID"
+            )
+        result.append(safe_id)
     return result
 
 
@@ -586,6 +622,28 @@ def _is_hex_digest(value: object, length: int) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _cross_channel_evidence_state(
+    *,
+    proposal_significant: bool,
+    semantic_positive: bool,
+    proposal_supported_ratio: float,
+) -> str:
+    if proposal_significant and not semantic_positive:
+        return "proposal_only_semantic_miss"
+    if semantic_positive and not proposal_significant:
+        return "detector_only_semantic_evidence"
+    if (
+        proposal_significant
+        and semantic_positive
+        and proposal_supported_ratio
+        >= ARBITRATION_MIN_SUPPORTED_PROPOSAL_RATIO
+    ):
+        return "cross_channel_supported"
+    if proposal_significant and semantic_positive:
+        return "spatial_disagreement"
+    return "inconclusive_no_positive_evidence"
 
 
 def _curation_file_evidence(
@@ -1908,6 +1966,9 @@ class LocalMetrologyService:
                 "browser-mask.png",
             ),
             "sha256": _sha256(mask_content),
+            "normalized_binary_sha256": _sha256(
+                mask.astype(np.uint8).tobytes()
+            ),
             "foreground_pixels": int(np.count_nonzero(mask)),
             "origin": mask_origin,
         }
@@ -3301,6 +3362,7 @@ class LocalMetrologyService:
         *,
         run_ids: str,
         source_digests: str | None = None,
+        arbitration_ids: str | None = None,
         selected_count: int | None = None,
         failed_count: int = 0,
         duplicate_count: int = 0,
@@ -3313,6 +3375,10 @@ class LocalMetrologyService:
         safe_run_ids = _autopilot_batch_run_ids(run_ids)
         browser_source_digests = _autopilot_batch_source_digests(
             source_digests,
+            run_count=len(safe_run_ids),
+        )
+        safe_arbitration_ids = _autopilot_batch_arbitration_ids(
+            arbitration_ids,
             run_count=len(safe_run_ids),
         )
         accounting = _autopilot_batch_accounting(
@@ -3376,6 +3442,74 @@ class LocalMetrologyService:
                     f"runs {duplicate_run_id} and {run_id}"
                 )
             source_run_ids[normalized_source_sha256] = run_id
+            arbitration_record: dict[str, object] | None = None
+            arbitration_sha256: str | None = None
+            if safe_arbitration_ids is not None:
+                arbitration_id = safe_arbitration_ids[index]
+                arbitration_path = self.evidence_arbitration_path(
+                    arbitration_id
+                )
+                try:
+                    arbitration_bytes = arbitration_path.read_bytes()
+                    loaded_arbitration = json.loads(arbitration_bytes)
+                except (OSError, json.JSONDecodeError) as error:
+                    raise _input_error(
+                        "autopilot batch arbitration record is malformed"
+                    ) from error
+                if not isinstance(loaded_arbitration, dict):
+                    raise _input_error(
+                        "autopilot batch arbitration is not an object"
+                    )
+                arbitration_metrology = loaded_arbitration.get(
+                    "metrology"
+                )
+                arbitration_binding = loaded_arbitration.get(
+                    "source_binding"
+                )
+                arbitration_decision = loaded_arbitration.get("decision")
+                if (
+                    loaded_arbitration.get("schema_version")
+                    != "urbanvision-cross-channel-arbitration-v1.0.0"
+                    or loaded_arbitration.get("arbitration_id")
+                    != arbitration_id
+                    or not isinstance(arbitration_metrology, dict)
+                    or arbitration_metrology.get("run_id") != run_id
+                    or arbitration_metrology.get("measurement_sha256")
+                    != _sha256(measurement_bytes)
+                    or not isinstance(arbitration_binding, dict)
+                    or arbitration_binding.get("source_sha256")
+                    != normalized_source_sha256
+                    or not isinstance(arbitration_decision, dict)
+                    or not isinstance(
+                        arbitration_decision.get("evidence_state"),
+                        str,
+                    )
+                    or not isinstance(
+                        arbitration_decision.get("review_required"),
+                        bool,
+                    )
+                ):
+                    raise _input_error(
+                        f"autopilot batch arbitration {arbitration_id} "
+                        f"does not bind run {run_id}"
+                    )
+                try:
+                    current_mask_bytes = (
+                        self.paths.metrology / run_id / "mask.png"
+                    ).read_bytes()
+                except OSError as error:
+                    raise _input_error(
+                        f"autopilot batch mask for {run_id} is missing"
+                    ) from error
+                if arbitration_metrology.get("mask_sha256") != _sha256(
+                    current_mask_bytes
+                ):
+                    raise _input_error(
+                        f"autopilot batch arbitration {arbitration_id} "
+                        f"mask digest does not match run {run_id}"
+                    )
+                arbitration_record = loaded_arbitration
+                arbitration_sha256 = _sha256(arbitration_bytes)
             feedback_path = (
                 self.paths.metrology
                 / run_id
@@ -3390,6 +3524,26 @@ class LocalMetrologyService:
                     "measurement_sha256": _sha256(measurement_bytes),
                     "source_sha256": normalized_source_sha256,
                     "feedback_exported": feedback_exported,
+                    "arbitration": (
+                        {
+                            "arbitration_id": (
+                                arbitration_record["arbitration_id"]
+                            ),
+                            "record_sha256": arbitration_sha256,
+                            "evidence_state": (
+                                arbitration_record["decision"][
+                                    "evidence_state"
+                                ]
+                            ),
+                            "review_required": (
+                                arbitration_record["decision"][
+                                    "review_required"
+                                ]
+                            ),
+                        }
+                        if arbitration_record is not None
+                        else None
+                    ),
                 }
             )
 
@@ -3423,7 +3577,7 @@ class LocalMetrologyService:
             else []
         )
         payload: dict[str, object] = {
-            "schema_version": "urbanvision-autopilot-batch-v1.1.0",
+            "schema_version": "urbanvision-autopilot-batch-v1.2.0",
             "batch_id": batch_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "local_only": True,
@@ -3444,6 +3598,16 @@ class LocalMetrologyService:
                     else None
                 ),
                 "server_duplicate_source_rejection": True,
+            },
+            "cross_channel_arbitration": {
+                "bound_count": (
+                    len(safe_arbitration_ids)
+                    if safe_arbitration_ids is not None
+                    else 0
+                ),
+                "all_completed_runs_bound": (
+                    safe_arbitration_ids is not None
+                ),
             },
             "runs": run_records,
             "governance": {
@@ -3496,6 +3660,398 @@ class LocalMetrologyService:
             "curation_url": curation_result["curation_url"],
             "snapshot": snapshot,
             "snapshot_url": snapshot_result["snapshot_url"],
+        }
+
+    def create_evidence_arbitration(
+        self,
+        *,
+        inspection_run_name: str,
+        inspection_id: str,
+        metrology_run_id: str,
+    ) -> dict[str, object]:
+        safe_inspection_run = validate_run_name(inspection_run_name)
+        safe_inspection_id = validate_run_name(inspection_id)
+        safe_metrology_run_id = validate_run_name(metrology_run_id)
+        inspection_dir = (
+            self.paths.inspections
+            / safe_inspection_run
+            / safe_inspection_id
+        )
+
+        def read_json_record(
+            path: Path,
+            label: str,
+        ) -> tuple[bytes, dict[str, object]]:
+            try:
+                content = path.read_bytes()
+                payload = json.loads(content)
+            except (OSError, json.JSONDecodeError) as error:
+                raise _input_error(
+                    f"evidence arbitration {label} is missing or malformed"
+                ) from error
+            if not isinstance(payload, dict):
+                raise _input_error(
+                    f"evidence arbitration {label} is not an object"
+                )
+            return content, payload
+
+        manifest_bytes, manifest = read_json_record(
+            inspection_dir / "inspection-manifest.json",
+            "inspection manifest",
+        )
+        prediction_bytes, prediction = read_json_record(
+            inspection_dir / "prediction.json",
+            "prediction",
+        )
+        risk_bytes, risk = read_json_record(
+            inspection_dir / "risk.json",
+            "risk",
+        )
+        measurement_bytes, measurement = self._measurement_bytes(
+            safe_metrology_run_id
+        )
+        measurement_run = measurement.get("run")
+        if (
+            manifest.get("inspection_id") != safe_inspection_id
+            or manifest.get("run_name") != safe_inspection_run
+            or not isinstance(measurement_run, dict)
+            or measurement_run.get("output_name") != safe_metrology_run_id
+        ):
+            raise _input_error(
+                "evidence arbitration record identity does not match"
+            )
+        expected_hashes = {
+            "prediction_json_sha256": _sha256(prediction_bytes),
+            "risk_json_sha256": _sha256(risk_bytes),
+        }
+        if any(
+            manifest.get(key) != digest
+            for key, digest in expected_hashes.items()
+        ):
+            raise _input_error(
+                "evidence arbitration inspection hashes do not match"
+            )
+        source_sha256 = manifest.get("source_upload_sha256")
+        input_evidence = measurement_run.get("input_evidence")
+        metrology_source = (
+            input_evidence.get("source")
+            if isinstance(input_evidence, dict)
+            else None
+        )
+        metrology_source_sha256 = (
+            metrology_source.get("sha256")
+            if isinstance(metrology_source, dict)
+            else None
+        )
+        if (
+            not _is_hex_digest(source_sha256, 64)
+            or source_sha256 != metrology_source_sha256
+        ):
+            raise _input_error(
+                "evidence arbitration source SHA-256 does not match"
+            )
+        mask_path = (
+            self.paths.metrology / safe_metrology_run_id / "mask.png"
+        )
+        try:
+            mask_bytes = mask_path.read_bytes()
+        except OSError as error:
+            raise _input_error(
+                "evidence arbitration metrology mask is missing"
+            ) from error
+        mask = cv2.imdecode(
+            np.frombuffer(mask_bytes, dtype=np.uint8),
+            cv2.IMREAD_GRAYSCALE,
+        )
+        if mask is None or mask.ndim != 2:
+            raise _input_error(
+                "evidence arbitration metrology mask is invalid"
+            )
+        dimensions = prediction.get("image_dimensions")
+        width = (
+            dimensions.get("width")
+            if isinstance(dimensions, dict)
+            else None
+        )
+        height = (
+            dimensions.get("height")
+            if isinstance(dimensions, dict)
+            else None
+        )
+        if (
+            isinstance(width, bool)
+            or isinstance(height, bool)
+            or not isinstance(width, int)
+            or not isinstance(height, int)
+            or width <= 0
+            or height <= 0
+            or mask.shape != (height, width)
+        ):
+            raise _input_error(
+                "evidence arbitration image dimensions do not match"
+            )
+        foreground = mask >= 128
+        proposal_pixels = int(np.count_nonzero(foreground))
+        mask_evidence = (
+            input_evidence.get("mask")
+            if isinstance(input_evidence, dict)
+            else None
+        )
+        normalized_mask_sha256 = _sha256(
+            foreground.astype(np.uint8).tobytes()
+        )
+        if (
+            not isinstance(mask_evidence, dict)
+            or mask_evidence.get("foreground_pixels") != proposal_pixels
+            or not _is_hex_digest(
+                mask_evidence.get("normalized_binary_sha256"),
+                64,
+            )
+            or mask_evidence.get("normalized_binary_sha256")
+            != normalized_mask_sha256
+        ):
+            raise _input_error(
+                "evidence arbitration mask evidence does not match"
+            )
+
+        detections = prediction.get("detections")
+        if not isinstance(detections, list):
+            raise _input_error(
+                "evidence arbitration detections are invalid"
+            )
+        semantic_union = np.zeros(mask.shape, dtype=bool)
+        semantic_detection_count = 0
+        for detection in detections:
+            if not isinstance(detection, dict):
+                raise _input_error(
+                    "evidence arbitration contains an invalid detection"
+                )
+            if detection.get("code") not in ARBITRATION_CRACK_CODES:
+                continue
+            box = detection.get("bbox_xyxy")
+            if (
+                not isinstance(box, list)
+                or len(box) != 4
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, int | float)
+                    or not math.isfinite(float(value))
+                    for value in box
+                )
+            ):
+                raise _input_error(
+                    "evidence arbitration crack box is invalid"
+                )
+            x1 = max(0, min(width, math.floor(float(box[0]))))
+            y1 = max(0, min(height, math.floor(float(box[1]))))
+            x2 = max(0, min(width, math.ceil(float(box[2]))))
+            y2 = max(0, min(height, math.ceil(float(box[3]))))
+            if x2 <= x1 or y2 <= y1:
+                raise _input_error(
+                    "evidence arbitration crack box is degenerate"
+                )
+            semantic_union[y1:y2, x1:x2] = True
+            semantic_detection_count += 1
+
+        total_pixels = int(mask.size)
+        semantic_box_pixels = int(np.count_nonzero(semantic_union))
+        overlap_pixels = int(
+            np.count_nonzero(foreground & semantic_union)
+        )
+        proposal_coverage = proposal_pixels / total_pixels
+        proposal_supported_ratio = (
+            overlap_pixels / proposal_pixels if proposal_pixels else 0.0
+        )
+        semantic_region_supported_ratio = (
+            overlap_pixels / semantic_box_pixels
+            if semantic_box_pixels
+            else 0.0
+        )
+        proposal_significant = (
+            proposal_pixels >= ARBITRATION_MIN_PROPOSAL_PIXELS
+            and proposal_coverage >= ARBITRATION_MIN_PROPOSAL_COVERAGE
+        )
+        semantic_positive = semantic_detection_count > 0
+        evidence_state = _cross_channel_evidence_state(
+            proposal_significant=proposal_significant,
+            semantic_positive=semantic_positive,
+            proposal_supported_ratio=proposal_supported_ratio,
+        )
+
+        upstream_review_required = (
+            risk.get("decision_status") == "review_required"
+            or risk.get("review_required") is True
+        )
+        review_required = (
+            upstream_review_required
+            or evidence_state != "cross_channel_supported"
+        )
+        recommendations = {
+            "proposal_only_semantic_miss": {
+                "zh": (
+                    "独立裂缝分割发现显著候选，但 YOLO 没有裂缝框；"
+                    "自动标为疑似语义漏检并隐藏维护分数。"
+                ),
+                "en": (
+                    "Independent crack segmentation found a significant "
+                    "candidate while YOLO returned no crack box. Treat this "
+                    "as a suspected semantic miss and withhold the score."
+                ),
+            },
+            "detector_only_semantic_evidence": {
+                "zh": (
+                    "YOLO 返回裂缝框，但独立分割没有显著像素支持；"
+                    "需要复核潜在误检或分割失败。"
+                ),
+                "en": (
+                    "YOLO returned crack boxes without significant independent "
+                    "segmentation support. Review possible false detection or "
+                    "segmentation failure."
+                ),
+            },
+            "cross_channel_supported": {
+                "zh": (
+                    "YOLO 裂缝框与独立分割在空间上相互支持；"
+                    "这会增强证据，但不会证明标签或道路安全。"
+                ),
+                "en": (
+                    "YOLO crack boxes and independent segmentation support "
+                    "each other spatially. This strengthens evidence but does "
+                    "not prove label correctness or road safety."
+                ),
+            },
+            "spatial_disagreement": {
+                "zh": (
+                    "两个通道都发现候选，但空间重叠不足；"
+                    "系统拒绝合并结论并要求复核。"
+                ),
+                "en": (
+                    "Both channels found candidates but spatial overlap is "
+                    "insufficient. The system refuses to fuse the conclusion "
+                    "and requires review."
+                ),
+            },
+            "inconclusive_no_positive_evidence": {
+                "zh": (
+                    "两个通道都没有足够正证据；这不等于道路无缺陷，"
+                    "维护分数保持隐藏。"
+                ),
+                "en": (
+                    "Neither channel produced sufficient positive evidence. "
+                    "This does not prove a defect-free road, so the score "
+                    "remains withheld."
+                ),
+            },
+        }
+        arbitration_id = validate_run_name(
+            self._record_id_factory("evidence-arbitration")
+        )
+        payload: dict[str, object] = {
+            "schema_version": (
+                "urbanvision-cross-channel-arbitration-v1.0.0"
+            ),
+            "arbitration_id": arbitration_id,
+            "created_at_utc": datetime.now(UTC).isoformat(),
+            "local_only": True,
+            "inspection": {
+                "run_name": safe_inspection_run,
+                "inspection_id": safe_inspection_id,
+                "manifest_sha256": _sha256(manifest_bytes),
+                "prediction_sha256": _sha256(prediction_bytes),
+                "risk_sha256": _sha256(risk_bytes),
+            },
+            "metrology": {
+                "run_id": safe_metrology_run_id,
+                "measurement_sha256": _sha256(measurement_bytes),
+                "mask_sha256": _sha256(mask_bytes),
+                "normalized_binary_mask_sha256": (
+                    normalized_mask_sha256
+                ),
+                "review_state": (
+                    input_evidence.get("review_state")
+                    if isinstance(input_evidence, dict)
+                    else None
+                ),
+                "review_authority": (
+                    input_evidence.get("review_authority")
+                    if isinstance(input_evidence, dict)
+                    else None
+                ),
+            },
+            "source_binding": {
+                "source_sha256": source_sha256,
+                "inspection_metrology_match": True,
+            },
+            "metrics": {
+                "image_width": width,
+                "image_height": height,
+                "semantic_crack_detection_count": (
+                    semantic_detection_count
+                ),
+                "proposal_foreground_pixels": proposal_pixels,
+                "proposal_coverage_ratio": round(
+                    proposal_coverage,
+                    8,
+                ),
+                "semantic_box_union_pixels": semantic_box_pixels,
+                "overlap_pixels": overlap_pixels,
+                "proposal_supported_ratio": round(
+                    proposal_supported_ratio,
+                    8,
+                ),
+                "semantic_region_supported_ratio": round(
+                    semantic_region_supported_ratio,
+                    8,
+                ),
+            },
+            "decision": {
+                "evidence_state": evidence_state,
+                "review_required": review_required,
+                "upstream_review_required": upstream_review_required,
+                "risk_score_display": (
+                    "withheld_pending_review"
+                    if review_required
+                    else "semantic_risk_engine_unchanged"
+                ),
+                "recommendation": recommendations[evidence_state],
+            },
+            "policy": {
+                "crack_codes": sorted(ARBITRATION_CRACK_CODES),
+                "minimum_proposal_pixels": (
+                    ARBITRATION_MIN_PROPOSAL_PIXELS
+                ),
+                "minimum_proposal_coverage_ratio": (
+                    ARBITRATION_MIN_PROPOSAL_COVERAGE
+                ),
+                "minimum_supported_proposal_ratio": (
+                    ARBITRATION_MIN_SUPPORTED_PROPOSAL_RATIO
+                ),
+                "method": (
+                    "deterministic spatial evidence arbitration; ratios are "
+                    "not learned probabilities or calibrated confidence"
+                ),
+            },
+            "training_authorized": False,
+            "claim_boundary": (
+                "This record compares one semantic detector with one "
+                "independent segmentation channel. Agreement is supporting "
+                "evidence, not ground truth; disagreement is an abstention "
+                "signal, not proof that either channel is correct"
+            ),
+        }
+        path = (
+            self.paths.metrology
+            / "arbitrations"
+            / f"{arbitration_id}.json"
+        )
+        with self._write_lock:
+            self._write_json_exclusive(path, payload)
+        return {
+            "local_only": True,
+            "arbitration": payload,
+            "arbitration_url": (
+                f"/api/evidence/arbitrations/{arbitration_id}.json"
+            ),
         }
 
     def demo(self) -> dict[str, object]:
@@ -3829,6 +4385,24 @@ class LocalMetrologyService:
                 "检查量测编号，或重新运行量测",
                 "Check the metrology run ID or rerun metrology",
                 f"{safe_id}/{artifact_name}",
+            )
+        return path
+
+    def evidence_arbitration_path(self, arbitration_id: str) -> Path:
+        safe_id = validate_run_name(arbitration_id)
+        path = (
+            self.paths.metrology
+            / "arbitrations"
+            / f"{safe_id}.json"
+        )
+        if not path.is_file():
+            raise ProjectError(
+                "E201",
+                "双通道证据仲裁记录不存在",
+                "The cross-channel evidence arbitration record does not exist",
+                "检查仲裁编号，或重新运行自动巡检",
+                "Check the arbitration ID or rerun automatic inspection",
+                safe_id,
             )
         return path
 

@@ -11,6 +11,7 @@ from urbanvision_risk.errors import ProjectError
 class InspectionStub:
     def __init__(self, annotated: Path) -> None:
         self.annotated = annotated
+        self.run_name = "china-repair-mps-003"
 
     def health_payload(self) -> dict[str, object]:
         return {"local_only": True, "device": "mps"}
@@ -44,6 +45,7 @@ class MetrologyStub:
         self.feedback_curation_arguments: dict[str, Any] | None = None
         self.feedback_snapshot_curation_id: str | None = None
         self.autopilot_batch_arguments: dict[str, Any] | None = None
+        self.arbitration_arguments: dict[str, Any] | None = None
 
     def demo(self) -> dict[str, object]:
         return {
@@ -231,6 +233,32 @@ class MetrologyStub:
             raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
         return self.artifact
 
+    def create_evidence_arbitration(
+        self,
+        **kwargs: Any,
+    ) -> dict[str, object]:
+        self.arbitration_arguments = kwargs
+        return {
+            "local_only": True,
+            "arbitration": {
+                "arbitration_id": "evidence-arbitration-001",
+                "decision": {
+                    "evidence_state": "proposal_only_semantic_miss",
+                    "review_required": True,
+                },
+                "training_authorized": False,
+            },
+            "arbitration_url": (
+                "/api/evidence/arbitrations/"
+                "evidence-arbitration-001.json"
+            ),
+        }
+
+    def evidence_arbitration_path(self, arbitration_id: str) -> Path:
+        if arbitration_id != "evidence-arbitration-001":
+            raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
+        return self.artifact
+
     def create_maintenance_plan(
         self,
         run_id: str,
@@ -361,6 +389,8 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="batch-panel"' in response.text
     assert 'id="batch-list"' in response.text
     assert 'id="batch-result"' in response.text
+    assert 'id="arbitration-panel"' in response.text
+    assert 'id="evidence-arbitration"' in response.text
     assert "applyAutopilotDecisions" in response.text
     assert "AUTOPILOT_ACCEPT_OVERLAP = 0.10" in response.text
     assert "runGovernanceAutopilot" in response.text
@@ -374,6 +404,10 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'setBatchItemState(index, "duplicate"' in response.text
     assert '"source_digests"' in response.text
     assert '"retry_count"' in response.text
+    assert "runEvidenceArbitration" in response.text
+    assert "renderEvidenceArbitration" in response.text
+    assert "/api/evidence/arbitrate" in response.text
+    assert '"arbitration_ids"' in response.text
     assert "proposalSuppressed" in response.text
     assert '"machine_reviewed_candidate"' in response.text
     assert 'form.append("review_state", reviewState)' in response.text
@@ -466,6 +500,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["policy_bounded_local_autopilot"] is True
     assert health.json()["resilient_batch_autopilot"] is True
     assert health.json()["self_healing_content_deduplication"] is True
+    assert health.json()["cross_channel_evidence_arbitration"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
@@ -531,6 +566,7 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
         data={
             "run_ids": '["metrology-web-001"]',
             "source_digests": json.dumps(["a" * 64]),
+            "arbitration_ids": '["evidence-arbitration-001"]',
             "selected_count": "3",
             "failed_count": "1",
             "duplicate_count": "1",
@@ -539,6 +575,13 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
             "seed": "9",
             "minimum_unique_sources": "6",
             "max_scene_hamming_distance": "3",
+        },
+    )
+    arbitration = client.post(
+        "/api/evidence/arbitrate",
+        data={
+            "inspection_id": "inspection-web-001",
+            "metrology_run_id": "metrology-web-001",
         },
     )
     plan = client.post(
@@ -571,6 +614,9 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     downloaded_batch = client.get(
         "/api/metrology/autopilot-batches/autopilot-batch-001.json"
     )
+    downloaded_arbitration = client.get(
+        "/api/evidence/arbitrations/evidence-arbitration-001.json"
+    )
     downloaded_comparison = client.get("/api/metrology/comparisons/comparison-001.json")
     downloaded_change_map = client.get("/api/metrology/comparisons/comparison-001/change-map.png")
 
@@ -599,6 +645,7 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     assert metrology.autopilot_batch_arguments == {
         "run_ids": '["metrology-web-001"]',
         "source_digests": json.dumps(["a" * 64]),
+        "arbitration_ids": '["evidence-arbitration-001"]',
         "selected_count": 3,
         "failed_count": 1,
         "duplicate_count": 1,
@@ -607,6 +654,13 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
         "seed": 9,
         "minimum_unique_sources": 6,
         "max_scene_hamming_distance": 3,
+    }
+    assert arbitration.status_code == 200
+    assert arbitration.json()["arbitration"]["training_authorized"] is False
+    assert metrology.arbitration_arguments == {
+        "inspection_run_name": "china-repair-mps-003",
+        "inspection_id": "inspection-web-001",
+        "metrology_run_id": "metrology-web-001",
     }
     assert plan.status_code == 200
     assert metrology.plan_arguments == {
@@ -633,6 +687,10 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     assert downloaded_snapshot.headers["content-type"] == "application/json"
     assert downloaded_batch.status_code == 200
     assert downloaded_batch.headers["content-type"] == "application/json"
+    assert downloaded_arbitration.status_code == 200
+    assert downloaded_arbitration.headers["content-type"] == (
+        "application/json"
+    )
     assert downloaded_comparison.status_code == 200
     assert downloaded_comparison.headers["content-type"] == "application/json"
     assert downloaded_change_map.status_code == 200

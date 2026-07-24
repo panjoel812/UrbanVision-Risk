@@ -1,4 +1,4 @@
-# UrbanVision-Risk v5.4 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v5.5 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -183,9 +183,9 @@ The browser defers governance during the queue and submits only successful metro
 
 浏览器在队列期间暂缓治理，只把成功量测编号提交给 `POST /api/metrology/autopilot-batches/finalize`。服务端重新读取每份不可变 `measurement.json`，强制要求 `machine_reviewed_candidate` 与 `machine_heuristic`，并拒绝重复编号、缺失运行或非机器记录。策划仅限该明确运行集合的反馈包，防止不相关历史包混入本批次。
 
-The immutable `urbanvision-autopilot-batch-v1.1.0` record binds measurement SHA-256, source SHA-256, feedback presence, curation ID, snapshot ID, configuration, and blockers. It deliberately omits original filenames and absolute paths. A completed batch is operational automation evidence, not privacy clearance, label certification, physical calibration, training authorization, or road-safety evidence.
+The immutable `urbanvision-autopilot-batch-v1.2.0` record binds measurement SHA-256, source SHA-256, cross-channel arbitration, feedback presence, curation ID, snapshot ID, configuration, and blockers. It deliberately omits original filenames and absolute paths. A completed batch is operational automation evidence, not privacy clearance, label certification, physical calibration, training authorization, or road-safety evidence.
 
-不可覆盖的 `urbanvision-autopilot-batch-v1.1.0` 记录绑定量测 SHA-256、来源 SHA-256、反馈是否存在、策划编号、快照编号、配置和阻断项，并有意省略原文件名与绝对路径。完成批次只能证明自动流程执行过，不代表隐私许可、标签认证、物理标定、训练授权或道路安全结论。
+不可覆盖的 `urbanvision-autopilot-batch-v1.2.0` 记录绑定量测 SHA-256、来源 SHA-256、双通道仲裁、反馈是否存在、策划编号、快照编号、配置和阻断项，并有意省略原文件名与绝对路径。完成批次只能证明自动流程执行过，不代表隐私许可、标签认证、物理标定、训练授权或道路安全结论。
 
 ### Content-aware self-healing / 内容感知自愈
 
@@ -197,9 +197,43 @@ Failures are classified before retry. Unsupported content type, more than 15 MiB
 
 系统会先分类再决定是否重试。格式不支持、超过 15 MiB、解码失败和超过 2000 万像素属于确定性错误，直接跳过；只有 `pipeline_incomplete` 和 `unexpected_error` 属于可恢复错误，`MAX_BATCH_ATTEMPTS = 2` 表示自动再试一次。页面明确显示 `hashing`、`running`、`retrying`、`complete`、`failed` 和 `duplicate`，不会隐藏恢复过程。
 
-The finalize request sends successful run IDs, same-order browser digests, and aggregate selected/failed/duplicate/retry counts. The service reloads immutable measurements, verifies run identity and `machine_heuristic` authority, compares every browser digest with server-preserved source SHA-256, rejects repeated sources, and requires accounting equality. The v1.1 ledger exposes `browser_digest_match_count` and `server_duplicate_source_rejection`; client-reported failure counts never authorize labels or training.
+The finalize request sends successful run IDs, same-order browser digests and arbitration IDs, plus aggregate selected/failed/duplicate/retry counts. The service reloads immutable measurements, verifies run identity and `machine_heuristic` authority, compares every browser digest with server-preserved source SHA-256, verifies every arbitration-to-run binding, rejects repeated sources, and requires accounting equality. The v1.2 ledger exposes `browser_digest_match_count`, `server_duplicate_source_rejection`, and `cross_channel_arbitration`; client-reported failure counts never authorize labels or training.
 
-最终请求提交成功运行编号、同顺序浏览器摘要，以及选择/失败/重复/重试汇总数。服务端重新读取不可变量测，验证运行身份和 `machine_heuristic` 权限，把每个浏览器摘要与服务端保存的来源 SHA-256 比较，拒绝重复来源，并强制账目等式成立。v1.1 账本公开 `browser_digest_match_count` 和 `server_duplicate_source_rejection`；客户端报告的失败数量绝不会授权标签或训练。
+最终请求提交成功运行编号、同顺序浏览器摘要与仲裁编号，以及选择/失败/重复/重试汇总数。服务端重新读取不可变量测，验证运行身份和 `machine_heuristic` 权限，把每个浏览器摘要与服务端保存的来源 SHA-256 比较，验证每条仲裁—运行绑定，拒绝重复来源，并强制账目等式成立。v1.2 账本公开 `browser_digest_match_count`、`server_duplicate_source_rejection` 和 `cross_channel_arbitration`；客户端报告的失败数量绝不会授权标签或训练。
+
+### Cross-channel selective prediction / 双通道选择性预测
+
+Version 5.5 does not make YOLO boxes pretend to be a crack mask, and it does not let a classical segmentation candidate pretend to know D00/D10/D20 semantics. The two channels remain independent until `POST /api/evidence/arbitrate` reloads their immutable evidence. The inspection manifest now binds the original upload bytes as `source_upload_sha256`; arbitration requires that digest to equal metrology `input_evidence.source.sha256`.
+
+v5.5 不会把 YOLO 框伪装成裂缝掩膜，也不会让传统分割候选假装理解 D00/D10/D20 语义。两个通道保持独立，直到 `POST /api/evidence/arbitrate` 重新加载各自不可变证据。巡检清单新增原始上传字节的 `source_upload_sha256`；仲裁强制它与量测 `input_evidence.source.sha256` 相等。
+
+For D00, D10, and D20 detections, the service rasterizes the clipped semantic box union at source resolution and intersects it with the final binary mask. It records proposal pixels, image coverage, semantic-box union pixels, overlap pixels, proposal-supported ratio, and semantic-region-supported ratio. A proposal is significant only when it has at least 64 foreground pixels and covers at least 0.00005 of the image. `cross_channel_supported` requires at least 0.10 of proposal pixels inside crack boxes.
+
+对 D00、D10 和 D20 检测，服务端在原图分辨率栅格化裁剪后的语义框并集，再与最终二值掩膜求交。记录包括候选像素、画面覆盖、语义框并集像素、交集像素、候选支持比例和语义区域支持比例。候选只有同时达到 64 个前景像素和画面 0.00005 覆盖才算显著；`cross_channel_supported` 要求至少 0.10 候选像素落入裂缝框。
+
+The deterministic state machine is:
+
+- significant proposal + no semantic crack box → `proposal_only_semantic_miss`;
+- semantic crack box + no significant proposal → `detector_only_semantic_evidence`;
+- both channels + proposal-supported ratio at least 0.10 → `cross_channel_supported`;
+- both channels + support below 0.10 → `spatial_disagreement`;
+- neither positive → `inconclusive_no_positive_evidence`.
+
+确定性状态机如下：
+
+- 显著分割候选 + 无语义裂缝框 → `proposal_only_semantic_miss`；
+- 有语义裂缝框 + 无显著分割候选 → `detector_only_semantic_evidence`；
+- 两通道都有证据 + 候选支持比例至少 0.10 → `cross_channel_supported`；
+- 两通道都有证据 + 支持低于 0.10 → `spatial_disagreement`；
+- 两通道都无正证据 → `inconclusive_no_positive_evidence`。
+
+Every state except unblocked `cross_channel_supported` forces selective abstention: the UI replaces the maintenance score with `—` and shows the arbitration recommendation. Upstream risk or multi-view review gates still take precedence, so even cross-channel agreement cannot clear an already unsafe result. The immutable `urbanvision-cross-channel-arbitration-v1.0.0` record binds inspection manifest, prediction, risk, measurement, final mask, source digest, policy, metrics, and claim boundary without storing a filename or absolute path. A normalized binary-mask SHA-256 prevents a same-pixel-count but spatially altered mask from passing, and batch finalization rechecks both measurement and mask digests.
+
+除未被上游阻断的 `cross_channel_supported` 外，其余状态都会触发选择性拒答：页面用 `—` 替代维护分数并显示仲裁建议。上游风险或多视图复核门控仍优先，因此双通道一致也不能放行原本不安全的结果。不可覆盖的 `urbanvision-cross-channel-arbitration-v1.0.0` 记录绑定巡检清单、预测、风险、量测、最终掩膜、来源摘要、策略、指标和使用边界，不保存文件名或绝对路径。规范化二值掩膜 SHA-256 会阻止“像素数量相同但空间位置被替换”的掩膜通过，批次封账还会重新核对量测和掩膜摘要。
+
+This layer detects a class of cross-method inconsistency; it does not establish which method is correct. Box overlap is coarse spatial support, not segmentation IoU, calibrated probability, causal pavement diagnosis, or ground truth.
+
+这一层发现的是跨方法不一致，不能判定哪个方法正确。框重叠只是粗粒度空间支持，不是分割 IoU、校准概率、因果路面诊断或真值。
 
 This package is a candidate pool for separately governed relabeling, error analysis, and future training—not an automatic training set. Source ROIs may contain people, vehicles, licence plates, or location cues, so a dataset owner must apply privacy review, split control, deduplication, and label QA before training.
 

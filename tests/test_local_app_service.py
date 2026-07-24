@@ -102,6 +102,7 @@ def test_local_inspection_runs_detection_risk_and_writes_auditable_artifacts(
     output = service.paths.inspections / RUN / INSPECTION
     assert response["inspection_id"] == INSPECTION
     assert response["source_filename"] == "road.jpg"
+    assert response["source_sha256"] == hashlib.sha256(content).hexdigest()
     assert response["annotated_url"] == f"/api/inspections/{INSPECTION}/annotated.jpg"
     assert response["prediction"]["counts"] == {
         "D00": 0,
@@ -121,6 +122,7 @@ def test_local_inspection_runs_detection_risk_and_writes_auditable_artifacts(
         "source.jpg",
     ]
     manifest = json.loads((output / "inspection-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["source_upload_sha256"] == hashlib.sha256(content).hexdigest()
     for filename, digest_key in (
         ("source.jpg", "source_jpg_sha256"),
         ("annotated.jpg", "annotated_jpg_sha256"),

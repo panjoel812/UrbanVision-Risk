@@ -1,10 +1,10 @@
 # Portfolio and Interview Guide / 简历与面试表达
 
-## What makes v5.4 different / v5.4 的差异化
+## What makes v5.5 different / v5.5 的差异化
 
-Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v5.4 adds a self-healing, content-aware batch control plane: Web Crypto SHA-256 deduplicates before MPS inference, typed failures control bounded automatic retries, and the service independently checks browser/server digest equality, unique sources, immutable run identity, machine authority, and accounting invariants. Successful unique runs still close through one leakage-safe curation and content-addressed preflight, while filenames and absolute paths remain outside the ledger.
+Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v5.5 adds a cross-method selective-prediction layer: semantic YOLO boxes and independent pixel segmentation are SHA-256 source-bound, spatially arbitrated, and refused when evidence is proposal-only, detector-only, mutually displaced, or jointly inconclusive. The system can therefore expose an obvious candidate that the semantic model missed without inventing a class label or presenting a misleading low-risk score. Every batch run binds its immutable arbitration record before governance.
 
-许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v5.4 加入自愈、内容感知的批量控制平面：Web Crypto SHA-256 在 MPS 推理前去重，结构化失败类型控制有界自动重试，服务端再独立验证浏览器/服务端摘要相等、来源唯一、不可变运行身份、机器权限和账目不变量。成功且唯一的运行仍统一进入防泄漏策划与内容寻址预检，文件名和绝对路径不会进入账本。
+许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v5.5 加入跨方法选择性预测层：语义 YOLO 框与独立像素分割先进行 SHA-256 同源绑定，再做空间仲裁；当证据仅来自分割、仅来自检测、两者错位或共同无结论时拒绝给分。因此系统可以暴露“肉眼明显、语义模型漏掉”的候选，同时不编造类别标签，也不显示误导性的低风险分数。每个批次运行在治理前都会绑定不可变仲裁记录。
 
 ## Resume bullets / 简历要点
 
@@ -24,6 +24,7 @@ Use only metrics you can reproduce. A concise English version:
 - Shipped a policy-bounded local autopilot that deterministically dispositions review hotspots, separates `machine_heuristic` from `human_operator` authority, automatically runs curation and snapshot preflight, and blocks machine-authored labels from training pending accountable approval.
 - Engineered a resilient batch-autopilot state machine for up to 100 images with bounded MPS memory, per-item failure isolation, backend candidate revalidation, batch-scoped curation/preflight, and privacy-minimized SHA-256 ledgers.
 - Added a content-aware self-healing control plane with Web Crypto pre-inference deduplication, typed retry eligibility, bounded automatic recovery, browser/server digest binding, duplicate-source rejection, and validated batch-accounting invariants.
+- Built a cross-channel selective-prediction arbiter that source-binds YOLO and segmentation evidence, rasterizes semantic box unions, quantifies bidirectional spatial support, detects suspected semantic misses, and withholds scores under method disagreement without claiming ground truth.
 - Shipped the model as a loopback-only FastAPI product with bilingual UI, MPS inference, optional local Ollama narratives, privacy headers, structured failure recovery, and a comprehensive automated test suite.
 
 中文版本：
@@ -42,6 +43,7 @@ Use only metrics you can reproduce. A concise English version:
 - 交付受策略约束的本地自动驾驶：确定性处置复核热点，严格区分 `machine_heuristic` 与 `human_operator` 身份，自动执行策划和快照预检，并阻止机器标签在责任审批前进入训练。
 - 设计最多 100 张图片的弹性批量自动驾驶状态机，实现 MPS 内存有界、单项故障隔离、后端候选重验证、批次范围策划/预检，以及仅记录 SHA-256 的隐私最小化账本。
 - 增加内容感知自愈控制平面，实现 Web Crypto 推理前去重、按失败类型决定重试资格、有界自动恢复、浏览器/服务端摘要绑定、重复来源拒绝和批次账目不变量校验。
+- 构建双通道选择性预测仲裁器，对 YOLO 与分割证据做同源绑定、语义框并集栅格化和双向空间支持量化，识别疑似语义漏检，并在方法分歧时拒绝给分而不冒充真值。
 - 使用 FastAPI 交付仅监听本机回环地址的双语产品，支持 Apple MPS、本地 Ollama 可选说明、隐私响应头、结构化故障恢复与完整自动化测试。
 
 ## Interview deep-dive / 面试追问
@@ -77,9 +79,11 @@ Be prepared to explain these decisions:
 3. Show the four generated ArUco SVG files and describe the marker-center field measurement.
 4. Show that deleting calibration from the command produces `pixel_only` rather than fake millimetres.
 5. Start the app in default `consensus` mode, select several mixed images, and show that the queue continues when one item fails.
-6. Open the resulting `urbanvision-autopilot-batch-v1.1.0` JSON and explain pre-inference SHA-256 deduplication, typed retry policy, browser/server digest matching, accounting invariants, privacy omission, and why `training_authorized` is still false.
-7. Open `/api/review-queue?limit=20` and connect detection uncertainty to human review.
-8. Finish with your own held-out field errors and limitations, not a certified-safety claim.
+6. Show a proposal-only image and explain why `proposal_only_semantic_miss` withholds the score rather than auto-assigning D00/D10/D20.
+7. Open `urbanvision-cross-channel-arbitration-v1.0.0` and explain source binding, semantic-box rasterization, proposal-supported ratio, selective abstention, and why agreement is not ground truth.
+8. Open the resulting `urbanvision-autopilot-batch-v1.2.0` JSON and show that every completed run binds its arbitration record before curation.
+9. Open `/api/review-queue?limit=20` and connect detection uncertainty to human review.
+10. Finish with your own held-out field errors and limitations, not a certified-safety claim.
 
 ## Claims to avoid / 不要夸大的内容
 

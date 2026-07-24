@@ -88,7 +88,7 @@ def create_app(
     async def validation_error_handler(
         request: Request, error: RequestValidationError
     ) -> JSONResponse:
-        if request.url.path.startswith("/api/metrology"):
+        if request.url.path.startswith(("/api/metrology", "/api/evidence")):
             project_error = ProjectError(
                 "E506",
                 "量测请求缺少必要字段或字段格式错误",
@@ -138,6 +138,7 @@ def create_app(
         payload["policy_bounded_local_autopilot"] = True
         payload["resilient_batch_autopilot"] = True
         payload["self_healing_content_deduplication"] = True
+        payload["cross_channel_evidence_arbitration"] = True
         return payload
 
     @app.get("/api/review-queue")
@@ -306,6 +307,7 @@ def create_app(
     async def metrology_finalize_autopilot_batch(
         run_ids: Annotated[str, Form()],
         source_digests: Annotated[str | None, Form()] = None,
+        arbitration_ids: Annotated[str | None, Form()] = None,
         selected_count: Annotated[int | None, Form()] = None,
         failed_count: Annotated[int, Form()] = 0,
         duplicate_count: Annotated[int, Form()] = 0,
@@ -318,6 +320,7 @@ def create_app(
         return active_metrology.finalize_autopilot_batch(
             run_ids=run_ids,
             source_digests=source_digests,
+            arbitration_ids=arbitration_ids,
             selected_count=selected_count,
             failed_count=failed_count,
             duplicate_count=duplicate_count,
@@ -326,6 +329,30 @@ def create_app(
             seed=seed,
             minimum_unique_sources=minimum_unique_sources,
             max_scene_hamming_distance=max_scene_hamming_distance,
+        )
+
+    @app.post("/api/evidence/arbitrate")
+    async def create_evidence_arbitration(
+        inspection_id: Annotated[str, Form()],
+        metrology_run_id: Annotated[str, Form()],
+    ) -> dict[str, object]:
+        return active_metrology.create_evidence_arbitration(
+            inspection_run_name=service.run_name,
+            inspection_id=inspection_id,
+            metrology_run_id=metrology_run_id,
+        )
+
+    @app.get("/api/evidence/arbitrations/{arbitration_id}.json")
+    async def evidence_arbitration_record(
+        arbitration_id: str,
+    ) -> FileResponse:
+        path = active_metrology.evidence_arbitration_path(
+            arbitration_id
+        )
+        return FileResponse(
+            path,
+            media_type="application/json",
+            filename=path.name,
         )
 
     @app.get("/api/metrology/autopilot-batches/{batch_id}.json")

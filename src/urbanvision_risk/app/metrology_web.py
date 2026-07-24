@@ -143,6 +143,8 @@ METROLOGY_HTML = """<!doctype html>
     .inspection-class-count { font-size: 1.08rem; }
     .inspection-evidence-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 10px; }
     .inspection-evidence { padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); }
+    .inspection-evidence.arbitration { grid-column: 1 / -1; background: color-mix(in srgb, var(--cyan) 6%, var(--card)); }
+    .arbitration-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .inspection-evidence h3 { margin-bottom: 6px; font-size: .78rem; }
     .inspection-evidence-row { display: flex; justify-content: space-between; gap: 9px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: .67rem; }
     .inspection-evidence-row:last-child { border-bottom: 0; }
@@ -287,9 +289,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v5.4 · Self-healing content-aware autopilot</p>
+        <p class="eyebrow">v5.5 · Cross-channel selective prediction</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>一次选择最多 100 张图片，机器先计算内容 SHA-256 并自动跳过重复文件，再逐张完成检测、掩膜、热点处置和候选量测；可恢复故障会自动重试，单张失败不会中断整批。最后由服务端复核摘要、去重和批次账目，再生成防泄漏策划与内容寻址快照。</span><span data-en class="hidden-lang">Choose up to 100 images once. The machine hashes content, skips duplicates, retries recoverable failures, and continues after per-image failure. The service then revalidates digests, uniqueness, and batch accounting before leakage-safe curation and a content-addressed snapshot.</span></p>
+        <p class="hero-copy"><span data-zh>YOLO 语义检测与独立裂缝分割会并行运行，随后由服务端验证同源摘要并计算空间支持。两者一致时记录增强证据；分割发现明显裂缝但 YOLO 没框时自动标为疑似语义漏检并隐藏风险分数。最多 100 张的内容去重、自愈队列与训练防火墙继续保留。</span><span data-en class="hidden-lang">YOLO semantics and independent crack segmentation run in parallel, then the service verifies source identity and spatial support. Agreement strengthens evidence; proposal-only evidence becomes a suspected semantic miss with the score withheld. The deduplicated, self-healing queue and training firewall remain active.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -348,6 +350,11 @@ METROLOGY_HTML = """<!doctype html>
             <div class="inspection-evidence-grid">
               <section class="inspection-evidence"><h3><span data-zh>证据质量</span><span data-en class="hidden-lang">Evidence quality</span></h3><div id="inspection-evidence"></div><div id="inspection-flags" class="inspection-flags"></div></section>
               <section class="inspection-evidence"><h3><span data-zh>多视图可靠性</span><span data-en class="hidden-lang">Multi-view reliability</span></h3><div id="inspection-reliability"></div><div id="inspection-reliability-flags" class="inspection-flags"></div></section>
+              <section id="arbitration-panel" class="inspection-evidence arbitration hidden">
+                <div class="arbitration-head"><h3><span data-zh>YOLO × 裂缝分割证据仲裁</span><span data-en class="hidden-lang">YOLO × segmentation evidence arbitration</span></h3><span id="arbitration-state" class="badge">—</span></div>
+                <div id="evidence-arbitration"></div>
+                <div id="arbitration-flags" class="inspection-flags"></div>
+              </section>
             </div>
             <section class="narrative-panel">
               <div class="narrative-head"><div><h3><span data-zh>本地 AI 巡检说明</span><span data-en class="hidden-lang">Local AI inspection narrative</span></h3><p id="narrative-meta" class="subcopy"><span data-zh>仅使用结构化结果，不上传图片。</span><span data-en class="hidden-lang">Uses structured results only; the image is not uploaded.</span></p></div><button id="narrative-button" class="tool-button" type="button" disabled><span data-zh>生成双语说明</span><span data-en class="hidden-lang">Generate narrative</span></button></div>
@@ -533,7 +540,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v5.4 · Self-Healing Content-Aware Autopilot · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v5.5 · Cross-Channel Selective Prediction · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -570,6 +577,7 @@ METROLOGY_HTML = """<!doctype html>
       let latestFeedbackCuration = null;
       let latestFeedbackSnapshot = null;
       let latestAutopilotBatch = null;
+      let latestArbitration = null;
       let activeProposalId = null;
       let proposalSuppressed = false;
       let reviewHotspotsVisible = true;
@@ -647,6 +655,13 @@ METROLOGY_HTML = """<!doctype html>
           batchAttempts: "尝试",
           batchDuplicates: "去重",
           batchRetries: "自动重试",
+          arbitrationRunning: "正在核对 YOLO 与独立裂缝分割证据…",
+          arbitrationFailed: "双通道证据仲裁失败；本次结果不进入完整批次。",
+          arbitrationSemanticBoxes: "YOLO 裂缝框",
+          arbitrationProposalCoverage: "分割覆盖率",
+          arbitrationProposalSupport: "候选落入框内",
+          arbitrationRegionSupport: "框区域分割支持",
+          arbitrationDownload: "下载仲裁证据",
           editedState: "绿色掩膜已有尚未保存的人工修改；右侧仍显示上一次自动草稿。",
           reviewedState: "这是已保存的人工复核版本；真实尺寸仍只在有效标定后成立。",
           demoState: "这是确定性算法演示，不代表人工复核或现场精度验证。",
@@ -788,6 +803,13 @@ METROLOGY_HTML = """<!doctype html>
           batchAttempts: "attempts",
           batchDuplicates: "deduplicated",
           batchRetries: "automatic retries",
+          arbitrationRunning: "Arbitrating YOLO and independent crack-segmentation evidence…",
+          arbitrationFailed: "Cross-channel arbitration failed; this result cannot enter a complete batch.",
+          arbitrationSemanticBoxes: "YOLO crack boxes",
+          arbitrationProposalCoverage: "Segmentation coverage",
+          arbitrationProposalSupport: "Proposal inside boxes",
+          arbitrationRegionSupport: "Box-region segmentation support",
+          arbitrationDownload: "Download arbitration evidence",
           editedState: "The green mask has unsaved human changes; the right side still shows the previous automatic draft.",
           reviewedState: "This is a saved human-reviewed version. Physical dimensions still require valid calibration.",
           demoState: "This is a deterministic algorithm demo, not human review or field-accuracy validation.",
@@ -921,6 +943,22 @@ METROLOGY_HTML = """<!doctype html>
           pixel_limit: "More than 20 megapixels",
           pipeline_incomplete: "Automatic metrology incomplete",
           unexpected_error: "Unexpected runtime error"
+        }
+      };
+      const arbitrationStateLabels = {
+        zh: {
+          proposal_only_semantic_miss: "疑似 YOLO 语义漏检",
+          detector_only_semantic_evidence: "仅检测器有证据",
+          cross_channel_supported: "双通道空间支持",
+          spatial_disagreement: "双通道空间分歧",
+          inconclusive_no_positive_evidence: "无充分正证据"
+        },
+        en: {
+          proposal_only_semantic_miss: "Suspected YOLO semantic miss",
+          detector_only_semantic_evidence: "Detector-only evidence",
+          cross_channel_supported: "Cross-channel spatial support",
+          spatial_disagreement: "Cross-channel spatial disagreement",
+          inconclusive_no_positive_evidence: "No sufficient positive evidence"
         }
       };
       const curationBlockerLabels = {
@@ -1293,6 +1331,83 @@ METROLOGY_HTML = """<!doctype html>
         }
       }
 
+      function renderEvidenceArbitration(payload) {
+        latestArbitration = payload;
+        const record = payload.arbitration || {};
+        const decision = record.decision || {};
+        const metrics = record.metrics || {};
+        const stateCode = decision.evidence_state || "inconclusive_no_positive_evidence";
+        const reviewRequired = decision.review_required === true;
+        byId("arbitration-panel").classList.remove("hidden");
+        byId("arbitration-state").className = `badge badge-${reviewRequired ? "review_required" : "high"}`;
+        byId("arbitration-state").textContent = arbitrationStateLabels[language][stateCode] || stateCode;
+        const evidenceBox = byId("evidence-arbitration");
+        evidenceBox.replaceChildren();
+        addInspectionRow(
+          evidenceBox,
+          t("arbitrationSemanticBoxes"),
+          String(metrics.semantic_crack_detection_count ?? "—")
+        );
+        addInspectionRow(
+          evidenceBox,
+          t("arbitrationProposalCoverage"),
+          metrics.proposal_coverage_ratio === undefined
+            ? "—"
+            : `${(Number(metrics.proposal_coverage_ratio) * 100).toFixed(3)}%`
+        );
+        addInspectionRow(
+          evidenceBox,
+          t("arbitrationProposalSupport"),
+          metrics.proposal_supported_ratio === undefined
+            ? "—"
+            : `${(Number(metrics.proposal_supported_ratio) * 100).toFixed(1)}%`
+        );
+        addInspectionRow(
+          evidenceBox,
+          t("arbitrationRegionSupport"),
+          metrics.semantic_region_supported_ratio === undefined
+            ? "—"
+            : `${(Number(metrics.semantic_region_supported_ratio) * 100).toFixed(1)}%`
+        );
+        const flags = byId("arbitration-flags");
+        flags.replaceChildren();
+        const recommendation = document.createElement("p");
+        recommendation.className = "inspection-flag";
+        recommendation.textContent = `⚑ ${decision.recommendation ? decision.recommendation[language] : stateCode}`;
+        flags.appendChild(recommendation);
+        if (payload.arbitration_url) {
+          const link = document.createElement("a");
+          link.className = "download-link";
+          link.href = payload.arbitration_url;
+          link.textContent = t("arbitrationDownload");
+          link.setAttribute("download", "");
+          flags.appendChild(link);
+        }
+        if (reviewRequired) {
+          byId("inspection-score").innerHTML = "— <small>/ 100</small>";
+          byId("inspection-risk-badge").className = "badge badge-review_required";
+          byId("inspection-risk-badge").textContent = priorityLabels[language].review_required;
+          if (decision.recommendation) {
+            byId("inspection-recommendation").textContent = decision.recommendation[language];
+          }
+        }
+      }
+
+      async function runEvidenceArbitration(inspectionId, metrologyRunId) {
+        setStatus(t("arbitrationRunning"));
+        const form = new FormData();
+        form.append("inspection_id", inspectionId);
+        form.append("metrology_run_id", metrologyRunId);
+        const response = await fetch(
+          "/api/evidence/arbitrate",
+          { method: "POST", body: form }
+        );
+        const payload = await response.json();
+        if (!response.ok) throw payload.error || payload;
+        renderEvidenceArbitration(payload);
+        return payload;
+      }
+
       function renderNarrative(payload) {
         latestNarrative = payload;
         const generator = payload.generator || {};
@@ -1360,6 +1475,7 @@ METROLOGY_HTML = """<!doctype html>
         if (latestPlan) renderPlan(latestPlan);
         if (latestComparison) renderComparison(latestComparison);
         if (latestInspection) renderInspection(latestInspection);
+        if (latestArbitration) renderEvidenceArbitration(latestArbitration);
         if (latestNarrative) renderNarrative(latestNarrative);
         if (latestFeedbackCatalog) renderFeedbackCatalog(latestFeedbackCatalog);
         if (latestFeedbackCuration) renderFeedbackCuration(latestFeedbackCuration);
@@ -1713,6 +1829,7 @@ METROLOGY_HTML = """<!doctype html>
         byId("file-title").textContent = file.name;
         byId("file-meta").textContent = `${image.naturalWidth} × ${image.naturalHeight} px · ${(file.size / 1024 / 1024).toFixed(2)} MiB`;
         latestInspection = null;
+        latestArbitration = null;
         latestNarrative = null;
         latestResult = null;
         latestPlan = null;
@@ -1722,6 +1839,7 @@ METROLOGY_HTML = """<!doctype html>
         byId("placeholder").classList.remove("hidden");
         byId("inspection-section").classList.remove("hidden");
         byId("inspection-result").classList.add("hidden");
+        byId("arbitration-panel").classList.add("hidden");
         byId("inspection-loading").classList.remove("hidden");
         setTool("brush");
         updateControls();
@@ -1741,18 +1859,46 @@ METROLOGY_HTML = """<!doctype html>
         }
         const inspectionSucceeded = tasks[0].status === "fulfilled" && tasks[0].value === true;
         const draftSucceeded = tasks[1].status === "fulfilled" && tasks[1].value === true;
+        let arbitrationPayload = null;
+        if (
+          inspectionSucceeded
+          && draftSucceeded
+          && latestInspection
+          && latestResult
+        ) {
+          try {
+            arbitrationPayload = await runEvidenceArbitration(
+              latestInspection.inspection_id,
+              latestResult.run_id
+            );
+          } catch {
+            setStatus(t("arbitrationFailed"), true);
+          }
+        }
+        const arbitrationSucceeded = Boolean(arbitrationPayload);
+        const pipelineSucceeded = (
+          inspectionSucceeded
+          && draftSucceeded
+          && arbitrationSucceeded
+        );
         if (!inspectionSucceeded) {
           byId("inspection-loading").classList.remove("hidden");
           byId("inspection-loading-text").textContent = t("inspectionFailed");
         }
-        setPipeline(draftSucceeded && byId("autopilot-toggle").checked ? "saved" : (draftSucceeded ? "review" : "draft"));
-        setStatus(inspectionSucceeded && draftSucceeded ? t("pipelineComplete") : t("pipelinePartial"), !inspectionSucceeded && !draftSucceeded);
+        setPipeline(pipelineSucceeded && byId("autopilot-toggle").checked ? "saved" : (draftSucceeded ? "review" : "draft"));
+        setStatus(pipelineSucceeded ? t("pipelineComplete") : t("pipelinePartial"), !pipelineSucceeded);
         return {
-          success: draftSucceeded,
-          run_id: draftSucceeded && latestResult ? latestResult.run_id : null,
+          success: pipelineSucceeded,
+          run_id: pipelineSucceeded && latestResult ? latestResult.run_id : null,
+          arbitration_id: (
+            pipelineSucceeded
+            ? arbitrationPayload.arbitration.arbitration_id
+            : null
+          ),
           inspection_succeeded: inspectionSucceeded,
-          reason: draftSucceeded ? null : "pipeline_incomplete",
-          retryable: !draftSucceeded
+          arbitration_succeeded: arbitrationSucceeded,
+          reason: pipelineSucceeded ? null : "pipeline_incomplete",
+          retryable: !pipelineSucceeded
         };
       }
 
@@ -2403,6 +2549,7 @@ METROLOGY_HTML = """<!doctype html>
         const batch = payload.batch;
         const accounting = batch.input_accounting || {};
         const integrity = batch.source_integrity || {};
+        const arbitration = batch.cross_channel_arbitration || {};
         const blockers = batch.governance && Array.isArray(batch.governance.blockers)
           ? batch.governance.blockers
           : [];
@@ -2419,6 +2566,7 @@ METROLOGY_HTML = """<!doctype html>
             `${t("batchDuplicates")}: ${accounting.duplicate_skipped_count ?? 0}`,
             `${t("batchRetries")}: ${accounting.retry_count ?? 0}`,
             `${language === "zh" ? "服务端摘要匹配" : "Server digest matches"}: ${integrity.browser_digest_match_count ?? "—"}`,
+            `${language === "zh" ? "双通道仲裁绑定" : "Cross-channel arbitration bindings"}: ${arbitration.bound_count ?? 0}/${batch.run_count}`,
             `${language === "zh" ? "反馈包" : "Feedback packages"}: ${batch.feedback_run_count}`,
             `${t("readinessBlockers")}: ${blockerText}`,
             `${t("trainingAuthorization")}: ${batch.training_authorized ? (language === "zh" ? "已授权" : "authorized") : (language === "zh" ? "未授权" : "not authorized")}`
@@ -2437,6 +2585,10 @@ METROLOGY_HTML = """<!doctype html>
         form.append(
           "source_digests",
           JSON.stringify(completedItems.map((item) => item.digest))
+        );
+        form.append(
+          "arbitration_ids",
+          JSON.stringify(completedItems.map((item) => item.arbitration_id))
         );
         form.append("selected_count", String(accounting.selected_count));
         form.append("failed_count", String(accounting.failed_count));
@@ -2555,7 +2707,8 @@ METROLOGY_HTML = """<!doctype html>
             if (outcome.success && outcome.run_id) {
               completedItems.push({
                 run_id: outcome.run_id,
-                digest
+                digest,
+                arbitration_id: outcome.arbitration_id
               });
               setBatchItemState(index, "complete", {
                 run_id: outcome.run_id,

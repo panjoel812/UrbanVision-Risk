@@ -1,10 +1,10 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v5.4 为最多 100 张图片的弹性队列增加内容感知自愈：浏览器使用 Web Crypto 逐项计算 SHA-256，自动跳过完全重复内容，只对可恢复的流水线故障最多尝试两次；确定性的格式、体积、解码和像素上限错误不会无意义重试。服务端再把浏览器摘要与不可变量测中的来源摘要逐项核对，拒绝重复原图或不自洽的成功/失败/去重/重试账目。批次 JSON 不保存原文件名或绝对路径，机器身份仍为 `machine_heuristic`，训练防火墙仍保持 `training_authorized: false`。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v5.5 增加双通道选择性预测：YOLO 负责 D00/D10/D20 语义框，独立裂缝分割负责像素候选；服务端验证两条链来自同一原图，再计算候选落入语义框的空间支持。分割显著但 YOLO 无裂缝框时记录 `proposal_only_semantic_miss`，自动隐藏维护分数并升级复核；两个通道都发现但空间不一致时拒绝强行融合。每份仲裁证据绑定不可变巡检、风险、量测和掩膜 SHA-256。最多 100 张图片的内容去重、自愈重试、批次治理和训练防火墙继续保留。
 
-**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 5.4 makes the resilient queue of up to 100 images content-aware and self-healing. Web Crypto hashes each eligible file, exact duplicates are skipped, and only recoverable pipeline failures receive up to two attempts. The service independently matches browser and immutable-measurement digests, rejects repeated sources, and validates completed/failed/deduplicated/retry accounting before batch-scoped governance. The audit stores run IDs and SHA-256 evidence—not original filenames or absolute paths. Machine authority remains `machine_heuristic`, and `training_authorized` remains `false`.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 5.5 adds cross-channel selective prediction: YOLO supplies D00/D10/D20 semantic boxes, independent segmentation supplies pixel candidates, and the service verifies source identity before measuring spatial support. Significant proposal-only evidence becomes `proposal_only_semantic_miss`, with the maintenance score withheld; spatial disagreement is never force-fused. Each immutable arbitration record binds inspection, risk, metrology, and mask SHA-256 evidence. The resilient queue of up to 100 images deduplicates by content before batch-scoped governance, retains self-healing retries, and preserves the training firewall.
 
-Turning Autopilot off preserves the earlier `automatic_draft` workflow. / 关闭自动驾驶会保留原有 `automatic_draft` 工作流。
+Turning Autopilot off preserves the earlier `automatic_draft` workflow. When it is on, deterministic review decisions remain explicitly attributed to `machine_heuristic`; they are never represented as human approval. / 关闭自动驾驶会保留原有 `automatic_draft` 工作流；开启后，确定性复核决定仍明确归属于 `machine_heuristic`，绝不冒充人工批准。
 
 Automatic results are reviewable evidence, not hidden ground truth. The synchronized loupe keeps the original-resolution mask visible while brush/eraser edits, undo, hotspot dispositions, and calibration remain available. Saving an operator correction creates an explicit `human_reviewed` version instead of silently rewriting the earlier `machine_reviewed_candidate`.
 
@@ -14,7 +14,7 @@ Automatic results are reviewable evidence, not hidden ground truth. The synchron
 
 **v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v5.4 Quick Start / v5.4 快速启动
+## v5.5 Quick Start / v5.5 快速启动
 
 ```bash
 uv sync --extra dev
@@ -29,9 +29,9 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`. Keep **Autopilot** checked and choose one or more images. Queue states now show hashing, running, automatic retry, complete, failed, or duplicate. Governance runs once for all successful unique machine candidates, and the `urbanvision-autopilot-batch-v1.1.0` audit is written under `results/metrology/autopilot-batches/`.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`. Keep **Autopilot** checked and choose one or more images. After parallel detector and segmentation execution, the page automatically shows cross-channel support, suspected semantic miss, detector-only evidence, spatial disagreement, or inconclusive evidence. Each successful item receives an arbitration record, and `urbanvision-autopilot-batch-v1.2.0` binds those records before governance.
 
-第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程。保持 **自动驾驶开启**，一次选择一张或多张图片。队列会显示计算摘要、运行、自动重试、完成、失败或重复内容；所有成功且唯一的机器候选只在整批结束时统一治理一次。`urbanvision-autopilot-batch-v1.1.0` 审计保存在 `results/metrology/autopilot-batches/`。端口被占用时使用 `--port 8001`。
+第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程。保持 **自动驾驶开启**，一次选择一张或多张图片。检测与分割并行结束后，页面自动显示双通道支持、疑似语义漏检、仅检测器证据、空间分歧或无充分证据；每个成功项都生成仲裁记录，`urbanvision-autopilot-batch-v1.2.0` 在治理前绑定这些证据。端口被占用时使用 `--port 8001`。
 
 The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
 
@@ -104,7 +104,8 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 - `results/metrology/proposals/<proposal>/`: immutable `proposal-mask.png`, `review-hotspots.png`, and algorithm `evidence.json`; the source image itself is not retained / 不可覆盖的候选掩膜、复核热点与算法证据；不保存原图本身。
 - `results/metrology/<output>/active-learning-feedback.zip`: deterministic machine- or human-authored ROI feedback with explicit review authority / 带明确审核身份的确定性机器或人工 ROI 反馈包。
 - `results/metrology/curations/*.json` and `results/metrology/snapshots/*.json`: automatically generated leakage-safe plans and content-addressed Merkle preflight records; neither authorizes training / 自动生成的防泄漏策划与内容寻址 Merkle 预检记录；二者都不授权训练。
-- `results/metrology/autopilot-batches/*.json`: privacy-minimized batch ledger binding completed machine runs to one curation and snapshot / 隐私最小化批次台账，把成功机器运行绑定到一次策划与快照。
+- `results/metrology/arbitrations/*.json`: immutable YOLO–segmentation source binding, spatial support, abstention state, and claim boundary / 不可覆盖的 YOLO—分割同源绑定、空间支持、拒答状态与使用边界。
+- `results/metrology/autopilot-batches/*.json`: privacy-minimized batch ledger binding completed machine runs and arbitration evidence to one curation and snapshot / 隐私最小化批次台账，把成功机器运行及仲裁证据绑定到一次策划与快照。
 - `results/metrology/<output>/plans/*.json`: immutable material quantity, cost assumptions, measurement digest, and decision boundary / 不可覆盖的材料数量、成本假设、量测摘要和使用边界。
 - `results/metrology/comparisons/*.json` and `*-change-map.png`: normalized two-date changes, physical alignment quality, spatial classes, daily growth, user thresholds, and source-record digests / 统一单位的两期变化、物理对齐质量、空间分类、每日增长、用户阈值和源记录摘要。
 

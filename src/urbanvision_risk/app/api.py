@@ -142,6 +142,8 @@ def create_app(
         payload["self_remediating_data_readiness"] = True
         payload["cumulative_cross_session_readiness"] = True
         payload["dual_axis_training_readiness"] = True
+        payload["automatic_dataset_shift_monitoring"] = True
+        payload["mmd_permutation_drift_audit"] = True
         return payload
 
     @app.get("/api/review-queue")
@@ -300,6 +302,19 @@ def create_app(
         snapshot_id: str,
     ) -> FileResponse:
         path = active_metrology.feedback_snapshot_path(snapshot_id)
+        return FileResponse(
+            path,
+            media_type="application/json",
+            filename=path.name,
+        )
+
+    @app.get(
+        "/api/metrology/feedback-drift-audits/{drift_id}.json"
+    )
+    async def metrology_feedback_drift_audit_record(
+        drift_id: str,
+    ) -> FileResponse:
+        path = active_metrology.feedback_drift_audit_path(drift_id)
         return FileResponse(
             path,
             media_type="application/json",

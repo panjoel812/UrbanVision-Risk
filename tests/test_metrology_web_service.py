@@ -23,6 +23,8 @@ from urbanvision_risk.app.metrology_service import (
     _curation_readiness_remediation,
     _deterministic_zip_bytes,
     _difference_hash64,
+    _drift_feature_vector,
+    _drift_two_sample_statistics,
     _feedback_quality_gate,
     _fingerprint_hamming_distance,
     _near_duplicate_scene_groups,
@@ -208,6 +210,48 @@ def test_feedback_quality_gate_and_fingerprint_are_deterministic() -> None:
     gradient = np.tile(np.arange(40, dtype=np.uint8), (40, 1))
     assert _difference_hash64(gradient) == _difference_hash64(gradient.copy())
     assert len(_difference_hash64(gradient)) == 16
+
+
+def test_drift_features_and_permutation_test_are_bounded_and_deterministic() -> None:
+    source = np.full((80, 120, 3), 180, dtype=np.uint8)
+    source[:, 55:65] = 20
+    mask = np.zeros((80, 120), dtype=np.uint8)
+    mask[:, 58:62] = 255
+
+    features = _drift_feature_vector(source, mask)
+
+    assert features.shape == (9,)
+    assert np.all(features >= 0)
+    assert np.all(features <= 1)
+    generator = np.random.default_rng(17)
+    reference = np.clip(
+        generator.normal(0.15, 0.015, size=(10, 9)),
+        0,
+        1,
+    )
+    current = np.clip(
+        generator.normal(0.85, 0.015, size=(6, 9)),
+        0,
+        1,
+    )
+    first = _drift_two_sample_statistics(
+        current,
+        reference,
+        permutations=199,
+        seed=91,
+    )
+    second = _drift_two_sample_statistics(
+        current,
+        reference,
+        permutations=199,
+        seed=91,
+    )
+
+    assert first == second
+    assert first["p_value"] <= 0.05
+    assert first["mmd_squared"] > 0
+    assert first["coverage"]["novel_source_ratio"] == 1.0
+    assert len(first["feature_attribution"]) == 9
 
 
 def test_feedback_curation_group_assignment_is_deterministic_and_leakage_safe() -> None:
@@ -535,6 +579,43 @@ def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
     )
     assert snapshot_path.is_file()
     assert "/Users/" not in snapshot_path.read_text(encoding="utf-8")
+
+    current_drift_curation_result = service.create_feedback_curation(
+        seed=42,
+        minimum_unique_sources=3,
+        included_run_ids=[
+            "feedback-source-000",
+            "feedback-source-001",
+            "feedback-source-002",
+        ],
+        _record_prefix="drift-current-curation",
+    )
+    drift_result = service.create_feedback_drift_audit(
+        current_curation_id=current_drift_curation_result["curation"][
+            "curation_id"
+        ],
+        cumulative_curation_id=curation["curation_id"],
+        _record_prefix="feedback-drift",
+    )
+    drift_audit = drift_result["drift_audit"]
+    assert drift_audit["status"] in {
+        "no_statistically_detectable_shift",
+        "distribution_shift_or_coverage_warning",
+    }
+    assert drift_audit["readiness"]["blockers"] == []
+    assert drift_audit["samples"]["current"]["source_count"] == 3
+    assert drift_audit["samples"]["historical_reference"][
+        "source_count"
+    ] == 7
+    assert drift_audit["statistics"] is not None
+    assert 0 < drift_audit["statistics"]["p_value"] <= 1
+    assert drift_audit["statistics"]["permutation_count"] == 199
+    assert drift_audit["training_authorized"] is False
+    drift_path = service.feedback_drift_audit_path(
+        "feedback-drift-governed-001"
+    )
+    assert drift_path.is_file()
+    assert "/Users/" not in drift_path.read_text(encoding="utf-8")
 
     tampered_run_id = "feedback-source-000"
     tampered_entries = dict(archive_entries_by_run[tampered_run_id])
@@ -1375,7 +1456,7 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
         "run_ids": [result["run_id"]],
     }
     batch = batch_result["batch"]
-    assert batch["schema_version"] == "urbanvision-autopilot-batch-v1.3.0"
+    assert batch["schema_version"] == "urbanvision-autopilot-batch-v1.4.0"
     assert batch["status"] == "completed_with_technical_constraints"
     assert batch["run_count"] == 1
     assert batch["feedback_run_count"] == 1
@@ -1441,6 +1522,26 @@ def test_machine_reviewed_candidate_is_audited_and_training_blocked(
     assert batch_result["cumulative_snapshot"]["curation_binding"][
         "curation_id"
     ] == "cumulative-curation-machine-001"
+    drift_audit = batch_result["drift_audit"]
+    assert drift_audit["schema_version"] == (
+        "urbanvision-feedback-drift-audit-v1.0.0"
+    )
+    assert drift_audit["status"] == "insufficient_or_invalid_evidence"
+    assert set(drift_audit["readiness"]["blockers"]) >= {
+        "insufficient_current_sources_for_drift",
+        "insufficient_reference_sources_for_drift",
+    }
+    assert drift_audit["statistics"] is None
+    assert drift_audit["training_authorized"] is False
+    assert batch["distribution_monitoring"]["drift_id"] == (
+        "feedback-drift-machine-001"
+    )
+    assert batch["distribution_monitoring"]["monitoring_only"] is True
+    drift_path = service.feedback_drift_audit_path(
+        "feedback-drift-machine-001"
+    )
+    assert drift_path.is_file()
+    assert "/Users/" not in drift_path.read_text(encoding="utf-8")
     batch_path = service.autopilot_batch_path(
         "autopilot-batch-machine-001"
     )

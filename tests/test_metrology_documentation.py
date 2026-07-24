@@ -84,7 +84,7 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "local_proposal_machine_reviewed_candidate" in guide
     assert "Resilient batch autopilot" in guide
     assert "POST /api/metrology/autopilot-batches/finalize" in guide
-    assert "urbanvision-autopilot-batch-v1.3.0" in guide
+    assert "urbanvision-autopilot-batch-v1.4.0" in guide
     assert "omits original filenames and absolute paths" in guide
     assert "up to 100 images" in portfolio
     assert "per-item failure isolation" in portfolio
@@ -96,7 +96,7 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "server_duplicate_source_rejection" in guide
     assert "content-aware self-healing control plane" in portfolio
     assert "内容感知自愈控制平面" in portfolio
-    assert "Version 5.7 adds cumulative, dual-axis data readiness" in readme
+    assert "Version 5.8 adds automatic dataset-shift" in readme
     assert "Cross-channel selective prediction" in guide
     assert "POST /api/evidence/arbitrate" in guide
     assert "source_upload_sha256" in guide
@@ -115,6 +115,12 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "integrity_verified_governance_blocked" in guide
     assert "all-session local feedback registry" in readme
     assert "dual-scope cumulative readiness" in portfolio
+    assert "urbanvision-feedback-drift-audit-v1.0.0" in guide
+    assert "RBF maximum mean discrepancy" in guide
+    assert "199-permutation test" in guide
+    assert "insufficient_or_invalid_evidence" in guide
+    assert "source-balanced verified ROI features" in portfolio
+    assert "small-sample abstention" in portfolio
     assert "readiness.remediation" in guide
     assert "seven additional independent sources" in guide
     assert "CC BY-SA 4.0" in guide

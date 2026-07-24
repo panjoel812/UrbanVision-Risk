@@ -226,7 +226,36 @@ class MetrologyStub:
                 "/api/metrology/feedback-snapshots/"
                 "feedback-snapshot-001.json"
             ),
+            "drift_audit": {
+                "drift_id": "feedback-drift-001",
+                "status": "insufficient_or_invalid_evidence",
+                "training_authorized": False,
+                "samples": {
+                    "current": {"source_count": 1},
+                    "historical_reference": {"source_count": 0},
+                },
+                "statistics": None,
+                "decision": {
+                    "minimum_current_sources": 3,
+                    "minimum_reference_sources": 5,
+                },
+                "readiness": {
+                    "status": "blocked",
+                    "blockers": [
+                        "insufficient_reference_sources_for_drift"
+                    ],
+                },
+            },
+            "drift_audit_url": (
+                "/api/metrology/feedback-drift-audits/"
+                "feedback-drift-001.json"
+            ),
         }
+
+    def feedback_drift_audit_path(self, drift_id: str) -> Path:
+        if drift_id != "feedback-drift-001":
+            raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
+        return self.artifact
 
     def autopilot_batch_path(self, batch_id: str) -> Path:
         if batch_id != "autopilot-batch-001":
@@ -390,6 +419,7 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="batch-list"' in response.text
     assert 'id="batch-result"' in response.text
     assert 'id="cumulative-result"' in response.text
+    assert 'id="drift-result"' in response.text
     assert 'id="arbitration-panel"' in response.text
     assert 'id="evidence-arbitration"' in response.text
     assert "applyAutopilotDecisions" in response.text
@@ -407,10 +437,12 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert '"retry_count"' in response.text
     assert "runEvidenceArbitration" in response.text
     assert "renderEvidenceArbitration" in response.text
-    assert "v5.7 · Cumulative dual-axis readiness" in response.text
+    assert "v5.8 · Fail-loudly dataset shift monitoring" in response.text
     assert "readinessRemediationLines" in response.text
     assert "readinessAxisLines" in response.text
     assert "renderCumulativeReadiness" in response.text
+    assert "renderDriftAudit" in response.text
+    assert "MMD²" in response.text
     assert "跨会话累计台账已自动刷新" in response.text
     assert "全新独立批次至少选择" in response.text
     assert "/api/evidence/arbitrate" in response.text
@@ -511,6 +543,8 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["self_remediating_data_readiness"] is True
     assert health.json()["cumulative_cross_session_readiness"] is True
     assert health.json()["dual_axis_training_readiness"] is True
+    assert health.json()["automatic_dataset_shift_monitoring"] is True
+    assert health.json()["mmd_permutation_drift_audit"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
@@ -621,6 +655,10 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     downloaded_snapshot = client.get(
         "/api/metrology/feedback-snapshots/feedback-snapshot-001.json"
     )
+    downloaded_drift = client.get(
+        "/api/metrology/feedback-drift-audits/"
+        "feedback-drift-001.json"
+    )
     downloaded_batch = client.get(
         "/api/metrology/autopilot-batches/autopilot-batch-001.json"
     )
@@ -694,7 +732,9 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     assert downloaded_curation.status_code == 200
     assert downloaded_curation.headers["content-type"] == "application/json"
     assert downloaded_snapshot.status_code == 200
+    assert downloaded_drift.status_code == 200
     assert downloaded_snapshot.headers["content-type"] == "application/json"
+    assert downloaded_drift.headers["content-type"] == "application/json"
     assert downloaded_batch.status_code == 200
     assert downloaded_batch.headers["content-type"] == "application/json"
     assert downloaded_arbitration.status_code == 200

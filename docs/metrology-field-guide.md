@@ -1,4 +1,4 @@
-# UrbanVision-Risk v5.7 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v5.8 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -183,9 +183,9 @@ The browser defers governance during the queue and submits only successful metro
 
 浏览器在队列期间暂缓治理，只把成功量测编号提交给 `POST /api/metrology/autopilot-batches/finalize`。服务端重新读取每份不可变 `measurement.json`，强制要求 `machine_reviewed_candidate` 与 `machine_heuristic`，并拒绝重复编号、缺失运行或非机器记录。策划仅限该明确运行集合的反馈包，防止不相关历史包混入本批次。
 
-The immutable `urbanvision-autopilot-batch-v1.3.0` record binds measurement SHA-256, source SHA-256, cross-channel arbitration, feedback presence, configuration, and two governance scopes. `governance` references evidence limited to the exact batch; `cumulative_registry` references the automatically refreshed all-session local curation and snapshot. It deliberately omits original filenames and absolute paths. A completed batch is operational automation evidence, not privacy clearance, label certification, physical calibration, training authorization, or road-safety evidence.
+The immutable `urbanvision-autopilot-batch-v1.4.0` record binds measurement SHA-256, source SHA-256, cross-channel arbitration, feedback presence, configuration, two governance scopes, and the automatic distribution-monitoring record. `governance` references the exact batch; `cumulative_registry` references all-session local curation and snapshot; `distribution_monitoring` references the current-versus-history audit. It deliberately omits original filenames and absolute paths.
 
-不可覆盖的 `urbanvision-autopilot-batch-v1.3.0` 记录绑定量测 SHA-256、来源 SHA-256、双通道仲裁、反馈是否存在、配置和两个治理范围：`governance` 仅引用当前精确批次，`cumulative_registry` 引用自动刷新的跨会话本机策划与快照。记录有意省略原文件名与绝对路径。完成批次只能证明自动流程执行过，不代表隐私许可、标签认证、物理标定、训练授权或道路安全结论。
+不可覆盖的 `urbanvision-autopilot-batch-v1.4.0` 记录绑定量测 SHA-256、来源 SHA-256、双通道仲裁、反馈是否存在、配置、两个治理范围和自动分布监测记录：`governance` 仅引用当前批次，`cumulative_registry` 引用跨会话累计策划与快照，`distribution_monitoring` 引用当前批次与历史基线的审计。记录有意省略原文件名与绝对路径。
 
 ### Content-aware self-healing / 内容感知自愈
 
@@ -274,6 +274,24 @@ v5.7 的 `urbanvision-feedback-curation-v2.3.0` 保留 `allocation` 与 `readine
 Internet research is recorded as a bounded reference rather than an automatic download. The official [RDD2022 source](https://github.com/sekilab/RoadDamageDetector) provides six-country data, D00/D10/D20/D40 Pascal VOC annotations, and CC BY-SA 4.0 image licensing. It is valid as an external detector benchmark but not as pixel-mask approval. A 400-image RDD2022-derived mask deposit was deliberately excluded from automatic ingestion because its downstream CC BY metadata does not explain how the upstream ShareAlike condition is preserved; license review is required before reuse.
 
 联网调研结果只作为有界参考记录，不会触发自动下载。官方 [RDD2022 来源](https://github.com/sekilab/RoadDamageDetector) 提供六国数据、D00/D10/D20/D40 Pascal VOC 标注及 CC BY-SA 4.0 图片许可，可作为外部检测基准，但不能冒充分割掩膜批准。一个含 400 张图片的 RDD2022 派生掩膜存档被明确排除出自动导入，因为其下游 CC BY 元数据没有说明如何保留上游 ShareAlike 条件；复用前必须单独审查许可证。
+
+### Fail-loudly dataset-shift monitoring / 主动暴露数据漂移
+
+After batch and cumulative preflight, v5.8 creates `urbanvision-feedback-drift-audit-v1.0.0`. The current sample is the exact batch curation; the reference is the cumulative curation after excluding every current `source_sha256`. Each exact source contributes one vector, averaged over no more than eight SHA-256-verified ROI/mask pairs. This prevents hotspot-rich images from receiving extra statistical weight.
+
+批次与累计预检结束后，v5.8 会生成 `urbanvision-feedback-drift-audit-v1.0.0`。当前样本来自精确批次策划，参考样本来自排除所有当前 `source_sha256` 后的累计策划。每个精确来源只贡献一个向量，由最多八个通过 SHA-256 验证的 ROI/掩膜对平均得到，避免热点较多的图片获得额外统计权重。
+
+The audit uses nine bounded, interpretable image/mask features and an RBF maximum mean discrepancy statistic. A fixed 199-permutation test estimates the null tail deterministically from the two bound curation files. Nearest-neighbor coverage is reported separately using root-mean-square feature distance and a historical median-plus-three-scaled-MAD threshold. The JSON records every source digest, feature vector, p-value, bandwidth, permutation seed, novelty distance, top mean-shift features, byte budget, and blocker.
+
+审计使用九个有界、可解释的图像/掩膜特征与 RBF 最大均值差异统计量，通过固定 199 次置换，从两份已绑定策划文件确定性估计零假设尾部。最近邻覆盖率单独使用特征均方根距离，并以历史留一距离的中位数加三倍缩放 MAD 作为阈值。JSON 会记录来源摘要、特征向量、p 值、带宽、置换种子、新颖距离、主要均值变化特征、字节预算和阻断项。
+
+The minimum evidence is three current and five historical independent sources. Below either threshold, the audit status is `insufficient_or_invalid_evidence`; it does not silently equate low statistical power with “no shift.” Above the threshold it reports either `no_statistically_detectable_shift` or `distribution_shift_or_coverage_warning`.
+
+最低证据要求是当前 3 个、历史 5 个独立来源。任何一侧不足时，状态为 `insufficient_or_invalid_evidence`，不会把低统计功效静默解释成“没有漂移”；达到门槛后，状态才可能是 `no_statistically_detectable_shift` 或 `distribution_shift_or_coverage_warning`。
+
+MMD detects a difference in the monitored feature distribution, not why it changed or whether model error increased. This monitor cannot prove concept drift, label quality, field validity, or road danger, and it never authorizes training.
+
+MMD 只能检测受监测特征分布的差异，不能解释变化原因或证明模型误差上升。该监测器不能证明概念漂移、标签质量、现场有效性或道路危险，也绝不会授权训练。
 
 ### Visual-scene leakage firewall / 视觉场景泄漏防火墙
 

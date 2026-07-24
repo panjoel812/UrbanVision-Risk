@@ -1,8 +1,8 @@
 # UrbanVision-Risk
 
-**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v5.7 增加跨会话累计、双轴数据就绪：每次自动驾驶既保存只绑定当前批次的不可变证据，又自动刷新本机全部历史反馈的策划与 Merkle 快照；`readiness.technical` 单独回答数据量、切分和完整性是否合格，`readiness.governance` 单独回答隐私、标签质量和机器标签审批是否完成。技术就绪不等于训练授权，`training_authorized` 始终保持 `false`，直到另一个明确的责任审批流程存在。v5.6 的非空视觉簇切分、自修复缺口提示，以及 v5.5 的 YOLO × 分割仲裁和拒答机制全部保留。
+**中文：** 面向城市基础设施智能巡检、可靠性分析与现场量测的端侧 AI 系统。v5.8 增加自动数据漂移与覆盖审计：每次批次结束，系统会从经过 SHA-256 验证的 ROI 提取有界、可解释的亮度、饱和度、边缘、纹理、掩膜覆盖率与几何特征；随后使用确定性 RBF-MMD 置换检验比较当前批次与排除当前来源后的历史基线，并用最近邻覆盖率提示新颖场景。当前少于 3 个独立来源或历史少于 5 个来源时，系统会明确拒答而不是产生伪精确结论。v5.7 的跨会话累计与技术/治理双轴状态全部保留。
 
-**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 5.7 adds cumulative, dual-axis data readiness. Every Autopilot finalization preserves immutable evidence scoped only to the current batch and independently refreshes an all-session local feedback registry with a new curation plus Merkle snapshot. `readiness.technical` reports data-volume, split, and integrity readiness; `readiness.governance` reports privacy, label-QA, and machine-label approval. Technical readiness is not training authorization: `training_authorized` remains `false` until a separate accountable approval workflow exists. The v5.6 non-empty visual-group allocation and actionable deficits, plus the v5.5 YOLO × segmentation arbitration and abstention layer, remain active.
+**English:** An on-device system for reliable urban-infrastructure inspection and field metrology. Version 5.8 adds automatic dataset-shift and coverage auditing. After every batch, it extracts bounded, interpretable luminance, saturation, edge, texture, mask-coverage, and geometry features from SHA-256-verified ROIs. A deterministic RBF-MMD permutation test compares the current batch with the historical baseline after excluding current source digests, while nearest-neighbor coverage identifies novel scenes. The audit abstains instead of manufacturing precision when the current batch has fewer than three independent sources or history has fewer than five. The v5.7 cross-session registry and technical/governance readiness axes remain active.
 
 The resilient queue of up to 100 images still performs content deduplication, bounded retry, and per-item failure isolation before batch-scoped governance and cumulative refresh.
 
@@ -18,7 +18,7 @@ Automatic results are reviewable evidence, not hidden ground truth. The synchron
 
 **v2.0 Reliability Engineering / 可靠性工程：** 只有至少两个独立视图在类别和位置上达成共识的检测才能进入风险引擎；单视图高分、跨视图定位不稳定或类别冲突会触发人工复核。每次巡检额外保存 `reliability.json`，并通过 `/api/review-queue` 暴露完全本地的主动学习优先级。 / Only detections supported by at least two independent views can enter the risk engine. Single-view high scores, unstable localization, and class disagreement trigger review. Every inspection adds an immutable `reliability.json`, while `/api/review-queue` exposes a fully local active-learning priority queue.
 
-## v5.7 Quick Start / v5.7 快速启动
+## v5.8 Quick Start / v5.8 快速启动
 
 ```bash
 uv sync --extra dev
@@ -33,13 +33,17 @@ uv run python -m urbanvision_risk.metrology.target --output-name aruco-field-kit
 uv run python -m urbanvision_risk.app.serve --run-name china-repair-mps-003
 ```
 
-The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`. Keep **Autopilot** checked and choose one or more images. After parallel detector and segmentation execution, the page automatically shows cross-channel support, suspected semantic miss, detector-only evidence, spatial disagreement, or inconclusive evidence. Each successful item receives an arbitration record, and `urbanvision-autopilot-batch-v1.3.0` binds those records plus the batch-scoped and cumulative governance references.
+The first command creates auditable measurement artifacts under `results/metrology/metrology-demo-001`. The second creates four exact-size SVG fiducials and a field manifest. The third opens the complete workflow directly at `http://127.0.0.1:8000`. Keep **Autopilot** checked and choose one or more images. Each successful item receives an arbitration record, and `urbanvision-autopilot-batch-v1.4.0` binds those records, batch-scoped governance, the cumulative registry, and `urbanvision-feedback-drift-audit-v1.0.0`.
 
-第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程。保持 **自动驾驶开启**，一次选择一张或多张图片。检测与分割并行结束后，页面自动显示双通道支持、疑似语义漏检、仅检测器证据、空间分歧或无充分证据；每个成功项都生成仲裁记录，`urbanvision-autopilot-batch-v1.3.0` 绑定这些证据、本批次治理引用和跨会话累计引用。端口被占用时使用 `--port 8001`。
+第一条命令生成可审计量测样本；第二条生成四张精确尺寸现场标记；第三条在 `http://127.0.0.1:8000` 打开完整单页流程。保持 **自动驾驶开启**，一次选择一张或多张图片。每个成功项都生成仲裁记录，`urbanvision-autopilot-batch-v1.4.0` 会绑定这些证据、本批次治理、跨会话累计台账与 `urbanvision-feedback-drift-audit-v1.0.0`。端口被占用时使用 `--port 8001`。
 
-The v5.7 curator writes `urbanvision-feedback-curation-v2.3.0`, and snapshot preflight writes `urbanvision-feedback-snapshot-preflight-v1.2.0`. The page displays the exact current-batch scope and an automatically refreshed all-session scope. A 67/67 byte-integrity result can therefore be shown as technically verified while governance remains blocked, instead of being collapsed into the misleading phrase “upstream not ready.”
+The v5.7 curator writes `urbanvision-feedback-curation-v2.3.0`, and snapshot preflight writes `urbanvision-feedback-snapshot-preflight-v1.2.0`. The page displays the exact current-batch scope and an automatically refreshed all-session local feedback registry scope. A 67/67 byte-integrity result can therefore be shown as technically verified while governance remains blocked, instead of being collapsed into the misleading phrase “upstream not ready.”
 
 v5.7 策划器写入 `urbanvision-feedback-curation-v2.3.0`，快照预检写入 `urbanvision-feedback-snapshot-preflight-v1.2.0`。网页同时显示精确的本批次范围与自动刷新的跨会话累计范围。因此“67/67 数据对字节完整”可以诚实显示为技术完整性通过，同时明确标注治理审批未完成，不再被压缩成容易误解的“上游尚未就绪”。
+
+The drift audit is monitoring evidence only. A low p-value says the bounded feature distributions differ; it does not prove concept drift, model-accuracy loss, label correctness, or road danger. `training_authorized` remains `false`.
+
+漂移审计只属于监测证据。较低的 p 值只表示这些有界特征的分布存在差异，不能证明概念漂移、模型准确率下降、标签正确或道路危险；`training_authorized` 仍保持 `false`。
 
 The app and metrology pipeline are local-only. Press `Control+C` to stop a running server. Neither component calls a paid API or cloud runtime.
 

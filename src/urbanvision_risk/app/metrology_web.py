@@ -289,9 +289,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v5.7 · Cumulative dual-axis readiness</p>
+        <p class="eyebrow">v5.8 · Fail-loudly dataset shift monitoring</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>v5.7 会把每次上传自动累积到跨会话本机台账，并分别显示“技术数据是否就绪”和“治理审批是否完成”。本批次不可变证据、YOLO × 分割仲裁、内容去重与训练防火墙继续保留。</span><span data-en class="hidden-lang">v5.7 automatically accumulates every upload into a cross-session local registry and reports technical data readiness separately from governance approval. Immutable batch evidence, YOLO × segmentation arbitration, content deduplication, and the training firewall remain active.</span></p>
+        <p class="hero-copy"><span data-zh>v5.8 会自动比较当前批次与跨会话历史基线，使用确定性 MMD 置换检验和最近邻覆盖率主动暴露分布变化；样本不足时明确拒绝下结论。累计双轴就绪、本批次不可变证据、YOLO × 分割仲裁与训练防火墙继续保留。</span><span data-en class="hidden-lang">v5.8 automatically compares the current batch with the cross-session historical baseline using a deterministic MMD permutation test and nearest-neighbor coverage. It abstains when samples are insufficient. Cumulative dual-axis readiness, immutable batch evidence, YOLO × segmentation arbitration, and the training firewall remain active.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -328,6 +328,7 @@ METROLOGY_HTML = """<!doctype html>
             <div id="batch-list" class="batch-list"></div>
             <div id="batch-result" class="utility-result hidden"></div>
             <div id="cumulative-result" class="utility-result hidden"></div>
+            <div id="drift-result" class="utility-result hidden"></div>
           </section>
         </div>
 
@@ -541,7 +542,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v5.7 · Cumulative Dual-Axis Readiness · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v5.8 · Fail-Loudly Dataset Shift Monitoring · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -649,7 +650,7 @@ METROLOGY_HTML = """<!doctype html>
           batchComplete: "完成",
           batchFailed: "失败，已跳过",
           batchDuplicate: "重复内容，已跳过",
-          batchGovernance: "图片处理结束，正在一次性生成批次策划与 Merkle 快照…",
+          batchGovernance: "图片处理结束，正在生成双范围策划、Merkle 快照与数据漂移审计…",
           batchFinished: "批量自动驾驶完成",
           batchFinishedWithFailures: "批次已完成，部分图片失败但没有中断其他图片",
           batchFinalizeFailed: "图片候选已保存，但批次治理记录生成失败。",
@@ -797,7 +798,7 @@ METROLOGY_HTML = """<!doctype html>
           batchComplete: "Complete",
           batchFailed: "Failed; skipped",
           batchDuplicate: "Duplicate content; skipped",
-          batchGovernance: "Image processing is complete; building one batch curation and Merkle snapshot…",
+          batchGovernance: "Image processing is complete; building dual-scope curation, Merkle snapshots, and the dataset-shift audit…",
           batchFinished: "Batch autopilot complete",
           batchFinishedWithFailures: "Batch complete; some images failed without interrupting the others",
           batchFinalizeFailed: "Image candidates were saved, but finalizing the batch-governance record failed.",
@@ -988,7 +989,11 @@ METROLOGY_HTML = """<!doctype html>
           snapshot_item_limit_exceeded: "数据对数量超过预检上限",
           snapshot_read_budget_exceeded: "成员读取量超过安全上限",
           incomplete_snapshot_pairs: "并非所有候选数据对都通过验证",
-          cross_split_source_content_duplicate: "相同 ROI 字节出现在不同切分"
+          cross_split_source_content_duplicate: "相同 ROI 字节出现在不同切分",
+          insufficient_current_sources_for_drift: "当前批次独立来源不足，不能检验漂移",
+          insufficient_reference_sources_for_drift: "历史独立来源不足，正在自动积累基线",
+          invalid_drift_feature_inputs: "漂移特征输入存在损坏或绑定不一致",
+          drift_read_budget_exceeded: "漂移审计超过本地安全读取预算"
         },
         en: {
           no_quality_passing_candidates: "No quality-passing candidates",
@@ -1015,7 +1020,11 @@ METROLOGY_HTML = """<!doctype html>
           snapshot_item_limit_exceeded: "Pair count exceeds the preflight limit",
           snapshot_read_budget_exceeded: "Member-read budget was exceeded",
           incomplete_snapshot_pairs: "Not every candidate pair passed verification",
-          cross_split_source_content_duplicate: "Identical ROI bytes cross splits"
+          cross_split_source_content_duplicate: "Identical ROI bytes cross splits",
+          insufficient_current_sources_for_drift: "Too few independent current sources for drift testing",
+          insufficient_reference_sources_for_drift: "Too few historical sources; the baseline is still accumulating",
+          invalid_drift_feature_inputs: "Drift inputs are damaged or fail evidence binding",
+          drift_read_budget_exceeded: "Drift audit exceeded the bounded local read budget"
         }
       };
       const tierLabels = {
@@ -2654,6 +2663,7 @@ METROLOGY_HTML = """<!doctype html>
           blockers.length > 0
         );
         renderCumulativeReadiness(payload);
+        renderDriftAudit(payload);
       }
 
       function renderCumulativeReadiness(payload) {
@@ -2704,6 +2714,72 @@ METROLOGY_HTML = """<!doctype html>
             : "Download cumulative snapshot JSON";
           byId("cumulative-result").appendChild(link);
         }
+      }
+
+      function renderDriftAudit(payload) {
+        const audit = payload.drift_audit;
+        if (!audit) return;
+        const samples = audit.samples || {};
+        const current = samples.current || {};
+        const reference = samples.historical_reference || {};
+        const readiness = audit.readiness || {};
+        const blockers = Array.isArray(readiness.blockers)
+          ? readiness.blockers
+          : [];
+        const blockerText = blockers.length
+          ? blockers.map((code) => curationBlockerLabels[language][code] || code).join("；")
+          : (language === "zh" ? "无" : "none");
+        const statistics = audit.statistics;
+        const decision = audit.decision || {};
+        const lines = [
+          language === "zh"
+            ? `当前独立来源: ${Number(current.source_count || 0)} · 历史参考来源: ${Number(reference.source_count || 0)}`
+            : `Current independent sources: ${Number(current.source_count || 0)} · historical reference sources: ${Number(reference.source_count || 0)}`,
+          language === "zh"
+            ? `最低检验要求: 当前 ${Number(decision.minimum_current_sources || 0)} · 历史 ${Number(decision.minimum_reference_sources || 0)}`
+            : `Minimum test sizes: current ${Number(decision.minimum_current_sources || 0)} · historical ${Number(decision.minimum_reference_sources || 0)}`,
+          `${language === "zh" ? "漂移审计阻断" : "Drift-audit blockers"}: ${blockerText}`
+        ];
+        if (statistics) {
+          const coverage = statistics.coverage || {};
+          const topFeatures = (statistics.feature_attribution || [])
+            .slice(0, 3)
+            .map((item) => item.feature)
+            .join(", ");
+          lines.push(
+            `MMD²: ${Number(statistics.mmd_squared || 0).toFixed(6)} · p: ${Number(statistics.p_value || 0).toFixed(4)} · ${language === "zh" ? "置换" : "permutations"}: ${Number(statistics.permutation_count || 0)}`,
+            language === "zh"
+              ? `新颖来源: ${Number(coverage.novel_source_count || 0)}/${Number(current.source_count || 0)} · 覆盖警告: ${decision.coverage_warning ? "是" : "否"}`
+              : `Novel sources: ${Number(coverage.novel_source_count || 0)}/${Number(current.source_count || 0)} · coverage warning: ${decision.coverage_warning ? "yes" : "no"}`,
+            language === "zh"
+              ? `主要变化特征: ${topFeatures || "无"}`
+              : `Top changed features: ${topFeatures || "none"}`
+          );
+        } else {
+          lines.push(
+            language === "zh"
+              ? "统计结论: 样本不足，系统拒绝判断；后续批次会自动继续积累。"
+              : "Statistical conclusion: abstained for insufficient evidence; later batches continue accumulating automatically."
+          );
+        }
+        lines.push(
+          language === "zh"
+            ? "边界: 这是输入分布监测，不是模型准确率、概念漂移证明或道路安全结论。"
+            : "Boundary: this monitors input distribution; it is not model accuracy, proof of concept drift, or a road-safety conclusion."
+        );
+        renderUtilityResult(
+          byId("drift-result"),
+          blockers.length
+            ? (language === "zh" ? "数据漂移审计已拒答" : "Dataset-shift audit abstained")
+            : decision.distribution_shift_detected || decision.coverage_warning
+              ? (language === "zh" ? "数据分布变化警告" : "Dataset distribution warning")
+              : (language === "zh" ? "未检出统计显著漂移" : "No statistically detectable shift"),
+          lines,
+          payload.drift_audit_url,
+          blockers.length > 0 || Boolean(
+            decision.distribution_shift_detected || decision.coverage_warning
+          )
+        );
       }
 
       async function finalizeAutopilotBatch(completedItems, accounting) {

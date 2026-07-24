@@ -62,6 +62,23 @@ MAX_FEEDBACK_SNAPSHOT_TOTAL_BYTES = 512 * 1024 * 1024
 MAX_FEEDBACK_SNAPSHOT_FINDINGS = 500
 MAX_AUTOPILOT_BATCH_IMAGES = 100
 MAX_AUTOPILOT_BATCH_ATTEMPTS = 3
+MAX_DRIFT_ROIS_PER_SOURCE = 8
+MAX_DRIFT_MEMBER_BYTES = 8 * 1024 * 1024
+MAX_DRIFT_TOTAL_BYTES = 128 * 1024 * 1024
+DRIFT_MIN_CURRENT_SOURCES = 3
+DRIFT_MIN_REFERENCE_SOURCES = 5
+DRIFT_PERMUTATIONS = 199
+DRIFT_FEATURE_NAMES = (
+    "luminance_mean",
+    "luminance_std",
+    "saturation_mean",
+    "dark_pixel_ratio",
+    "edge_density",
+    "texture_energy",
+    "entropy_16bin",
+    "mask_foreground_ratio",
+    "landscape_ratio",
+)
 ARBITRATION_CRACK_CODES = frozenset({"D00", "D10", "D20"})
 ARBITRATION_MIN_PROPOSAL_PIXELS = 64
 ARBITRATION_MIN_PROPOSAL_COVERAGE = 0.00005
@@ -989,6 +1006,191 @@ def _readiness_axes(blockers: list[str]) -> dict[str, object]:
             "status": "ready" if not governance_blockers else "blocked",
             "blockers": governance_blockers,
         },
+    }
+
+
+def _drift_feature_vector(
+    source_image: np.ndarray,
+    final_mask: np.ndarray,
+) -> np.ndarray:
+    if source_image.ndim == 2:
+        bgr = cv2.cvtColor(source_image, cv2.COLOR_GRAY2BGR)
+    elif source_image.ndim == 3 and source_image.shape[2] == 4:
+        bgr = cv2.cvtColor(source_image, cv2.COLOR_BGRA2BGR)
+    elif source_image.ndim == 3 and source_image.shape[2] == 3:
+        bgr = source_image
+    else:
+        raise ValueError("source image must be grayscale, BGR, or BGRA")
+    if (
+        final_mask.ndim != 2
+        or final_mask.shape != bgr.shape[:2]
+        or not final_mask.size
+    ):
+        raise ValueError("final mask geometry does not match source image")
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    gray_float = gray.astype(np.float64) / 255.0
+    saturation = hsv[:, :, 1].astype(np.float64) / 255.0
+    edges = cv2.Canny(gray, 50, 150)
+    laplacian = cv2.Laplacian(gray_float, cv2.CV_64F)
+    histogram = np.histogram(
+        gray,
+        bins=16,
+        range=(0, 256),
+    )[0].astype(np.float64)
+    probabilities = histogram / max(1.0, float(histogram.sum()))
+    nonzero = probabilities[probabilities > 0]
+    entropy = (
+        -float(np.sum(nonzero * np.log2(nonzero))) / math.log2(16)
+        if nonzero.size
+        else 0.0
+    )
+    height, width = gray.shape
+    features = np.array(
+        [
+            float(np.mean(gray_float)),
+            float(np.std(gray_float)),
+            float(np.mean(saturation)),
+            float(np.mean(gray_float < 0.20)),
+            float(np.mean(edges > 0)),
+            min(1.0, float(np.var(laplacian)) / 0.10),
+            entropy,
+            float(np.mean(final_mask == 255)),
+            float(width / (width + height)),
+        ],
+        dtype=np.float64,
+    )
+    return np.clip(features, 0.0, 1.0)
+
+
+def _drift_two_sample_statistics(
+    current: np.ndarray,
+    reference: np.ndarray,
+    *,
+    permutations: int = DRIFT_PERMUTATIONS,
+    seed: int = 42,
+) -> dict[str, object]:
+    if (
+        current.ndim != 2
+        or reference.ndim != 2
+        or current.shape[1:] != reference.shape[1:]
+        or current.shape[1] != len(DRIFT_FEATURE_NAMES)
+        or current.shape[0] == 0
+        or reference.shape[0] < 2
+        or isinstance(permutations, bool)
+        or not isinstance(permutations, int)
+        or not 1 <= permutations <= 9_999
+    ):
+        raise ValueError("invalid drift two-sample inputs")
+    combined = np.vstack((current, reference)).astype(np.float64)
+    deltas = combined[:, None, :] - combined[None, :, :]
+    squared_distances = np.sum(deltas * deltas, axis=2)
+    off_diagonal = squared_distances[
+        np.triu_indices(len(combined), k=1)
+    ]
+    positive_distances = off_diagonal[off_diagonal > 0]
+    bandwidth_squared = (
+        float(np.median(positive_distances))
+        if positive_distances.size
+        else 1.0
+    )
+    bandwidth_squared = max(bandwidth_squared, 1e-12)
+    kernel = np.exp(
+        -squared_distances / (2.0 * bandwidth_squared)
+    )
+    current_count = current.shape[0]
+
+    def mmd_squared(indices: np.ndarray) -> float:
+        left = indices[:current_count]
+        right = indices[current_count:]
+        value = (
+            float(np.mean(kernel[np.ix_(left, left)]))
+            + float(np.mean(kernel[np.ix_(right, right)]))
+            - 2.0 * float(np.mean(kernel[np.ix_(left, right)]))
+        )
+        return max(0.0, value)
+
+    observed = mmd_squared(np.arange(len(combined)))
+    generator = np.random.default_rng(seed)
+    exceedance_count = 0
+    for _ in range(permutations):
+        permuted = generator.permutation(len(combined))
+        if mmd_squared(permuted) >= observed - 1e-15:
+            exceedance_count += 1
+    p_value = (exceedance_count + 1) / (permutations + 1)
+
+    reference_deltas = (
+        reference[:, None, :] - reference[None, :, :]
+    )
+    reference_distances = np.sqrt(
+        np.mean(reference_deltas * reference_deltas, axis=2)
+    )
+    np.fill_diagonal(reference_distances, np.inf)
+    reference_nearest = np.min(reference_distances, axis=1)
+    reference_median = float(np.median(reference_nearest))
+    reference_mad = float(
+        np.median(np.abs(reference_nearest - reference_median))
+    )
+    novelty_threshold = max(
+        0.05,
+        reference_median + 3.0 * 1.4826 * reference_mad,
+    )
+    cross_distances = np.sqrt(
+        np.mean(
+            (
+                current[:, None, :]
+                - reference[None, :, :]
+            )
+            ** 2,
+            axis=2,
+        )
+    )
+    current_nearest = np.min(cross_distances, axis=1)
+    novel = current_nearest > novelty_threshold
+    mean_differences = np.mean(current, axis=0) - np.mean(
+        reference,
+        axis=0,
+    )
+    ranked_features = sorted(
+        (
+            {
+                "feature": feature_name,
+                "absolute_mean_difference": round(
+                    abs(float(mean_differences[index])),
+                    8,
+                ),
+                "signed_mean_difference": round(
+                    float(mean_differences[index]),
+                    8,
+                ),
+            }
+            for index, feature_name in enumerate(DRIFT_FEATURE_NAMES)
+        ),
+        key=lambda item: (
+            -float(item["absolute_mean_difference"]),
+            str(item["feature"]),
+        ),
+    )
+    return {
+        "mmd_squared": round(observed, 10),
+        "rbf_bandwidth_squared": round(bandwidth_squared, 10),
+        "permutation_count": permutations,
+        "p_value": round(p_value, 8),
+        "coverage": {
+            "distance": "root_mean_squared_feature_distance",
+            "reference_leave_one_out_median": round(
+                reference_median,
+                8,
+            ),
+            "reference_leave_one_out_mad": round(reference_mad, 8),
+            "novelty_threshold": round(novelty_threshold, 8),
+            "current_nearest_distances": [
+                round(float(value), 8) for value in current_nearest
+            ],
+            "novel_source_count": int(np.count_nonzero(novel)),
+            "novel_source_ratio": round(float(np.mean(novel)), 8),
+        },
+        "feature_attribution": ranked_features,
     }
 
 
@@ -3654,6 +3856,471 @@ class LocalMetrologyService:
             ),
         }
 
+    def _curation_source_feature_records(
+        self,
+        curation: dict[str, object],
+        *,
+        excluded_sources: frozenset[str] = frozenset(),
+    ) -> dict[str, object]:
+        splits = curation.get("splits")
+        if not isinstance(splits, dict):
+            raise _input_error("drift curation splits are invalid")
+        source_items: dict[str, list[dict[str, object]]] = {}
+        for split in CURATION_SPLITS:
+            split_payload = splits.get(split)
+            items = (
+                split_payload.get("items")
+                if isinstance(split_payload, dict)
+                else None
+            )
+            if not isinstance(items, list):
+                raise _input_error(
+                    f"drift curation split {split} has invalid items"
+                )
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                source_sha256 = item.get("source_sha256")
+                if (
+                    not _is_hex_digest(source_sha256, 64)
+                    or source_sha256 in excluded_sources
+                ):
+                    continue
+                source_items.setdefault(
+                    str(source_sha256),
+                    [],
+                ).append(item)
+        packages, invalid_package_count = self._feedback_packages()
+        packages_by_run = {
+            str(package["run_id"]): package for package in packages
+        }
+        records: list[dict[str, object]] = []
+        invalid_item_count = 0
+        truncated_roi_count = 0
+        total_member_bytes = 0
+        read_budget_exceeded = False
+        with ExitStack() as archive_stack:
+            archives: dict[str, zipfile.ZipFile] = {}
+            for source_sha256, raw_items in sorted(source_items.items()):
+                ordered_items = sorted(
+                    raw_items,
+                    key=lambda item: (
+                        str(item.get("run_id")),
+                        int(item.get("rank", 0)),
+                        str(item.get("hotspot_id")),
+                    ),
+                )
+                truncated_roi_count += max(
+                    0,
+                    len(ordered_items) - MAX_DRIFT_ROIS_PER_SOURCE,
+                )
+                feature_vectors: list[np.ndarray] = []
+                evidence_digests: list[str] = []
+                for item in ordered_items[:MAX_DRIFT_ROIS_PER_SOURCE]:
+                    run_id = item.get("run_id")
+                    manifest_sha256 = item.get("manifest_sha256")
+                    files = _curation_file_evidence(item.get("files"))
+                    try:
+                        safe_run_id = validate_run_name(str(run_id))
+                    except ProjectError:
+                        invalid_item_count += 1
+                        continue
+                    package = packages_by_run.get(safe_run_id)
+                    if (
+                        package is None
+                        or package.get("source_sha256") != source_sha256
+                        or package.get("manifest_sha256")
+                        != manifest_sha256
+                        or files is None
+                    ):
+                        invalid_item_count += 1
+                        continue
+                    archive = archives.get(safe_run_id)
+                    if archive is None:
+                        package_path = (
+                            self.paths.metrology
+                            / safe_run_id
+                            / ACTIVE_LEARNING_FEEDBACK_ARTIFACT
+                        )
+                        try:
+                            archive = archive_stack.enter_context(
+                                zipfile.ZipFile(package_path)
+                            )
+                        except (OSError, zipfile.BadZipFile):
+                            invalid_item_count += 1
+                            continue
+                        archives[safe_run_id] = archive
+                    member_infos: dict[str, zipfile.ZipInfo] = {}
+                    for role in ("source_roi", "final_mask"):
+                        try:
+                            info = archive.getinfo(files[role]["path"])
+                        except KeyError:
+                            invalid_item_count += 1
+                            member_infos = {}
+                            break
+                        if (
+                            info.file_size <= 0
+                            or info.file_size > MAX_DRIFT_MEMBER_BYTES
+                        ):
+                            invalid_item_count += 1
+                            member_infos = {}
+                            break
+                        member_infos[role] = info
+                    if len(member_infos) != 2:
+                        continue
+                    pair_bytes = sum(
+                        info.file_size for info in member_infos.values()
+                    )
+                    if (
+                        total_member_bytes + pair_bytes
+                        > MAX_DRIFT_TOTAL_BYTES
+                    ):
+                        read_budget_exceeded = True
+                        break
+                    total_member_bytes += pair_bytes
+                    contents: dict[str, bytes] = {}
+                    content_valid = True
+                    for role, info in member_infos.items():
+                        try:
+                            content = archive.read(info)
+                        except (
+                            OSError,
+                            RuntimeError,
+                            zipfile.BadZipFile,
+                        ):
+                            content_valid = False
+                            break
+                        if _sha256(content) != files[role]["sha256"]:
+                            content_valid = False
+                            break
+                        contents[role] = content
+                    if not content_valid:
+                        invalid_item_count += 1
+                        continue
+                    source_image = cv2.imdecode(
+                        np.frombuffer(
+                            contents["source_roi"],
+                            dtype=np.uint8,
+                        ),
+                        cv2.IMREAD_UNCHANGED,
+                    )
+                    final_mask = cv2.imdecode(
+                        np.frombuffer(
+                            contents["final_mask"],
+                            dtype=np.uint8,
+                        ),
+                        cv2.IMREAD_GRAYSCALE,
+                    )
+                    if (
+                        source_image is None
+                        or final_mask is None
+                        or source_image.shape[:2] != final_mask.shape
+                        or final_mask.size > MAX_FEEDBACK_CROP_PIXELS
+                        or not {
+                            int(value) for value in np.unique(final_mask)
+                        }.issubset({0, 255})
+                    ):
+                        invalid_item_count += 1
+                        continue
+                    try:
+                        feature_vector = _drift_feature_vector(
+                            source_image,
+                            final_mask,
+                        )
+                    except ValueError:
+                        invalid_item_count += 1
+                        continue
+                    feature_vectors.append(feature_vector)
+                    evidence_digests.append(
+                        str(files["source_roi"]["sha256"])
+                    )
+                if feature_vectors:
+                    source_feature = np.mean(
+                        np.vstack(feature_vectors),
+                        axis=0,
+                    )
+                    records.append(
+                        {
+                            "source_sha256": source_sha256,
+                            "roi_count": len(feature_vectors),
+                            "source_roi_sha256s": sorted(
+                                evidence_digests
+                            ),
+                            "feature_vector": [
+                                round(float(value), 8)
+                                for value in source_feature
+                            ],
+                        }
+                    )
+                if read_budget_exceeded:
+                    break
+        return {
+            "records": records,
+            "source_count": len(records),
+            "candidate_source_count": len(source_items),
+            "invalid_item_count": invalid_item_count,
+            "invalid_package_count": invalid_package_count,
+            "truncated_roi_count": truncated_roi_count,
+            "member_bytes_read": total_member_bytes,
+            "read_budget_exceeded": read_budget_exceeded,
+        }
+
+    def create_feedback_drift_audit(
+        self,
+        *,
+        current_curation_id: str,
+        cumulative_curation_id: str,
+        _record_prefix: str = "feedback-drift",
+    ) -> dict[str, object]:
+        safe_current_id = validate_run_name(current_curation_id)
+        safe_cumulative_id = validate_run_name(cumulative_curation_id)
+        if safe_current_id == safe_cumulative_id:
+            raise _input_error(
+                "drift audit requires distinct current and cumulative plans"
+            )
+
+        def read_curation(
+            curation_id: str,
+        ) -> tuple[bytes, dict[str, object]]:
+            path = self.feedback_curation_path(curation_id)
+            try:
+                content = path.read_bytes()
+                loaded = json.loads(content)
+            except (OSError, json.JSONDecodeError) as error:
+                raise _input_error(
+                    f"drift curation {curation_id} cannot be read"
+                ) from error
+            if (
+                not isinstance(loaded, dict)
+                or loaded.get("schema_version")
+                != "urbanvision-feedback-curation-v2.3.0"
+            ):
+                raise _input_error(
+                    f"drift curation {curation_id} has unsupported schema"
+                )
+            return content, loaded
+
+        current_bytes, current_curation = read_curation(safe_current_id)
+        cumulative_bytes, cumulative_curation = read_curation(
+            safe_cumulative_id
+        )
+        current_configuration = current_curation.get("configuration")
+        cumulative_configuration = cumulative_curation.get("configuration")
+        current_scope = (
+            current_configuration.get("scope")
+            if isinstance(current_configuration, dict)
+            else None
+        )
+        cumulative_scope = (
+            cumulative_configuration.get("scope")
+            if isinstance(cumulative_configuration, dict)
+            else None
+        )
+        if (
+            not isinstance(current_scope, dict)
+            or current_scope.get("kind") != "explicit_autopilot_batch"
+            or not isinstance(cumulative_scope, dict)
+            or cumulative_scope.get("kind") != "all_local_feedback"
+        ):
+            raise _input_error(
+                "drift audit scope binding is invalid"
+            )
+        current_splits = current_curation.get("splits")
+        if not isinstance(current_splits, dict):
+            raise _input_error("current drift curation has invalid splits")
+        current_sources = frozenset(
+            str(source)
+            for split in CURATION_SPLITS
+            for source in (
+                current_splits.get(split, {}).get("source_sha256s", [])
+                if isinstance(current_splits.get(split), dict)
+                else []
+            )
+            if _is_hex_digest(source, 64)
+        )
+        current_features = self._curation_source_feature_records(
+            current_curation
+        )
+        reference_features = self._curation_source_feature_records(
+            cumulative_curation,
+            excluded_sources=current_sources,
+        )
+        blockers: list[str] = []
+        if current_features["source_count"] < DRIFT_MIN_CURRENT_SOURCES:
+            blockers.append("insufficient_current_sources_for_drift")
+        if (
+            reference_features["source_count"]
+            < DRIFT_MIN_REFERENCE_SOURCES
+        ):
+            blockers.append("insufficient_reference_sources_for_drift")
+        if (
+            current_features["invalid_item_count"]
+            or reference_features["invalid_item_count"]
+            or current_features["invalid_package_count"]
+            or reference_features["invalid_package_count"]
+        ):
+            blockers.append("invalid_drift_feature_inputs")
+        if (
+            current_features["read_budget_exceeded"]
+            or reference_features["read_budget_exceeded"]
+        ):
+            blockers.append("drift_read_budget_exceeded")
+        statistics: dict[str, object] | None = None
+        shift_detected: bool | None = None
+        coverage_warning: bool | None = None
+        permutation_seed = int(
+            hashlib.sha256(
+                current_bytes + cumulative_bytes
+            ).hexdigest()[:8],
+            16,
+        )
+        if not blockers:
+            current_matrix = np.asarray(
+                [
+                    record["feature_vector"]
+                    for record in current_features["records"]
+                ],
+                dtype=np.float64,
+            )
+            reference_matrix = np.asarray(
+                [
+                    record["feature_vector"]
+                    for record in reference_features["records"]
+                ],
+                dtype=np.float64,
+            )
+            statistics = _drift_two_sample_statistics(
+                current_matrix,
+                reference_matrix,
+                permutations=DRIFT_PERMUTATIONS,
+                seed=permutation_seed,
+            )
+            shift_detected = float(statistics["p_value"]) <= 0.05
+            coverage = statistics.get("coverage")
+            coverage_warning = (
+                isinstance(coverage, dict)
+                and float(coverage["novel_source_ratio"]) >= 0.25
+            )
+        drift_id = validate_run_name(
+            self._record_id_factory(_record_prefix)
+        )
+        payload: dict[str, object] = {
+            "schema_version": "urbanvision-feedback-drift-audit-v1.0.0",
+            "drift_id": drift_id,
+            "created_at_utc": datetime.now(UTC).isoformat(),
+            "local_only": True,
+            "status": (
+                "insufficient_or_invalid_evidence"
+                if blockers
+                else (
+                    "distribution_shift_or_coverage_warning"
+                    if shift_detected or coverage_warning
+                    else "no_statistically_detectable_shift"
+                )
+            ),
+            "training_authorized": False,
+            "bindings": {
+                "current_batch": {
+                    "curation_id": safe_current_id,
+                    "curation_sha256": _sha256(current_bytes),
+                    "scope": "explicit_autopilot_batch",
+                },
+                "historical_reference": {
+                    "curation_id": safe_cumulative_id,
+                    "curation_sha256": _sha256(cumulative_bytes),
+                    "scope": (
+                        "all_local_feedback_excluding_current_source_sha256s"
+                    ),
+                },
+            },
+            "feature_space": {
+                "names": list(DRIFT_FEATURE_NAMES),
+                "aggregation": (
+                    "mean of at most 8 verified ROI feature vectors "
+                    "per exact source"
+                ),
+                "normalization": "each bounded to [0,1]",
+                "representation": (
+                    "auditable image, texture, edge, geometry, and mask "
+                    "summary features; not a learned embedding"
+                ),
+            },
+            "samples": {
+                "current": current_features,
+                "historical_reference": reference_features,
+            },
+            "statistics": statistics,
+            "decision": {
+                "distribution_shift_detected": shift_detected,
+                "coverage_warning": coverage_warning,
+                "alpha": 0.05,
+                "novel_source_ratio_threshold": 0.25,
+                "minimum_current_sources": DRIFT_MIN_CURRENT_SOURCES,
+                "minimum_reference_sources": (
+                    DRIFT_MIN_REFERENCE_SOURCES
+                ),
+            },
+            "readiness": {
+                "blockers": blockers,
+                "status": "ready" if not blockers else "blocked",
+                "monitoring_only": True,
+                "does_not_change_training_authorization": True,
+            },
+            "configuration": {
+                "permutations": DRIFT_PERMUTATIONS,
+                "permutation_seed": permutation_seed,
+                "max_rois_per_source": MAX_DRIFT_ROIS_PER_SOURCE,
+                "member_byte_limit": MAX_DRIFT_MEMBER_BYTES,
+                "total_read_budget": MAX_DRIFT_TOTAL_BYTES,
+            },
+            "method_references": [
+                {
+                    "name": "A Kernel Two-Sample Test",
+                    "url": "https://www.jmlr.org/papers/v13/gretton12a.html",
+                    "role": "MMD definition and kernel two-sample testing",
+                },
+                {
+                    "name": "Failing Loudly",
+                    "url": (
+                        "https://papers.nips.cc/paper_files/paper/2019/"
+                        "hash/846c260d715e5b854ffad5f70a516c88-"
+                        "Abstract.html"
+                    ),
+                    "role": (
+                        "Dataset-shift detection and fail-loudly framing"
+                    ),
+                },
+                {
+                    "name": "NIST AI RMF Measure",
+                    "url": "https://airc.nist.gov/airmf-resources/playbook/measure/",
+                    "role": (
+                        "Operational monitoring and shift-warning boundary"
+                    ),
+                },
+            ],
+            "claim_boundary": (
+                "This audit detects differences in bounded handcrafted "
+                "feedback features. It does not prove concept drift, model "
+                "performance loss, label correctness, field safety, or "
+                "training authorization. Small samples force abstention"
+            ),
+        }
+        path = (
+            self.paths.metrology
+            / "drift-audits"
+            / f"{drift_id}.json"
+        )
+        with self._write_lock:
+            self._write_json_exclusive(path, payload)
+        return {
+            "local_only": True,
+            "drift_audit": payload,
+            "drift_audit_url": (
+                f"/api/metrology/feedback-drift-audits/"
+                f"{drift_id}.json"
+            ),
+        }
+
     def finalize_autopilot_batch(
         self,
         *,
@@ -3891,6 +4558,15 @@ class LocalMetrologyService:
             raise RuntimeError(
                 "cumulative autopilot snapshot did not return a record"
             )
+        drift_result = self.create_feedback_drift_audit(
+            current_curation_id=curation_id,
+            cumulative_curation_id=cumulative_curation_id,
+        )
+        drift_audit = drift_result["drift_audit"]
+        if not isinstance(drift_audit, dict):
+            raise RuntimeError(
+                "autopilot drift audit did not return a record"
+            )
         batch_id = validate_run_name(
             self._record_id_factory("autopilot-batch")
         )
@@ -3928,7 +4604,7 @@ class LocalMetrologyService:
         if not isinstance(cumulative_splits, dict):
             raise RuntimeError("cumulative splits are not an object")
         payload: dict[str, object] = {
-            "schema_version": "urbanvision-autopilot-batch-v1.3.0",
+            "schema_version": "urbanvision-autopilot-batch-v1.4.0",
             "batch_id": batch_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "local_only": True,
@@ -4003,6 +4679,15 @@ class LocalMetrologyService:
                 "governance": cumulative_readiness.get("governance"),
                 "training_authorized": False,
             },
+            "distribution_monitoring": {
+                "automatically_refreshed": True,
+                "drift_id": drift_audit.get("drift_id"),
+                "drift_audit_url": drift_result["drift_audit_url"],
+                "status": drift_audit.get("status"),
+                "readiness": drift_audit.get("readiness"),
+                "decision": drift_audit.get("decision"),
+                "monitoring_only": True,
+            },
             "configuration": {
                 "seed": seed,
                 "minimum_unique_sources": minimum_unique_sources,
@@ -4054,6 +4739,8 @@ class LocalMetrologyService:
             "cumulative_snapshot_url": (
                 cumulative_snapshot_result["snapshot_url"]
             ),
+            "drift_audit": drift_audit,
+            "drift_audit_url": drift_result["drift_audit_url"],
         }
 
     def create_evidence_arbitration(
@@ -4839,6 +5526,24 @@ class LocalMetrologyService:
                 "The feedback-snapshot preflight does not exist",
                 "检查快照编号，或重新运行数据快照预检",
                 "Check the snapshot ID or run snapshot preflight again",
+                safe_id,
+            )
+        return path
+
+    def feedback_drift_audit_path(self, drift_id: str) -> Path:
+        safe_id = validate_run_name(drift_id)
+        path = (
+            self.paths.metrology
+            / "drift-audits"
+            / f"{safe_id}.json"
+        )
+        if not path.is_file():
+            raise ProjectError(
+                "E201",
+                "反馈数据漂移审计不存在",
+                "The feedback drift-audit record does not exist",
+                "检查漂移审计编号，或重新运行批量自动巡检",
+                "Check the drift-audit ID or rerun batch autopilot",
                 safe_id,
             )
         return path

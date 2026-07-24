@@ -57,7 +57,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="4.6.0",
+        version="4.7.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -129,6 +129,7 @@ def create_app(
         payload["ranked_hotspot_review"] = True
         payload["synchronized_review_loupe"] = True
         payload["auditable_hotspot_dispositions"] = True
+        payload["active_learning_feedback_export"] = True
         return payload
 
     @app.get("/api/review-queue")
@@ -307,6 +308,7 @@ def create_app(
             ".jpg": "image/jpeg",
             ".png": "image/png",
             ".json": "application/json",
+            ".zip": "application/zip",
         }.get(path.suffix.lower(), "application/octet-stream")
         return FileResponse(path, media_type=media_type, filename=path.name)
 

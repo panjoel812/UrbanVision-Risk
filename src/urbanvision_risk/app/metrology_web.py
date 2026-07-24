@@ -274,9 +274,9 @@ METROLOGY_HTML = """<!doctype html>
     </nav>
     <section class="hero">
       <div>
-        <p class="eyebrow">v4.6 · Auditable hotspot dispositions</p>
+        <p class="eyebrow">v4.7 · Active-learning feedback export</p>
         <h1><span data-zh>上传一次，自动巡检到<br>可验证的真实量测。</span><span data-en class="hidden-lang">One upload, from inspection<br>to verifiable measurement.</span></h1>
-        <p class="hero-copy"><span data-zh>每个黄色分歧目标都进入同步放大窗；修订后可记录“接受候选、误检已删除、漏检已补画或暂缓跟进”，把操作员判断、备注和优先级覆盖率保存为可审计证据。</span><span data-en class="hidden-lang">Each yellow disagreement target opens in a synchronized loupe. After review, record accepted proposal, removed false positive, added missed crack, or deferred follow-up, preserving the operator decision, note, and priority coverage as audit evidence.</span></p>
+        <p class="hero-copy"><span data-zh>每个黄色分歧目标都进入同步放大复核；保存后自动打包原图 ROI、候选/最终掩膜、分歧层、处置结论和 SHA-256 清单，把人工纠错连接到下一轮数据治理与模型训练。</span><span data-en class="hidden-lang">Each yellow disagreement target enters synchronized review. Saving automatically packages source ROIs, proposal/final masks, disagreement layers, dispositions, and a SHA-256 manifest, connecting human correction to the next governed data and training cycle.</span></p>
       </div>
       <aside class="demo-callout">
         <p><span data-zh>第一次使用？先运行内置标定样本，不需要上传或画图。</span><span data-en class="hidden-lang">First time here? Run the calibrated built-in sample—no upload or drawing required.</span></p>
@@ -455,6 +455,11 @@ METROLOGY_HTML = """<!doctype html>
             </div>
             <p id="decision" class="decision">—</p>
             <div id="evidence" class="evidence"></div>
+            <div id="feedback-panel" class="utility-result hidden">
+              <strong><span data-zh>主动学习反馈包已就绪</span><span data-en class="hidden-lang">Active-learning feedback package ready</span></strong>
+              <p><span data-zh>包含已处置热点的原图 ROI、候选掩膜、最终掩膜、分歧层和带 SHA-256 的清单，仅保存在本机。</span><span data-en class="hidden-lang">Contains source ROIs, proposal masks, final masks, disagreement layers, and a SHA-256 manifest for dispositioned hotspots; stored locally only.</span></p>
+              <a id="feedback-download" class="download-link" href="" download><span data-zh>下载反馈 ZIP</span><span data-en class="hidden-lang">Download feedback ZIP</span></a>
+            </div>
             <div class="practical-grid">
               <section class="utility-panel">
                 <h3><span data-zh>材料与成本规划</span><span data-en class="hidden-lang">Material and cost planning</span></h3>
@@ -496,7 +501,7 @@ METROLOGY_HTML = """<!doctype html>
       </aside>
     </div>
   </main>
-  <footer class="shell">UrbanVision-Risk v4.6 · Auditable Dispositions + Synchronized Review · Fully local / 完全本地</footer>
+  <footer class="shell">UrbanVision-Risk v4.7 · Active-Learning Feedback + Audited Review · Fully local / 完全本地</footer>
 
   <script>
     (() => {
@@ -606,6 +611,7 @@ METROLOGY_HTML = """<!doctype html>
           awaitingDecision: "尚未记录处置结论。",
           decisionRecorded: "已记录",
           decisionCoverage: "处置优先级覆盖",
+          feedbackItems: "主动学习反馈样本",
           loupeToolRequired: "放大窗只用于画笔或橡皮；请先切换工具。",
           pointsRequired: "手动标定需要依次点击 TL、TR、BR、BL 四个点。",
           measuring: "正在本机提取骨架、构建图结构并计算不确定性…",
@@ -705,6 +711,7 @@ METROLOGY_HTML = """<!doctype html>
           awaitingDecision: "No disposition has been recorded yet.",
           decisionRecorded: "Recorded",
           decisionCoverage: "Disposition priority coverage",
+          feedbackItems: "Active-learning feedback items",
           loupeToolRequired: "The loupe accepts Brush or Eraser; switch tools first.",
           pointsRequired: "Manual calibration needs TL, TR, BR, and BL clicks in order.",
           measuring: "Extracting the skeleton, graph, geometry, and uncertainty locally…",
@@ -1819,6 +1826,10 @@ METROLOGY_HTML = """<!doctype html>
         addEvidence(t("fractal"), topology.box_counting_dimension);
         const maskEvidence = inputEvidence && inputEvidence.mask;
         const revision = maskEvidence && maskEvidence.proposal_revision;
+        const feedbackUrl = payload.artifacts["active-learning-feedback.zip"];
+        byId("feedback-panel").classList.toggle("hidden", !feedbackUrl);
+        if (feedbackUrl) byId("feedback-download").href = feedbackUrl;
+        else byId("feedback-download").removeAttribute("href");
         if (revision) {
           addEvidence(t("humanAdded"), revision.human_added_pixels);
           addEvidence(t("humanRemoved"), revision.human_removed_pixels);
@@ -1830,6 +1841,7 @@ METROLOGY_HTML = """<!doctype html>
             addEvidence(t("priorityCoverage"), `${(Number(hotspotReview.ranked_priority_coverage_ratio || 0) * 100).toFixed(1)}%`);
             addEvidence(t("decidedHotspots"), `${hotspotReview.decided_hotspot_count}/${hotspotReview.ranked_hotspot_count}`);
             addEvidence(t("decisionCoverage"), `${(Number(hotspotReview.ranked_decision_priority_coverage_ratio || 0) * 100).toFixed(1)}%`);
+            if (feedbackUrl) addEvidence(t("feedbackItems"), hotspotReview.decided_hotspot_count);
           }
         }
         const calibration = measurement.run && measurement.run.input_evidence && measurement.run.input_evidence.calibration;

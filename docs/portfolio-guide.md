@@ -1,10 +1,10 @@
 # Portfolio and Interview Guide / 简历与面试表达
 
-## What makes v4.6 different / v4.6 的差异化
+## What makes v4.7 different / v4.7 的差异化
 
-Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v4.6 links detection, reliability, metrology, operator review, and structured dispositions. Its review layer ranks parameter disagreement, transforms loupe pointers into original-image pixels, and records why each target was accepted, corrected, or deferred. The service validates decision IDs and taxonomy before storing completion and priority-weighted coverage in immutable evidence.
+Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v4.7 closes an additional MLOps loop: server-validated operator dispositions become bounded, content-addressed feedback examples. A deterministic ZIP binds source/proposal/final/disagreement ROI layers to the immutable measurement digest, making false positives and misses directly usable for governed relabeling and future training-candidate selection.
 
-许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v4.6 把检测、可靠性、量测、操作员复核和结构化处置连接起来：系统排序参数分歧，把放大视口指针变换为原图像素，并记录每个目标为何被接受、修正或暂缓。服务端会校验热点编号和处置分类，再把完成率与优先级加权覆盖率写入不可变证据。
+许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v4.7 进一步闭合 MLOps 环路：服务端校验后的操作员处置会成为有界、内容寻址的反馈样本。确定性 ZIP 把原图/候选/最终/分歧 ROI 与不可变量测摘要绑定，使误检与漏检可以直接进入受治理的再标注和未来训练候选筛选。
 
 ## Resume bullets / 简历要点
 
@@ -17,6 +17,7 @@ Use only metrics you can reproduce. A concise English version:
 - Engineered a human-in-the-loop review layer that perturbs proposal sensitivity at three levels, ranks connected disagreement regions into a bounded operator worklist, and audits inspected IDs, priority-weighted coverage, immutable hashes, pixel deltas, and IoU.
 - Implemented a synchronized ROI loupe with aspect-preserving viewport math, CSS-to-canvas-to-source coordinate transforms, direct high-magnification brush/eraser editing, shared undo history, and original-resolution evidence output.
 - Added a server-validated operator-disposition workflow that automatically attributes loupe edits, captures bounded notes, rejects unknown hotspot IDs or decision categories, and audits decision completion and priority-weighted coverage.
+- Built a deterministic active-learning export that packages bounded source/proposal/final/disagreement ROI layers, per-file SHA-256 evidence, measurement binding, privacy boundaries, and reproducible ZIP metadata for governed error analysis.
 - Shipped the model as a loopback-only FastAPI product with bilingual UI, MPS inference, optional local Ollama narratives, privacy headers, structured failure recovery, and a comprehensive automated test suite.
 
 中文版本：
@@ -28,6 +29,7 @@ Use only metrics you can reproduce. A concise English version:
 - 设计人机协同复核层，在三个灵敏度下扰动候选算法，把连通分歧区域排序为有上限的操作员工作清单，并审计检查编号、优先影响覆盖率、不可变摘要、像素增删量与 IoU。
 - 实现同步 ROI 放大编辑器，包括保持宽高比的视口计算、CSS—Canvas—原图坐标变换、高倍率画笔/橡皮修订、共享撤销历史与原分辨率证据输出。
 - 加入服务端严格校验的操作员处置工作流，自动归因放大窗修订、保存限长备注、拒绝未知热点编号或处置类别，并审计决策完成率与优先级加权覆盖率。
+- 构建确定性主动学习导出，把有界原图/候选/最终/分歧 ROI、逐文件 SHA-256、量测绑定、隐私边界和可复现 ZIP 元数据打包，用于受治理的误差分析。
 - 使用 FastAPI 交付仅监听本机回环地址的双语产品，支持 Apple MPS、本地 Ollama 可选说明、隐私响应头、结构化故障恢复与完整自动化测试。
 
 ## Interview deep-dive / 面试追问

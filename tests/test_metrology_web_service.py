@@ -1,5 +1,7 @@
+import hashlib
 import io
 import json
+import zipfile
 from pathlib import Path
 
 import cv2
@@ -7,7 +9,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from urbanvision_risk.app.metrology_service import LocalMetrologyService
+from urbanvision_risk.app.metrology_service import (
+    LocalMetrologyService,
+    _bounded_feedback_layers,
+    _deterministic_zip_bytes,
+)
 from urbanvision_risk.errors import ProjectError
 from urbanvision_risk.paths import get_paths
 
@@ -27,6 +33,47 @@ def _straight_sample(end_x: int = 350) -> tuple[bytes, bytes]:
     cv2.line(mask, (50, 110), (end_x, 110), 255, 11)
     source[mask > 0] = 28
     return _encode_image(source), _encode_image(mask)
+
+
+def test_active_learning_feedback_layers_are_size_bounded() -> None:
+    source = np.full((1200, 1200, 3), 128, dtype=np.uint8)
+    proposal = np.zeros((1200, 1200), dtype=np.uint8)
+    final = proposal.copy()
+    disagreement = proposal.copy()
+
+    exported = _bounded_feedback_layers(
+        source,
+        proposal,
+        final,
+        disagreement,
+    )
+
+    exported_source, exported_proposal, exported_final, exported_disagreement, scale = (
+        exported
+    )
+    assert scale < 1
+    assert exported_source.shape[0] * exported_source.shape[1] <= 512_000
+    assert exported_proposal.shape == exported_source.shape[:2]
+    assert exported_final.shape == exported_source.shape[:2]
+    assert exported_disagreement.shape == exported_source.shape[:2]
+
+
+def test_active_learning_feedback_zip_is_deterministic_and_sorted() -> None:
+    entries = {
+        "items/02/data.txt": b"second",
+        "items/01/data.txt": b"first",
+    }
+
+    first = _deterministic_zip_bytes(entries)
+    second = _deterministic_zip_bytes(entries)
+
+    assert first == second
+    with zipfile.ZipFile(io.BytesIO(first)) as archive:
+        assert archive.namelist() == sorted(entries)
+        assert all(
+            info.date_time == (1980, 1, 1, 0, 0, 0)
+            for info in archive.infolist()
+        )
 
 
 def _textured_crack_source() -> bytes:
@@ -383,6 +430,41 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
         abs=1e-8,
     )
     assert 0 < review["ranked_decision_priority_coverage_ratio"] <= 1
+    feedback_name = "active-learning-feedback.zip"
+    assert result["artifacts"][feedback_name].endswith(feedback_name)
+    feedback_path = service.artifact_path(result["run_id"], feedback_name)
+    with zipfile.ZipFile(feedback_path) as archive:
+        names = set(archive.namelist())
+        manifest_bytes = archive.read("manifest.json")
+        manifest = json.loads(manifest_bytes)
+        assert manifest["schema_version"] == (
+            "urbanvision-active-learning-feedback-v1.0.0"
+        )
+        assert manifest["item_count"] == 2
+        assert manifest["source_sha256"] == proposal["evidence"]["source"]["sha256"]
+        measurement_bytes = (
+            feedback_path.parent / "measurement.json"
+        ).read_bytes()
+        assert manifest["measurement_sha256"] == hashlib.sha256(
+            measurement_bytes
+        ).hexdigest()
+        assert manifest["items"][0]["disposition"] == "accepted_as_proposed"
+        assert manifest["items"][0]["note"] == "No correction required"
+        assert manifest["items"][1]["disposition"] == "deferred_for_follow_up"
+        for item in manifest["items"]:
+            export = item["export_crop"]
+            assert export["export_width"] * export["export_height"] <= 512_000
+            for file_evidence in item["files"].values():
+                path = file_evidence["path"]
+                assert path in names
+                assert hashlib.sha256(archive.read(path)).hexdigest() == (
+                    file_evidence["sha256"]
+                )
+        assert all(
+            info.date_time == (1980, 1, 1, 0, 0, 0)
+            for info in archive.infolist()
+        )
+        assert "/Users/" not in manifest_bytes.decode("utf-8")
 
 
 def test_aruco_web_calibration_preserves_detection_quality(tmp_path: Path) -> None:

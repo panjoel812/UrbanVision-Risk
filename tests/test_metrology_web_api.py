@@ -32,6 +32,8 @@ class InspectionStub:
 class MetrologyStub:
     def __init__(self, artifact: Path) -> None:
         self.artifact = artifact
+        self.feedback = artifact.with_name("active-learning-feedback.zip")
+        self.feedback.write_bytes(b"active-learning-feedback")
         self.analyze_arguments: dict[str, Any] | None = None
         self.plan_arguments: dict[str, Any] | None = None
         self.compare_arguments: dict[str, Any] | None = None
@@ -58,8 +60,13 @@ class MetrologyStub:
         }
 
     def artifact_path(self, run_id: str, artifact_name: str) -> Path:
-        if run_id != "metrology-web-001" or artifact_name != "overlay.jpg":
+        if run_id != "metrology-web-001" or artifact_name not in {
+            "overlay.jpg",
+            "active-learning-feedback.zip",
+        }:
             raise ProjectError("E201", "文件不存在", "Missing", "检查", "Check")
+        if artifact_name == "active-learning-feedback.zip":
+            return self.feedback
         return self.artifact
 
     def propose_mask_bytes(self, **kwargs: Any) -> dict[str, object]:
@@ -211,12 +218,15 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="decision-add"' in response.text
     assert 'id="decision-defer"' in response.text
     assert 'id="hotspot-note"' in response.text
+    assert 'id="feedback-panel"' in response.text
+    assert 'id="feedback-download"' in response.text
     assert "calculateLoupeViewport" in response.text
     assert "loupeCanvasPosition" in response.text
     assert "synchronized_hotspot_loupe" in response.text
     assert "recordHotspotDecision" in response.text
     assert "false_positive_removed" in response.text
     assert "missed_crack_added" in response.text
+    assert "active-learning-feedback.zip" in response.text
     assert 'hotspotLoupe.addEventListener("pointerdown"' in response.text
     assert 'id="inspection-section"' in response.text
     assert 'id="narrative-button"' in response.text
@@ -310,12 +320,16 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["ranked_hotspot_review"] is True
     assert health.json()["synchronized_review_loupe"] is True
     assert health.json()["auditable_hotspot_dispositions"] is True
+    assert health.json()["active_learning_feedback_export"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
     client, metrology = _client(tmp_path)
 
     artifact = client.get("/api/metrology/runs/metrology-web-001/overlay.jpg")
+    feedback = client.get(
+        "/api/metrology/runs/metrology-web-001/active-learning-feedback.zip"
+    )
     missing_form = client.post("/api/metrology/analyze")
     metrology.failure = ProjectError(
         "E506",
@@ -336,6 +350,9 @@ def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
     assert artifact.status_code == 200
     assert artifact.content == b"metrology-overlay"
     assert artifact.headers["content-type"] == "image/jpeg"
+    assert feedback.status_code == 200
+    assert feedback.content == b"active-learning-feedback"
+    assert feedback.headers["content-type"] == "application/zip"
     assert missing_form.status_code == 422
     assert missing_form.json()["error"]["code"] == "E506"
     assert invalid.status_code == 422

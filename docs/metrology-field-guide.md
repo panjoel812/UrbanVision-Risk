@@ -1,4 +1,4 @@
-# UrbanVision-Risk v4.6 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v4.7 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -152,6 +152,20 @@ The browser submits decisions in queue order. The service independently validate
 The disposition describes what the operator did or concluded during this review. It is not an automatic truth label, engineering diagnosis, repair order, or proof that deferred targets are safe.
 
 处置只描述操作员在本次复核中的操作或结论，不是自动真值标签、工程诊断、维修工单，也不能证明暂缓目标是安全的。
+
+### Active-learning feedback package / 主动学习反馈包
+
+When a saved human review contains at least one structured disposition, Version 4.7 creates `active-learning-feedback.zip` beside `measurement.json`. Each dispositioned target contains four aligned PNGs: the source ROI, immutable proposal mask, final reviewed mask, and sensitivity-disagreement layer. The crop adds 15% context with an eight-pixel minimum and is proportionally reduced when it exceeds 512,000 pixels; masks always use nearest-neighbour resizing.
+
+当保存的人工复核至少包含一项结构化处置时，v4.7 会在 `measurement.json` 旁生成 `active-learning-feedback.zip`。每个已处置目标包含四张对齐 PNG：原图 ROI、不可变候选掩膜、最终复核掩膜和灵敏度分歧层。裁剪增加 15% 上下文且至少 8 像素；超过 512,000 像素时等比例缩小，掩膜始终采用最近邻缩放。
+
+`manifest.json` records original and exported crop geometry, scale, rank, priority, disposition, optional note, and SHA-256 for every PNG. It also binds the package to the source and immutable measurement digests. ZIP entries use fixed timestamps and sorted paths, so identical entry content produces reproducible archive bytes. No absolute path is stored.
+
+`manifest.json` 记录原始和导出裁剪几何、比例、排名、优先级、处置、可选备注以及每张 PNG 的 SHA-256，并把反馈包绑定到源图和不可变量测摘要。ZIP 成员使用固定时间戳和排序路径，因此相同成员内容能产生可复现压缩包；不会保存绝对路径。
+
+This package is a candidate pool for separately governed relabeling, error analysis, and future training—not an automatic training set. Source ROIs may contain people, vehicles, licence plates, or location cues, so a dataset owner must apply privacy review, split control, deduplication, and label QA before training.
+
+该反馈包只是供独立治理的再标注、误差分析和未来训练候选池，不是可以直接训练的自动数据集。原图 ROI 可能包含人员、车辆、车牌或地点线索；训练前必须由数据负责人执行隐私复核、数据划分控制、去重和标签质检。
 
 Images larger than two million pixels are processed on a downsampled work raster and the binary proposal is restored to the exact source resolution. This bounds memory and runtime without sending pixels to a cloud service. The sensitivity slider changes proposal recall; it is not a calibrated probability or YOLO confidence.
 

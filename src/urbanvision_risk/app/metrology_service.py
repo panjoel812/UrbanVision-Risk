@@ -6,6 +6,7 @@ import json
 import math
 import secrets
 import threading
+import zipfile
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,6 +44,8 @@ HOTSPOT_DISPOSITIONS = frozenset(
     }
 )
 MAX_HOTSPOT_NOTE_CHARS = 160
+ACTIVE_LEARNING_FEEDBACK_ARTIFACT = "active-learning-feedback.zip"
+MAX_FEEDBACK_CROP_PIXELS = 512_000
 COMPARISON_ARTIFACTS = frozenset({"change-map.png"})
 PROPOSAL_ARTIFACTS = frozenset(
     {"proposal-mask.png", "review-hotspots.png", "evidence.json"}
@@ -60,6 +63,7 @@ METROLOGY_ARTIFACTS = frozenset(
         "rectified-width-heatmap.png",
         "rectified-overlay.jpg",
         "measurement.json",
+        ACTIVE_LEARNING_FEEDBACK_ARTIFACT,
     }
 )
 
@@ -245,6 +249,85 @@ def _hotspot_decisions(value: str | None) -> list[dict[str, str]]:
         result.append(decision)
         seen_ids.add(hotspot_id)
     return result
+
+
+def _png_bytes(image: np.ndarray, label: str) -> bytes:
+    encoded_ok, encoded = cv2.imencode(".png", image)
+    if not encoded_ok:
+        raise ProjectError(
+            "E504",
+            "主动学习图像编码失败",
+            "Encoding an active-learning image failed",
+            "保留量测结果并重新运行",
+            "Keep the measurement and rerun",
+            label,
+        )
+    return encoded.tobytes()
+
+
+def _feedback_crop_bounds(
+    bounding_box: dict[str, object],
+    image_shape: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    try:
+        x = float(bounding_box["x"])
+        y = float(bounding_box["y"])
+        width = float(bounding_box["width"])
+        height = float(bounding_box["height"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise _input_error("ranked hotspot bounding box is malformed") from error
+    if not all(math.isfinite(value) for value in (x, y, width, height)):
+        raise _input_error("ranked hotspot bounding box is not finite")
+    if width <= 0 or height <= 0:
+        raise _input_error("ranked hotspot bounding box is empty")
+    image_height, image_width = image_shape
+    padding = max(8, math.ceil(max(width, height) * 0.15))
+    x0 = max(0, math.floor(x) - padding)
+    y0 = max(0, math.floor(y) - padding)
+    x1 = min(image_width, math.ceil(x + width) + padding)
+    y1 = min(image_height, math.ceil(y + height) + padding)
+    if x1 <= x0 or y1 <= y0:
+        raise _input_error("ranked hotspot crop is outside the source image")
+    return x0, y0, x1, y1
+
+
+def _bounded_feedback_layers(
+    source: np.ndarray,
+    proposal: np.ndarray,
+    final: np.ndarray,
+    disagreement: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
+    height, width = source.shape[:2]
+    scale = min(1.0, math.sqrt(MAX_FEEDBACK_CROP_PIXELS / (height * width)))
+    if scale == 1.0:
+        return source, proposal, final, disagreement, scale
+    target_width = max(1, math.floor(width * scale))
+    target_height = max(1, math.floor(height * scale))
+    size = (target_width, target_height)
+    return (
+        cv2.resize(source, size, interpolation=cv2.INTER_AREA),
+        cv2.resize(proposal, size, interpolation=cv2.INTER_NEAREST),
+        cv2.resize(final, size, interpolation=cv2.INTER_NEAREST),
+        cv2.resize(disagreement, size, interpolation=cv2.INTER_NEAREST),
+        scale,
+    )
+
+
+def _deterministic_zip_bytes(entries: dict[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(
+        buffer,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=9,
+    ) as archive:
+        for name in sorted(entries):
+            member = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            member.compress_type = zipfile.ZIP_DEFLATED
+            member.create_system = 3
+            member.external_attr = 0o644 << 16
+            archive.writestr(member, entries[name])
+    return buffer.getvalue()
 
 
 def _calibration(
@@ -998,6 +1081,228 @@ class LocalMetrologyService:
             ),
         }
 
+    def _active_learning_feedback_bytes(
+        self,
+        *,
+        run_id: str,
+        output_dir: Path,
+        proposal_id: str,
+        source_sha256: str,
+        source_image: np.ndarray,
+        final_mask: np.ndarray,
+        hotspot_decisions: list[dict[str, str]],
+    ) -> bytes:
+        safe_proposal_id = validate_run_name(proposal_id)
+        proposal_dir = self.paths.metrology / "proposals" / safe_proposal_id
+        try:
+            evidence = json.loads(
+                (proposal_dir / "evidence.json").read_text(encoding="utf-8")
+            )
+            proposal_bytes = (proposal_dir / "proposal-mask.png").read_bytes()
+            disagreement_bytes = (
+                proposal_dir / "review-hotspots.png"
+            ).read_bytes()
+            measurement_bytes = (output_dir / "measurement.json").read_bytes()
+        except (OSError, json.JSONDecodeError) as error:
+            raise _input_error(
+                f"proposal {safe_proposal_id} cannot produce feedback"
+            ) from error
+        proposal_image = cv2.imdecode(
+            np.frombuffer(proposal_bytes, dtype=np.uint8),
+            cv2.IMREAD_GRAYSCALE,
+        )
+        disagreement_image = cv2.imdecode(
+            np.frombuffer(disagreement_bytes, dtype=np.uint8),
+            cv2.IMREAD_GRAYSCALE,
+        )
+        expected_shape = final_mask.shape
+        if (
+            proposal_image is None
+            or disagreement_image is None
+            or proposal_image.shape != expected_shape
+            or disagreement_image.shape != expected_shape
+            or source_image.shape[:2] != expected_shape
+        ):
+            raise _input_error(
+                f"proposal {safe_proposal_id} feedback layers do not align"
+            )
+        source = evidence.get("source") if isinstance(evidence, dict) else None
+        if not isinstance(source, dict) or source.get("sha256") != source_sha256:
+            raise _input_error(
+                f"proposal {safe_proposal_id} feedback source digest differs"
+            )
+        review_guidance = (
+            evidence.get("review_guidance") if isinstance(evidence, dict) else None
+        )
+        ranking = (
+            review_guidance.get("ranking")
+            if isinstance(review_guidance, dict)
+            else None
+        )
+        ranked_hotspots = (
+            ranking.get("ranked_hotspots") if isinstance(ranking, dict) else None
+        )
+        if not isinstance(ranked_hotspots, list):
+            raise _input_error(
+                f"proposal {safe_proposal_id} has no ranked feedback targets"
+            )
+        decisions_by_id = {
+            decision["hotspot_id"]: decision for decision in hotspot_decisions
+        }
+        entries: dict[str, bytes] = {
+            "README.txt": (
+                "UrbanVision-Risk active-learning feedback package\n"
+                "UrbanVision-Risk 主动学习反馈包\n\n"
+                "Each item contains one source ROI, the immutable proposal mask, "
+                "the final reviewed mask, and the sensitivity-disagreement layer.\n"
+                "每项包含原图 ROI、不可变候选掩膜、最终人工复核掩膜和灵敏度分歧层。\n\n"
+                "Operator dispositions are workflow observations, not ground truth, "
+                "engineering diagnoses, repair orders, or road-safety labels.\n"
+                "操作员处置是工作流观察，不是真值、工程诊断、维修工单或道路安全标签。\n"
+            ).encode()
+        }
+        manifest_items: list[dict[str, object]] = []
+        for hotspot in ranked_hotspots:
+            if not isinstance(hotspot, dict):
+                continue
+            hotspot_id = hotspot.get("hotspot_id")
+            if not isinstance(hotspot_id, str) or hotspot_id not in decisions_by_id:
+                continue
+            safe_hotspot_id = validate_run_name(hotspot_id)
+            bounding_box = hotspot.get("bounding_box")
+            if not isinstance(bounding_box, dict):
+                raise _input_error(
+                    f"proposal {safe_proposal_id} hotspot {safe_hotspot_id} has no box"
+                )
+            x0, y0, x1, y1 = _feedback_crop_bounds(
+                bounding_box,
+                expected_shape,
+            )
+            source_crop = source_image[y0:y1, x0:x1]
+            proposal_crop = proposal_image[y0:y1, x0:x1]
+            final_crop = np.where(final_mask[y0:y1, x0:x1], 255, 0).astype(
+                np.uint8
+            )
+            disagreement_crop = disagreement_image[y0:y1, x0:x1]
+            (
+                source_crop,
+                proposal_crop,
+                final_crop,
+                disagreement_crop,
+                export_scale,
+            ) = _bounded_feedback_layers(
+                source_crop,
+                proposal_crop,
+                final_crop,
+                disagreement_crop,
+            )
+            rank = int(hotspot.get("rank", len(manifest_items) + 1))
+            item_root = f"items/{rank:02d}-{safe_hotspot_id}"
+            item_files = {
+                "source_roi": (
+                    f"{item_root}/source.png",
+                    _png_bytes(source_crop, f"{safe_hotspot_id}/source"),
+                ),
+                "proposal_mask": (
+                    f"{item_root}/proposal-mask.png",
+                    _png_bytes(proposal_crop, f"{safe_hotspot_id}/proposal"),
+                ),
+                "final_mask": (
+                    f"{item_root}/final-mask.png",
+                    _png_bytes(final_crop, f"{safe_hotspot_id}/final"),
+                ),
+                "disagreement_layer": (
+                    f"{item_root}/review-hotspots.png",
+                    _png_bytes(
+                        disagreement_crop,
+                        f"{safe_hotspot_id}/disagreement",
+                    ),
+                ),
+            }
+            file_evidence: dict[str, object] = {}
+            for role, (path, content) in item_files.items():
+                entries[path] = content
+                file_evidence[role] = {
+                    "path": path,
+                    "sha256": _sha256(content),
+                }
+            decision = decisions_by_id[hotspot_id]
+            manifest_items.append(
+                {
+                    "hotspot_id": hotspot_id,
+                    "rank": rank,
+                    "disposition": decision["disposition"],
+                    **(
+                        {"note": decision["note"]}
+                        if decision.get("note")
+                        else {}
+                    ),
+                    "source_bounding_box": bounding_box,
+                    "export_crop": {
+                        "x": x0,
+                        "y": y0,
+                        "width": x1 - x0,
+                        "height": y1 - y0,
+                        "scale": round(export_scale, 8),
+                        "export_width": int(source_crop.shape[1]),
+                        "export_height": int(source_crop.shape[0]),
+                    },
+                    "priority_score": hotspot.get("priority_score"),
+                    "disagreement_pixels": hotspot.get("disagreement_pixels"),
+                    "candidate_overlap_ratio": hotspot.get(
+                        "candidate_overlap_ratio"
+                    ),
+                    "files": file_evidence,
+                }
+            )
+        if len(manifest_items) != len(hotspot_decisions):
+            missing = sorted(
+                set(decisions_by_id)
+                - {str(item["hotspot_id"]) for item in manifest_items}
+            )
+            raise _input_error(
+                "active-learning feedback is missing ranked hotspots: "
+                + ", ".join(missing)
+            )
+        disposition_counts = {
+            disposition: sum(
+                item["disposition"] == disposition for item in manifest_items
+            )
+            for disposition in sorted(HOTSPOT_DISPOSITIONS)
+        }
+        manifest = {
+            "schema_version": "urbanvision-active-learning-feedback-v1.0.0",
+            "run_id": run_id,
+            "proposal_id": safe_proposal_id,
+            "source_sha256": source_sha256,
+            "measurement_sha256": _sha256(measurement_bytes),
+            "item_count": len(manifest_items),
+            "disposition_counts": disposition_counts,
+            "items": manifest_items,
+            "privacy": (
+                "Local-only export; source ROIs may contain identifiable people, "
+                "vehicles, or locations and require dataset governance"
+            ),
+            "intended_use": (
+                "Human review, relabeling, error analysis, and candidate selection "
+                "for a separately governed future training dataset"
+            ),
+            "claim_boundary": (
+                "Operator dispositions are not automatic ground truth, engineering "
+                "diagnoses, repair orders, or road-safety labels"
+            ),
+        }
+        entries["manifest.json"] = (
+            json.dumps(
+                manifest,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode()
+        return _deterministic_zip_bytes(entries)
+
     def analyze_bytes(
         self,
         *,
@@ -1105,6 +1410,20 @@ class LocalMetrologyService:
                 segmentation_radius_pixels=segmentation_radius_pixels,
                 paths=self.paths,
             )
+            if proposal_id and parsed_hotspot_decisions:
+                feedback_bytes = self._active_learning_feedback_bytes(
+                    run_id=run_id,
+                    output_dir=output_dir,
+                    proposal_id=proposal_id,
+                    source_sha256=source_digest,
+                    source_image=source_image,
+                    final_mask=mask,
+                    hotspot_decisions=parsed_hotspot_decisions,
+                )
+                self._write_bytes_exclusive(
+                    output_dir / ACTIVE_LEARNING_FEEDBACK_ARTIFACT,
+                    feedback_bytes,
+                )
         return self._response(run_id, output_dir)
 
     def demo(self) -> dict[str, object]:

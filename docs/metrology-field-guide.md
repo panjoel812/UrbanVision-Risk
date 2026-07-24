@@ -1,4 +1,4 @@
-# UrbanVision-Risk v4.8 Field Metrology / 现场裂缝量测
+# UrbanVision-Risk v4.9 Field Metrology / 现场裂缝量测
 
 ## What changed / 这次升级解决什么
 
@@ -180,6 +180,20 @@ Each source ROI also receives a deterministic 64-bit difference hash. Equal hash
 `GET /api/metrology/feedback-catalog?limit=100` reads only bounded `manifest.json` members and aggregates package count, item count, unique source digests, disposition distribution, quality states, malformed-package count, and duplicate-fingerprint groups. The endpoint never extracts source PNGs and remains loopback-only. Its counts support triage; they are not training-readiness certification.
 
 `GET /api/metrology/feedback-catalog?limit=100` 只读取有大小上限的 `manifest.json`，聚合反馈包数、样本数、唯一源图摘要、处置分布、质量状态、格式错误包数量和重复指纹组。接口不会解压原图 PNG，并且只监听本机回环地址。这些计数用于分流，不是训练就绪认证。
+
+### Leakage-safe candidate curation / 防泄漏候选数据策划
+
+`POST /api/metrology/feedback-curations` creates an immutable candidate plan from at most 100 local package manifests. Only `quality_gate.status == "pass"` is eligible. Warning, deferred, unknown, and malformed candidates are counted and excluded. Equal 64-bit difference fingerprints retain one representative by descending priority and deterministic run/hotspot tie-breaks; no source ZIP is modified or deleted.
+
+`POST /api/metrology/feedback-curations` 从至多 100 个本地反馈包清单生成不可覆盖的候选策划。只有 `quality_gate.status == "pass"` 可以入选；警告、暂缓、未知和格式错误候选都会计数并排除。相同 64 位差分指纹按优先级降序及确定性的运行/热点规则只保留一个代表；原始 ZIP 不会被修改或删除。
+
+The assignment unit is the complete `source_sha256` group, never an individual ROI. A seeded greedy allocator approximates the requested train/validation/test ratios while guaranteeing that one source digest cannot cross splits. The JSON records all three pairwise source intersections, so the guarantee is machine-verifiable. This protects against same-file leakage; it cannot prove that two different files do not show the same physical location.
+
+分配单位是完整的 `source_sha256` 组，而不是单个 ROI。带种子的贪心分配器在逼近训练/验证/测试比例时，保证同一源图摘要不会跨切分。JSON 记录三个两两源图交集，因此该保证可以机器验证。它能防止同一文件泄漏，但不能证明两个不同文件没有拍摄同一实际地点。
+
+The plan stays `not_training_ready` when it has too few independent sources, an empty split, pending privacy or label review, malformed packages, a truncated inventory, or a failed overlap audit. Even with no blocker, its status is `candidate_plan_requires_training_approval` and `training_authorized` remains `false`. A separate accountable decision is required before materialization or training.
+
+当独立原图不足、任一切分为空、隐私或标签复核待完成、存在损坏反馈包、清单被截断或交集审计失败时，策划保持 `not_training_ready`。即使没有阻断项，其状态也只是 `candidate_plan_requires_training_approval`，且 `training_authorized` 始终为 `false`；真正落盘为数据集或训练前仍需单独的责任审批。
 
 Images larger than two million pixels are processed on a downsampled work raster and the binary proposal is restored to the exact source resolution. This bounds memory and runtime without sending pixels to a cloud service. The sensitivity slider changes proposal recall; it is not a calibrated probability or YOLO confidence.
 

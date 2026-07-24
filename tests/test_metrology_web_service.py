@@ -11,7 +11,9 @@ from PIL import Image
 
 from urbanvision_risk.app.metrology_service import (
     LocalMetrologyService,
+    _assign_curation_groups,
     _bounded_feedback_layers,
+    _curation_ratios,
     _deterministic_zip_bytes,
     _difference_hash64,
     _feedback_quality_gate,
@@ -111,6 +113,126 @@ def test_feedback_quality_gate_and_fingerprint_are_deterministic() -> None:
     gradient = np.tile(np.arange(40, dtype=np.uint8), (40, 1))
     assert _difference_hash64(gradient) == _difference_hash64(gradient.copy())
     assert len(_difference_hash64(gradient)) == 16
+
+
+def test_feedback_curation_group_assignment_is_deterministic_and_leakage_safe() -> None:
+    ratios = _curation_ratios(0.8, 0.1, 0.1)
+    groups = {
+        f"{index:064x}": [
+            {
+                "source_sha256": f"{index:064x}",
+                "run_id": f"run-{index:03d}",
+                "rank": 1,
+                "hotspot_id": f"hotspot-{index:03d}",
+            }
+        ]
+        for index in range(10)
+    }
+
+    first = _assign_curation_groups(groups, ratios, seed=42)
+    second = _assign_curation_groups(groups, ratios, seed=42)
+
+    assert first == second
+    assert {split: len(items) for split, items in first.items()} == {
+        "train": 8,
+        "val": 1,
+        "test": 1,
+    }
+    source_splits: dict[str, set[str]] = {}
+    for split, items in first.items():
+        for item in items:
+            source_splits.setdefault(str(item["source_sha256"]), set()).add(split)
+    assert all(len(splits) == 1 for splits in source_splits.values())
+    with pytest.raises(ProjectError, match="ratios sum"):
+        _curation_ratios(0.8, 0.15, 0.1)
+
+
+def test_feedback_curation_requires_separate_approval_after_all_gates_pass(
+    tmp_path: Path,
+) -> None:
+    paths = get_paths(tmp_path)
+    feedback_name = "active-learning-feedback.zip"
+    for index in range(10):
+        run_id = f"feedback-source-{index:03d}"
+        run_dir = paths.metrology / run_id
+        run_dir.mkdir(parents=True)
+        item_root = f"items/01-hotspot-{index:03d}"
+        file_digest = f"{index + 100:064x}"
+        manifest = {
+            "schema_version": "urbanvision-active-learning-feedback-v1.1.0",
+            "run_id": run_id,
+            "proposal_id": f"proposal-{index:03d}",
+            "created_at_utc": f"2026-07-24T00:00:{index:02d}+00:00",
+            "source_sha256": f"{index + 1:064x}",
+            "items": [
+                {
+                    "hotspot_id": f"hotspot-{index:03d}",
+                    "rank": 1,
+                    "disposition": "accepted_as_proposed",
+                    "priority_score": float(100 - index),
+                    "source_roi_difference_hash64": f"{index + 1:016x}",
+                    "quality_gate": {"status": "pass"},
+                    "source_bounding_box": {
+                        "x": 1,
+                        "y": 2,
+                        "width": 30,
+                        "height": 40,
+                    },
+                    "export_crop": {
+                        "x": 0,
+                        "y": 0,
+                        "width": 36,
+                        "height": 48,
+                        "scale": 1.0,
+                        "export_width": 36,
+                        "export_height": 48,
+                    },
+                    "files": {
+                        role: {
+                            "path": f"{item_root}/{role}.png",
+                            "sha256": file_digest,
+                        }
+                        for role in (
+                            "source_roi",
+                            "proposal_mask",
+                            "final_mask",
+                            "disagreement_layer",
+                        )
+                    },
+                }
+            ],
+        }
+        (run_dir / feedback_name).write_bytes(
+            _deterministic_zip_bytes(
+                {
+                    "manifest.json": (
+                        json.dumps(manifest, sort_keys=True) + "\n"
+                    ).encode()
+                }
+            )
+        )
+    service = LocalMetrologyService(
+        paths=paths,
+        record_id_factory=lambda prefix: f"{prefix}-governed-001",
+    )
+
+    result = service.create_feedback_curation(
+        seed=42,
+        minimum_unique_sources=10,
+        privacy_review_confirmed=True,
+        label_qa_confirmed=True,
+    )
+    curation = result["curation"]
+
+    assert curation["status"] == "candidate_plan_requires_training_approval"
+    assert curation["training_authorized"] is False
+    assert curation["readiness"]["blockers"] == []
+    assert curation["selection"]["selected_item_count"] == 10
+    assert {
+        split: curation["splits"][split]["item_count"]
+        for split in ("train", "val", "test")
+    } == {"train": 8, "val": 1, "test": 1}
+    assert curation["leakage_audit"]["passed"] is True
 
 
 def _textured_crack_source() -> bytes:
@@ -539,6 +661,50 @@ def test_ranked_hotspot_review_progress_is_validated_and_audited(
     assert catalog["quality_counts"]["deferred"] == 1
     assert catalog["duplicate_fingerprint_group_count"] >= 1
     assert catalog["duplicate_fingerprint_item_count"] >= 2
+    curation_result = service.create_feedback_curation(
+        seed=42,
+        minimum_unique_sources=1,
+    )
+    curation = curation_result["curation"]
+    assert curation["curation_id"] == "feedback-curation-ranked-001"
+    assert curation["status"] == "not_training_ready"
+    assert curation["training_authorized"] is False
+    assert curation["selection"]["candidate_count_before_deduplication"] == 2
+    assert curation["selection"]["selected_item_count"] == 1
+    assert curation["selection"]["unique_source_count"] == 1
+    assert curation["selection"]["exclusion_counts"] == {
+        "quality_warning": 0,
+        "deferred": 1,
+        "quality_unknown": 0,
+        "invalid_candidate": 0,
+        "duplicate_fingerprint": 1,
+    }
+    assert curation["splits"]["train"]["item_count"] == 1
+    assert curation["splits"]["val"]["item_count"] == 0
+    assert curation["splits"]["test"]["item_count"] == 0
+    assert curation["leakage_audit"]["passed"] is True
+    assert curation["leakage_audit"]["source_overlaps"] == {
+        "train_val": [],
+        "train_test": [],
+        "val_test": [],
+    }
+    assert set(curation["readiness"]["blockers"]) >= {
+        "empty_val_split",
+        "empty_test_split",
+        "privacy_review_pending",
+        "label_qa_pending",
+        "invalid_feedback_packages_present",
+    }
+    curation_path = service.feedback_curation_path(
+        "feedback-curation-ranked-001"
+    )
+    assert curation_path.is_file()
+    assert curation_result["curation_url"].endswith(
+        "/feedback-curation-ranked-001.json"
+    )
+    assert "/Users/" not in curation_path.read_text(encoding="utf-8")
+    assert feedback_path.is_file()
+    assert (duplicate_dir / feedback_name).is_file()
 
 
 def test_aruco_web_calibration_preserves_detection_quality(tmp_path: Path) -> None:

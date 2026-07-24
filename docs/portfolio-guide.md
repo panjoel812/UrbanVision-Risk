@@ -1,10 +1,10 @@
 # Portfolio and Interview Guide / 简历与面试表达
 
-## What makes v4.8 different / v4.8 的差异化
+## What makes v4.9 different / v4.9 的差异化
 
-Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v4.8 adds a pre-training governance layer: ROI pixel deltas are checked against operator semantics, difference hashes surface duplicate candidates, and a bounded local registry aggregates quality status across immutable feedback packages. It demonstrates that an MLOps loop needs data-quality controls, not only an export button.
+Many public road-damage projects combine RDD2022, one YOLO checkpoint, and an upload page. UrbanVision-Risk v4.9 implements a defensible pre-training governance boundary: it checks operator semantics against ROI pixel deltas, filters non-passing feedback, deduplicates the candidate plan without deleting evidence, assigns complete source-image groups to deterministic splits, audits every pairwise source intersection, and refuses to authorize training. This demonstrates leakage control and accountable dataset readiness, not merely model inference or an export button.
 
-许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v4.8 增加训练前治理层：用 ROI 像素差检查操作员语义，用差分指纹暴露重复候选，再通过有上限的本地台账聚合不可变反馈包的质量状态。这说明 MLOps 闭环需要数据质量控制，而不只是一个导出按钮。
+许多公开道路检测项目只是 RDD2022、一个 YOLO 权重和上传页面。UrbanVision-Risk v4.9 实现了可辩护的训练前治理边界：用 ROI 像素差核对操作员语义，过滤未通过反馈，在不删除证据的前提下对候选策划去重，把完整源图组确定性分配到不同切分，审计所有两两源图交集，并拒绝自动授权训练。这展示的是泄漏控制与可问责的数据就绪判断，而不只是模型推理或导出按钮。
 
 ## Resume bullets / 简历要点
 
@@ -19,6 +19,7 @@ Use only metrics you can reproduce. A concise English version:
 - Added a server-validated operator-disposition workflow that automatically attributes loupe edits, captures bounded notes, rejects unknown hotspot IDs or decision categories, and audits decision completion and priority-weighted coverage.
 - Built a deterministic active-learning export that packages bounded source/proposal/final/disagreement ROI layers, per-file SHA-256 evidence, measurement binding, privacy boundaries, and reproducible ZIP metadata for governed error analysis.
 - Implemented pre-training feedback quality gates and a bounded local registry, validating disposition-to-pixel consistency, surfacing duplicate ROI fingerprints, and aggregating package/source/quality statistics without extracting private data to cloud services.
+- Engineered leakage-safe feedback curation with immutable inventory digests, quality filtering, deterministic perceptual-fingerprint deduplication, source-grouped 80/10/10 allocation, pairwise source-overlap audits, and explicit privacy/label/readiness blockers.
 - Shipped the model as a loopback-only FastAPI product with bilingual UI, MPS inference, optional local Ollama narratives, privacy headers, structured failure recovery, and a comprehensive automated test suite.
 
 中文版本：
@@ -32,6 +33,7 @@ Use only metrics you can reproduce. A concise English version:
 - 加入服务端严格校验的操作员处置工作流，自动归因放大窗修订、保存限长备注、拒绝未知热点编号或处置类别，并审计决策完成率与优先级加权覆盖率。
 - 构建确定性主动学习导出，把有界原图/候选/最终/分歧 ROI、逐文件 SHA-256、量测绑定、隐私边界和可复现 ZIP 元数据打包，用于受治理的误差分析。
 - 实现训练前反馈质量门控与有上限的本地台账，校验处置—像素一致性、暴露重复 ROI 指纹并聚合反馈包/来源/质量统计，且不把隐私数据提取到云端。
+- 实现防泄漏反馈策划：不可变清单摘要、质量筛选、确定性感知指纹去重、按源图分组的 80/10/10 分配、两两源图交集审计，以及明确的隐私/标签/就绪阻断项。
 - 使用 FastAPI 交付仅监听本机回环地址的双语产品，支持 Apple MPS、本地 Ollama 可选说明、隐私响应头、结构化故障恢复与完整自动化测试。
 
 ## Interview deep-dive / 面试追问
@@ -49,6 +51,9 @@ Be prepared to explain these decisions:
 9. Why graph-edge length is different from counting skeleton pixels.
 10. Why the reported interval is a sensitivity envelope rather than a certified confidence interval.
 11. Why sensitivity disagreement is useful for review triage but cannot be interpreted as calibrated epistemic or aleatoric uncertainty.
+12. Why ROI-level random splitting leaks source texture and scene context, and why `source_sha256` must be the indivisible assignment group.
+13. Why a perceptual-hash match is a curation signal rather than identity proof, and why the original ZIP evidence must remain untouched.
+14. Why privacy and label-QA confirmations still do not constitute automatic training authorization.
 
 准备回答：为什么不取最高置信度、镜像一致性有什么局限、为什么聚类必须限制每个视图只贡献一次、主动学习如何形成数据闭环、为什么零检测不能解释为安全、为什么框不能量测裂缝宽度、单应性何时失效、骨架像素数为什么不等于测地长度，以及敏感性区间为什么不是认证置信区间。
 

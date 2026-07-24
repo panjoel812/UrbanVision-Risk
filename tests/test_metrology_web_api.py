@@ -40,6 +40,7 @@ class MetrologyStub:
         self.proposal_arguments: dict[str, Any] | None = None
         self.failure: ProjectError | None = None
         self.feedback_catalog_limit: int | None = None
+        self.feedback_curation_arguments: dict[str, Any] | None = None
 
     def demo(self) -> dict[str, object]:
         return {
@@ -147,6 +148,25 @@ class MetrologyStub:
             "packages": [],
         }
 
+    def create_feedback_curation(self, **kwargs: Any) -> dict[str, object]:
+        self.feedback_curation_arguments = kwargs
+        return {
+            "local_only": True,
+            "curation": {
+                "curation_id": "feedback-curation-001",
+                "status": "not_training_ready",
+                "training_authorized": False,
+            },
+            "curation_url": (
+                "/api/metrology/feedback-curations/feedback-curation-001.json"
+            ),
+        }
+
+    def feedback_curation_path(self, curation_id: str) -> Path:
+        if curation_id != "feedback-curation-001":
+            raise ProjectError("E201", "不存在", "Missing", "检查", "Check")
+        return self.artifact
+
     def create_maintenance_plan(
         self,
         run_id: str,
@@ -240,6 +260,10 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert 'id="feedback-panel"' in response.text
     assert 'id="feedback-download"' in response.text
     assert 'id="feedback-catalog-summary"' in response.text
+    assert 'id="curation-button"' in response.text
+    assert 'id="curation-privacy"' in response.text
+    assert 'id="curation-label-qa"' in response.text
+    assert 'id="curation-result"' in response.text
     assert "calculateLoupeViewport" in response.text
     assert "loupeCanvasPosition" in response.text
     assert "synchronized_hotspot_loupe" in response.text
@@ -248,7 +272,9 @@ def test_precision_lab_page_contains_the_complete_local_workflow(tmp_path: Path)
     assert "missed_crack_added" in response.text
     assert "active-learning-feedback.zip" in response.text
     assert "/api/metrology/feedback-catalog?limit=100" in response.text
+    assert "/api/metrology/feedback-curations" in response.text
     assert "loadFeedbackCatalog" in response.text
+    assert "createFeedbackCuration" in response.text
     assert 'hotspotLoupe.addEventListener("pointerdown"' in response.text
     assert 'id="inspection-section"' in response.text
     assert 'id="narrative-button"' in response.text
@@ -344,6 +370,7 @@ def test_demo_and_analyze_api_contracts(tmp_path: Path) -> None:
     assert health.json()["auditable_hotspot_dispositions"] is True
     assert health.json()["active_learning_feedback_export"] is True
     assert health.json()["feedback_quality_registry"] is True
+    assert health.json()["leakage_safe_feedback_curation"] is True
 
 
 def test_artifact_and_bilingual_error_responses(tmp_path: Path) -> None:
@@ -387,6 +414,18 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
 
     runs = client.get("/api/metrology/runs?limit=12")
     feedback_catalog = client.get("/api/metrology/feedback-catalog?limit=25")
+    feedback_curation = client.post(
+        "/api/metrology/feedback-curations",
+        data={
+            "seed": "7",
+            "train_ratio": "0.7",
+            "val_ratio": "0.2",
+            "test_ratio": "0.1",
+            "minimum_unique_sources": "12",
+            "privacy_review_confirmed": "true",
+            "label_qa_confirmed": "false",
+        },
+    )
     plan = client.post(
         "/api/metrology/runs/metrology-web-001/maintenance-plan",
         data={
@@ -408,6 +447,9 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
         },
     )
     downloaded_plan = client.get("/api/metrology/runs/metrology-web-001/plans/maintenance-001.json")
+    downloaded_curation = client.get(
+        "/api/metrology/feedback-curations/feedback-curation-001.json"
+    )
     downloaded_comparison = client.get("/api/metrology/comparisons/comparison-001.json")
     downloaded_change_map = client.get("/api/metrology/comparisons/comparison-001/change-map.png")
 
@@ -416,6 +458,17 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     assert feedback_catalog.status_code == 200
     assert feedback_catalog.json()["item_count"] == 2
     assert metrology.feedback_catalog_limit == 25
+    assert feedback_curation.status_code == 200
+    assert feedback_curation.json()["curation"]["training_authorized"] is False
+    assert metrology.feedback_curation_arguments == {
+        "seed": 7,
+        "train_ratio": 0.7,
+        "val_ratio": 0.2,
+        "test_ratio": 0.1,
+        "minimum_unique_sources": 12,
+        "privacy_review_confirmed": True,
+        "label_qa_confirmed": False,
+    }
     assert plan.status_code == 200
     assert metrology.plan_arguments == {
         "run_id": "metrology-web-001",
@@ -435,6 +488,8 @@ def test_planning_and_comparison_api_contracts(tmp_path: Path) -> None:
     }
     assert downloaded_plan.status_code == 200
     assert downloaded_plan.headers["content-type"] == "application/json"
+    assert downloaded_curation.status_code == 200
+    assert downloaded_curation.headers["content-type"] == "application/json"
     assert downloaded_comparison.status_code == 200
     assert downloaded_comparison.headers["content-type"] == "application/json"
     assert downloaded_change_map.status_code == 200

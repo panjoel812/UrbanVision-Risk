@@ -57,7 +57,7 @@ def create_app(
     )
     app = FastAPI(
         title="UrbanVision-Risk Local API",
-        version="4.8.0",
+        version="4.9.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -131,6 +131,7 @@ def create_app(
         payload["auditable_hotspot_dispositions"] = True
         payload["active_learning_feedback_export"] = True
         payload["feedback_quality_registry"] = True
+        payload["leakage_safe_feedback_curation"] = True
         return payload
 
     @app.get("/api/review-queue")
@@ -240,6 +241,37 @@ def create_app(
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
     ) -> dict[str, object]:
         return active_metrology.feedback_catalog(limit=limit)
+
+    @app.post("/api/metrology/feedback-curations")
+    async def metrology_feedback_curation(
+        seed: Annotated[int, Form()] = 42,
+        train_ratio: Annotated[float, Form()] = 0.8,
+        val_ratio: Annotated[float, Form()] = 0.1,
+        test_ratio: Annotated[float, Form()] = 0.1,
+        minimum_unique_sources: Annotated[int, Form()] = 10,
+        privacy_review_confirmed: Annotated[bool, Form()] = False,
+        label_qa_confirmed: Annotated[bool, Form()] = False,
+    ) -> dict[str, object]:
+        return active_metrology.create_feedback_curation(
+            seed=seed,
+            train_ratio=train_ratio,
+            val_ratio=val_ratio,
+            test_ratio=test_ratio,
+            minimum_unique_sources=minimum_unique_sources,
+            privacy_review_confirmed=privacy_review_confirmed,
+            label_qa_confirmed=label_qa_confirmed,
+        )
+
+    @app.get("/api/metrology/feedback-curations/{curation_id}.json")
+    async def metrology_feedback_curation_record(
+        curation_id: str,
+    ) -> FileResponse:
+        path = active_metrology.feedback_curation_path(curation_id)
+        return FileResponse(
+            path,
+            media_type="application/json",
+            filename=path.name,
+        )
 
     @app.post("/api/metrology/runs/{run_id}/maintenance-plan")
     async def metrology_maintenance_plan(

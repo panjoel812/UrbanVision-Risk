@@ -48,6 +48,13 @@ ACTIVE_LEARNING_FEEDBACK_ARTIFACT = "active-learning-feedback.zip"
 MAX_FEEDBACK_CROP_PIXELS = 512_000
 MAX_FEEDBACK_CATALOG_PACKAGES = 100
 MAX_FEEDBACK_MANIFEST_BYTES = 2 * 1024 * 1024
+CURATION_SPLITS = ("train", "val", "test")
+FEEDBACK_FILE_ROLES = (
+    "source_roi",
+    "proposal_mask",
+    "final_mask",
+    "disagreement_layer",
+)
 COMPARISON_ARTIFACTS = frozenset({"change-map.png"})
 PROPOSAL_ARTIFACTS = frozenset(
     {"proposal-mask.png", "review-hotspots.png", "evidence.json"}
@@ -395,7 +402,7 @@ def _deterministic_zip_bytes(entries: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
-def _feedback_manifest(path: Path) -> dict[str, object]:
+def _feedback_manifest(path: Path) -> tuple[dict[str, object], str]:
     try:
         with zipfile.ZipFile(path) as archive:
             info = archive.getinfo("manifest.json")
@@ -403,7 +410,8 @@ def _feedback_manifest(path: Path) -> dict[str, object]:
                 raise ValueError(
                     f"feedback manifest bytes={info.file_size}"
                 )
-            payload = json.loads(archive.read(info).decode("utf-8"))
+            raw = archive.read(info)
+            payload = json.loads(raw.decode("utf-8"))
     except (
         KeyError,
         OSError,
@@ -415,7 +423,97 @@ def _feedback_manifest(path: Path) -> dict[str, object]:
         raise _input_error(f"feedback package {path.name} is malformed") from error
     if not isinstance(payload, dict):
         raise _input_error(f"feedback package {path.name} manifest is not an object")
-    return payload
+    return payload, _sha256(raw)
+
+
+def _curation_ratios(
+    train_ratio: float,
+    val_ratio: float,
+    test_ratio: float,
+) -> dict[str, float]:
+    ratios: dict[str, float] = {}
+    for split, value in zip(
+        CURATION_SPLITS,
+        (train_ratio, val_ratio, test_ratio),
+        strict=True,
+    ):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise _input_error(f"{split}_ratio={value!r}")
+        ratio = float(value)
+        if not math.isfinite(ratio) or not 0 < ratio < 1:
+            raise _input_error(f"{split}_ratio={value!r}")
+        ratios[split] = ratio
+    if not math.isclose(sum(ratios.values()), 1.0, abs_tol=1e-9):
+        raise _input_error(f"curation ratios sum={sum(ratios.values())!r}")
+    return ratios
+
+
+def _is_hex_digest(value: object, length: int) -> bool:
+    if not isinstance(value, str) or len(value) != length:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
+
+
+def _curation_file_evidence(
+    value: object,
+) -> dict[str, dict[str, str]] | None:
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, dict[str, str]] = {}
+    for role in FEEDBACK_FILE_ROLES:
+        evidence = value.get(role)
+        if not isinstance(evidence, dict):
+            return None
+        path = evidence.get("path")
+        digest = evidence.get("sha256")
+        if (
+            not isinstance(path, str)
+            or not path.startswith("items/")
+            or "\\" in path
+            or ".." in path.split("/")
+            or not _is_hex_digest(digest, 64)
+        ):
+            return None
+        result[role] = {"path": path, "sha256": str(digest)}
+    return result
+
+
+def _assign_curation_groups(
+    groups: dict[str, list[dict[str, object]]],
+    ratios: dict[str, float],
+    seed: int,
+) -> dict[str, list[dict[str, object]]]:
+    """Assign whole source groups while approximating requested item ratios."""
+    total_items = sum(len(items) for items in groups.values())
+    targets = {
+        split: total_items * ratios[split]
+        for split in CURATION_SPLITS
+    }
+    assigned = {split: [] for split in CURATION_SPLITS}
+    counts = {split: 0 for split in CURATION_SPLITS}
+    ordered_groups = sorted(
+        groups.items(),
+        key=lambda entry: (
+            -len(entry[1]),
+            hashlib.sha256(f"{seed}:{entry[0]}".encode()).hexdigest(),
+            entry[0],
+        ),
+    )
+    for _, items in ordered_groups:
+        split = max(
+            CURATION_SPLITS,
+            key=lambda candidate: (
+                targets[candidate] - counts[candidate],
+                -CURATION_SPLITS.index(candidate),
+            ),
+        )
+        assigned[split].extend(items)
+        counts[split] += len(items)
+    return assigned
 
 
 def _calibration(
@@ -1552,9 +1650,7 @@ class LocalMetrologyService:
                 )
         return self._response(run_id, output_dir)
 
-    def feedback_catalog(self, *, limit: int = 50) -> dict[str, object]:
-        if not 1 <= limit <= MAX_FEEDBACK_CATALOG_PACKAGES:
-            raise _input_error(f"feedback catalog limit={limit}")
+    def _feedback_packages(self) -> tuple[list[dict[str, object]], int]:
         packages: list[dict[str, object]] = []
         invalid_package_count = 0
         if self.paths.metrology.is_dir():
@@ -1564,7 +1660,7 @@ class LocalMetrologyService:
                     continue
                 try:
                     run_id = validate_run_name(run_dir.name)
-                    manifest = _feedback_manifest(package_path)
+                    manifest, manifest_sha256 = _feedback_manifest(package_path)
                 except ProjectError:
                     invalid_package_count += 1
                     continue
@@ -1579,6 +1675,7 @@ class LocalMetrologyService:
                         "created_at_utc": manifest.get("created_at_utc"),
                         "source_sha256": manifest.get("source_sha256"),
                         "schema_version": manifest.get("schema_version"),
+                        "manifest_sha256": manifest_sha256,
                         "items": [item for item in items if isinstance(item, dict)],
                         "feedback_url": (
                             f"/api/metrology/runs/{run_id}/"
@@ -1593,6 +1690,12 @@ class LocalMetrologyService:
             ),
             reverse=True,
         )
+        return packages, invalid_package_count
+
+    def feedback_catalog(self, *, limit: int = 50) -> dict[str, object]:
+        if not 1 <= limit <= MAX_FEEDBACK_CATALOG_PACKAGES:
+            raise _input_error(f"feedback catalog limit={limit}")
+        packages, invalid_package_count = self._feedback_packages()
         available_package_count = len(packages)
         returned_packages = packages[:limit]
         disposition_counts = {
@@ -1695,6 +1798,331 @@ class LocalMetrologyService:
                 "A local curation registry. Quality gates check workflow "
                 "consistency, and equal difference hashes are duplicate candidates; "
                 "neither proves label correctness or image identity"
+            ),
+        }
+
+    def create_feedback_curation(
+        self,
+        *,
+        seed: int = 42,
+        train_ratio: float = 0.8,
+        val_ratio: float = 0.1,
+        test_ratio: float = 0.1,
+        minimum_unique_sources: int = 10,
+        privacy_review_confirmed: bool = False,
+        label_qa_confirmed: bool = False,
+    ) -> dict[str, object]:
+        if (
+            isinstance(seed, bool)
+            or not isinstance(seed, int)
+            or not 0 <= seed <= 2_147_483_647
+        ):
+            raise _input_error(f"curation seed={seed!r}")
+        if (
+            isinstance(minimum_unique_sources, bool)
+            or not isinstance(minimum_unique_sources, int)
+            or not 1 <= minimum_unique_sources <= 10_000
+        ):
+            raise _input_error(
+                f"minimum_unique_sources={minimum_unique_sources!r}"
+            )
+        if not isinstance(privacy_review_confirmed, bool):
+            raise _input_error(
+                f"privacy_review_confirmed={privacy_review_confirmed!r}"
+            )
+        if not isinstance(label_qa_confirmed, bool):
+            raise _input_error(f"label_qa_confirmed={label_qa_confirmed!r}")
+        ratios = _curation_ratios(train_ratio, val_ratio, test_ratio)
+        packages, invalid_package_count = self._feedback_packages()
+        inventory_truncated = len(packages) > MAX_FEEDBACK_CATALOG_PACKAGES
+        selected_packages = packages[:MAX_FEEDBACK_CATALOG_PACKAGES]
+        inventory_refs = [
+            {
+                "run_id": package["run_id"],
+                "manifest_sha256": package["manifest_sha256"],
+                "source_sha256": package.get("source_sha256"),
+            }
+            for package in selected_packages
+        ]
+        inventory_digest = _sha256(
+            json.dumps(
+                inventory_refs,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode()
+        )
+        exclusion_counts = {
+            "quality_warning": 0,
+            "deferred": 0,
+            "quality_unknown": 0,
+            "invalid_candidate": 0,
+            "duplicate_fingerprint": 0,
+        }
+        candidates: list[dict[str, object]] = []
+        for package in selected_packages:
+            source_sha256 = package.get("source_sha256")
+            valid_source = _is_hex_digest(source_sha256, 64)
+            package_items = package.get("items")
+            if not isinstance(package_items, list):
+                continue
+            for item in package_items:
+                if not isinstance(item, dict) or not valid_source:
+                    exclusion_counts["invalid_candidate"] += 1
+                    continue
+                disposition = item.get("disposition")
+                quality_gate = item.get("quality_gate")
+                quality_status = (
+                    quality_gate.get("status")
+                    if isinstance(quality_gate, dict)
+                    else None
+                )
+                if (
+                    quality_status == "deferred"
+                    or disposition == "deferred_for_follow_up"
+                ):
+                    exclusion_counts["deferred"] += 1
+                    continue
+                if quality_status == "warning":
+                    exclusion_counts["quality_warning"] += 1
+                    continue
+                if quality_status != "pass":
+                    exclusion_counts["quality_unknown"] += 1
+                    continue
+                fingerprint = item.get("source_roi_difference_hash64")
+                hotspot_id = item.get("hotspot_id")
+                rank = item.get("rank")
+                files = item.get("files")
+                source_box = item.get("source_bounding_box")
+                export_crop = item.get("export_crop")
+                priority = item.get("priority_score", 0.0)
+                try:
+                    priority_score = float(priority)
+                except (TypeError, ValueError):
+                    priority_score = math.nan
+                safe_files = _curation_file_evidence(files)
+                safe_source_box = (
+                    {
+                        key: source_box.get(key)
+                        for key in ("x", "y", "width", "height")
+                    }
+                    if isinstance(source_box, dict)
+                    else None
+                )
+                safe_export_crop = (
+                    {
+                        key: export_crop.get(key)
+                        for key in (
+                            "x",
+                            "y",
+                            "width",
+                            "height",
+                            "scale",
+                            "export_width",
+                            "export_height",
+                        )
+                    }
+                    if isinstance(export_crop, dict)
+                    else None
+                )
+                geometry_values = [
+                    value
+                    for mapping in (safe_source_box, safe_export_crop)
+                    if mapping is not None
+                    for value in mapping.values()
+                ]
+                valid_geometry = (
+                    safe_source_box is not None
+                    and safe_export_crop is not None
+                    and all(
+                        not isinstance(value, bool)
+                        and isinstance(value, (int, float))
+                        and math.isfinite(float(value))
+                        for value in geometry_values
+                    )
+                    and float(safe_source_box["x"]) >= 0
+                    and float(safe_source_box["y"]) >= 0
+                    and float(safe_source_box["width"]) > 0
+                    and float(safe_source_box["height"]) > 0
+                    and float(safe_export_crop["x"]) >= 0
+                    and float(safe_export_crop["y"]) >= 0
+                    and float(safe_export_crop["width"]) > 0
+                    and float(safe_export_crop["height"]) > 0
+                    and float(safe_export_crop["scale"]) > 0
+                    and float(safe_export_crop["export_width"]) > 0
+                    and float(safe_export_crop["export_height"]) > 0
+                )
+                if (
+                    not isinstance(disposition, str)
+                    or disposition not in HOTSPOT_DISPOSITIONS
+                    or not _is_hex_digest(fingerprint, 16)
+                    or not isinstance(hotspot_id, str)
+                    or not hotspot_id
+                    or isinstance(rank, bool)
+                    or not isinstance(rank, int)
+                    or rank <= 0
+                    or not math.isfinite(priority_score)
+                    or safe_files is None
+                    or not valid_geometry
+                ):
+                    exclusion_counts["invalid_candidate"] += 1
+                    continue
+                candidates.append(
+                    {
+                        "run_id": package["run_id"],
+                        "proposal_id": package.get("proposal_id"),
+                        "source_sha256": source_sha256,
+                        "manifest_sha256": package["manifest_sha256"],
+                        "hotspot_id": hotspot_id,
+                        "rank": rank,
+                        "disposition": disposition,
+                        "priority_score": round(priority_score, 8),
+                        "source_roi_difference_hash64": fingerprint,
+                        "feedback_url": package["feedback_url"],
+                        "files": safe_files,
+                        "source_bounding_box": safe_source_box,
+                        "export_crop": safe_export_crop,
+                    }
+                )
+        candidates.sort(
+            key=lambda item: (
+                -float(item["priority_score"]),
+                str(item["run_id"]),
+                str(item["hotspot_id"]),
+            )
+        )
+        deduplicated: list[dict[str, object]] = []
+        seen_fingerprints: set[str] = set()
+        for candidate in candidates:
+            fingerprint = str(candidate["source_roi_difference_hash64"])
+            if fingerprint in seen_fingerprints:
+                exclusion_counts["duplicate_fingerprint"] += 1
+                continue
+            seen_fingerprints.add(fingerprint)
+            deduplicated.append(candidate)
+        groups: dict[str, list[dict[str, object]]] = {}
+        for candidate in deduplicated:
+            groups.setdefault(str(candidate["source_sha256"]), []).append(candidate)
+        assigned = _assign_curation_groups(groups, ratios, seed)
+        split_payloads: dict[str, dict[str, object]] = {}
+        source_sets: dict[str, set[str]] = {}
+        for split in CURATION_SPLITS:
+            items = sorted(
+                assigned[split],
+                key=lambda item: (
+                    str(item["source_sha256"]),
+                    str(item["run_id"]),
+                    int(item["rank"]),
+                    str(item["hotspot_id"]),
+                ),
+            )
+            sources = {str(item["source_sha256"]) for item in items}
+            source_sets[split] = sources
+            split_payloads[split] = {
+                "item_count": len(items),
+                "unique_source_count": len(sources),
+                "source_sha256s": sorted(sources),
+                "disposition_counts": {
+                    disposition: sum(
+                        item["disposition"] == disposition for item in items
+                    )
+                    for disposition in sorted(HOTSPOT_DISPOSITIONS)
+                },
+                "items": items,
+            }
+        overlaps = {
+            "train_val": sorted(source_sets["train"] & source_sets["val"]),
+            "train_test": sorted(source_sets["train"] & source_sets["test"]),
+            "val_test": sorted(source_sets["val"] & source_sets["test"]),
+        }
+        leakage_passed = not any(overlaps.values())
+        blockers: list[str] = []
+        if not deduplicated:
+            blockers.append("no_quality_passing_candidates")
+        if len(groups) < minimum_unique_sources:
+            blockers.append("insufficient_unique_sources")
+        for split in CURATION_SPLITS:
+            if not assigned[split]:
+                blockers.append(f"empty_{split}_split")
+        if not privacy_review_confirmed:
+            blockers.append("privacy_review_pending")
+        if not label_qa_confirmed:
+            blockers.append("label_qa_pending")
+        if invalid_package_count:
+            blockers.append("invalid_feedback_packages_present")
+        if inventory_truncated:
+            blockers.append("feedback_inventory_truncated")
+        if not leakage_passed:
+            blockers.append("source_group_leakage_detected")
+        curation_id = validate_run_name(
+            self._record_id_factory("feedback-curation")
+        )
+        payload: dict[str, object] = {
+            "schema_version": "urbanvision-feedback-curation-v1.0.0",
+            "curation_id": curation_id,
+            "created_at_utc": datetime.now(UTC).isoformat(),
+            "local_only": True,
+            "status": (
+                "not_training_ready"
+                if blockers
+                else "candidate_plan_requires_training_approval"
+            ),
+            "training_authorized": False,
+            "configuration": {
+                "seed": seed,
+                "ratios": ratios,
+                "minimum_unique_sources": minimum_unique_sources,
+                "privacy_review_confirmed": privacy_review_confirmed,
+                "label_qa_confirmed": label_qa_confirmed,
+            },
+            "inventory": {
+                "digest_sha256": inventory_digest,
+                "available_package_count": len(packages),
+                "examined_package_count": len(selected_packages),
+                "invalid_package_count": invalid_package_count,
+                "truncated": inventory_truncated,
+                "manifests": inventory_refs,
+            },
+            "selection": {
+                "candidate_count_before_deduplication": len(candidates),
+                "selected_item_count": len(deduplicated),
+                "unique_source_count": len(groups),
+                "exclusion_counts": exclusion_counts,
+                "duplicate_policy": (
+                    "Retain the highest-priority deterministic representative "
+                    "for each equal 64-bit difference fingerprint; original ZIP "
+                    "packages remain unchanged"
+                ),
+            },
+            "splits": split_payloads,
+            "leakage_audit": {
+                "group_key": "source_sha256",
+                "passed": leakage_passed,
+                "source_overlaps": overlaps,
+                "interpretation": (
+                    "Every ROI from one source image is assigned to exactly one "
+                    "split; this prevents same-source leakage but cannot detect "
+                    "different files depicting the same location"
+                ),
+            },
+            "readiness": {
+                "blockers": blockers,
+                "requires_separate_training_approval": True,
+            },
+            "claim_boundary": (
+                "This immutable JSON is a candidate curation plan, not a "
+                "materialized dataset, privacy clearance, label certification, "
+                "training authorization, model result, or field-safety evidence"
+            ),
+        }
+        path = self.paths.metrology / "curations" / f"{curation_id}.json"
+        with self._write_lock:
+            self._write_json_exclusive(path, payload)
+        return {
+            "local_only": True,
+            "curation": payload,
+            "curation_url": (
+                f"/api/metrology/feedback-curations/{curation_id}.json"
             ),
         }
 
@@ -2044,6 +2472,20 @@ class LocalMetrologyService:
                 "检查量测编号和规划编号",
                 "Check the metrology run and plan IDs",
                 f"{safe_run_id}/{safe_plan_id}",
+            )
+        return path
+
+    def feedback_curation_path(self, curation_id: str) -> Path:
+        safe_id = validate_run_name(curation_id)
+        path = self.paths.metrology / "curations" / f"{safe_id}.json"
+        if not path.is_file():
+            raise ProjectError(
+                "E201",
+                "反馈数据策划记录不存在",
+                "The feedback-curation record does not exist",
+                "检查策划编号，或重新生成防泄漏策划",
+                "Check the curation ID or build another leakage-safe plan",
+                safe_id,
             )
         return path
 

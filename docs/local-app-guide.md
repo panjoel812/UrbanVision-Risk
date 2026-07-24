@@ -1,4 +1,4 @@
-# UrbanVision-Risk v2.0 Reliability-Aware Local App / 可靠性本地应用指南
+# UrbanVision-Risk v4.9 Reliability-Aware Local App / 可靠性本地应用指南
 
 ## Finished product / 最终产品
 
@@ -44,9 +44,13 @@ The browser workflow includes:
 - overlay, rectified overlay, width heatmap, skeleton, topology, physical geometry, interval evidence, and complete `measurement.json` / 叠加图、矫正图、宽度热图、骨架、拓扑、真实几何量、区间证据和完整 JSON；
 - immutable local output under `results/metrology/<run-id>/` / 保存到不可覆盖的本地量测目录。
 
-One upload automatically starts transform-consensus detection and the independent local crack proposal in parallel. Ranked disagreement, synchronized correction, structured dispositions, and deterministic feedback export remain unchanged. Version 4.8 adds a quality gate inside every feedback item. It compares proposal and final ROI pixels, records added/removed/changed counts and IoU, and checks them against disposition semantics. A 64-bit difference hash fingerprints each source ROI. The bounded `/api/metrology/feedback-catalog` reads only small ZIP manifests and reports packages, examples, sources, disposition counts, pass/warning/deferred/unknown states, and equal-fingerprint duplicate groups. Malformed packages are counted and skipped.
+One upload automatically starts transform-consensus detection and the independent local crack proposal in parallel. Ranked disagreement, synchronized correction, structured dispositions, deterministic feedback export, quality gates, and the bounded registry remain in one workflow. Version 4.9 adds `/api/metrology/feedback-curations`: it selects only `pass` items, retains one deterministic highest-priority representative per equal 64-bit difference fingerprint, and assigns complete `source_sha256` groups to train, validation, or test. The output includes its exact manifest-inventory digest, exclusion counts, source-overlap audit, readiness blockers, and `training_authorized: false`.
 
-上传一次仍会并行启动变换共识检测和本地裂缝建议，排序分歧、同步修订、结构化处置和确定性反馈导出保持不变。v4.8 在每个反馈项中增加质量门控：比较候选与最终 ROI 像素，记录增加/删除/改动数量和 IoU，再与处置语义核对。每个原图 ROI 生成 64 位差分指纹。有上限的 `/api/metrology/feedback-catalog` 只读取小型 ZIP 清单，汇总反馈包、样本、来源、处置计数、通过/警告/暂缓/未知状态及同指纹重复组；格式错误的反馈包会计数并跳过。
+上传一次仍会并行启动变换共识检测和本地裂缝建议；排序分歧、同步修订、结构化处置、确定性反馈导出、质量门控和有界台账都位于同一流程。v4.9 新增 `/api/metrology/feedback-curations`：只选择 `pass` 项；相同 64 位差分指纹确定性保留最高优先级代表；再把完整 `source_sha256` 组分配到训练、验证或测试集。输出记录精确清单摘要、排除计数、原图交集审计、就绪阻断项和 `training_authorized: false`。
+
+In the feedback panel, choose a seed and minimum independent-source count, record whether privacy and label QA are complete, then build the candidate plan. The default ratios are 80/10/10. Empty holdouts, too few sources, malformed packages, missing governance confirmations, or detected source overlap remain explicit blockers. The plan is immutable JSON under `results/metrology/curations/`; it references files inside preserved ZIPs rather than extracting or deleting them.
+
+在反馈区域选择种子和最少独立原图数量，记录隐私复核与标签抽检是否完成，再生成候选策划。默认比例为 80/10/10。留出集为空、原图不足、反馈包损坏、治理确认缺失或发现原图交集都会保留为明确阻断项。策划以不可覆盖 JSON 保存到 `results/metrology/curations/`，只引用保留 ZIP 内的文件，不解压或删除原包。
 
 ## What happens after upload / 上传后发生什么
 

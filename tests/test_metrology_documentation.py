@@ -50,6 +50,15 @@ def test_v3_metrology_is_documented_as_calibrated_auditable_and_field_testable()
     assert "Feedback quality gates and registry" in guide
     assert "feedback-catalog?limit=100" in guide
     assert "64-bit difference hash" in guide
+    assert "Leakage-safe candidate curation" in guide
+    assert "feedback-curations" in guide
+    assert 'quality_gate.status == "pass"' in guide
+    assert "source_sha256" in guide
+    assert "candidate_plan_requires_training_approval" in guide
+    assert "`training_authorized` remains `false`" in guide
+    assert "防泄漏候选数据策划" in guide
+    assert "Build leakage-safe candidate plan" in readme
+    assert "source-grouped 80/10/10 allocation" in portfolio
     assert "不是模型不确定性校准" in guide
     assert "local_proposal_automatic_draft" in guide
     assert "ArUco" in portfolio
